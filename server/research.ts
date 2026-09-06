@@ -114,6 +114,75 @@ const DISCOVERY_CANDIDATES: Record<string, string[]> = {
   MRVL: ['MRVU', 'MVLL'],
 };
 
+
+/** Company-name → whole-word tokens that may appear in ETF product names. */
+const UNDERLYING_COMPANY_WORDS: Record<string, string[]> = {
+  AVGO: ['BROADCOM'],
+  MU: ['MICRON'],
+  NVDA: ['NVIDIA', 'NVIDA'],
+  PLTR: ['PALANTIR'],
+  TSLA: ['TESLA'],
+  AAPL: ['APPLE'],
+  AMZN: ['AMAZON'],
+  META: ['META', 'FACEBOOK'],
+  MSFT: ['MICROSOFT'],
+  AMD: ['AMD'],
+  INTC: ['INTEL'],
+  NFLX: ['NETFLIX'],
+  COIN: ['COINBASE'],
+  SMCI: ['SUPER MICRO', 'SMCI'],
+  SNDK: ['SANDISK', 'SNDK'],
+  TSM: ['TSMC', 'TAIWAN SEMICONDUCTOR', 'TSM'],
+  ASML: ['ASML'],
+  MRVL: ['MARVELL', 'MRVL'],
+  QCOM: ['QUALCOMM', 'QCOM'],
+  AMAT: ['APPLIED MATERIALS', 'AMAT'],
+  LRCX: ['LAM RESEARCH', 'LRCX'],
+  AVAV: ['AEROVIRONMENT', 'AVAV'],
+};
+
+/**
+ * Strict name↔underlying check: whole-token ticker match and/or known company words.
+ * Rejects substring false-positives (e.g. AVXX name "…AVAV…" must not match AVGO via "AV").
+ */
+export function nameMentionsUnderlying(
+  name: string,
+  underlying: string,
+  companyName?: string,
+): boolean {
+  const nameUp = name.toUpperCase();
+  const under = underlying.toUpperCase();
+  if (!under || !nameUp) return false;
+
+  // Whole-token / word-boundary ticker match (NOT substring)
+  const tickerRe = new RegExp(`\\b${under.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  if (tickerRe.test(nameUp)) return true;
+
+  const known = UNDERLYING_COMPANY_WORDS[under] ?? [];
+  for (const word of known) {
+    const w = word.toUpperCase();
+    if (w.includes(' ')) {
+      if (nameUp.includes(w)) return true;
+    } else if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(nameUp)) {
+      return true;
+    }
+  }
+
+  // Optional company display name — only whole words of length >= 4 (never 2–3 letter prefixes)
+  if (companyName) {
+    const tokens = companyName
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((t) => t.length >= 4);
+    for (const t of tokens) {
+      if (new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(nameUp)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 let researchRefreshInFlight: Promise<unknown> | null = null;
 let lastResearchRefreshAt: string | null = null;
 
@@ -408,10 +477,80 @@ async function saveDiscoveredMap(
   );
 }
 
+
+/**
+ * Re-fetch Yahoo names for mapped ETFs and DELETE rows whose name no longer
+ * strictly matches the claimed underlying. Used on remap so stale yahoo
+ * mis-maps (e.g. AVXX→AVGO) get purged even when discovery would skip known ETFs.
+ */
+export async function revalidateYahooMaps(underlying?: string): Promise<{
+  deleted: string[];
+  checked: number;
+}> {
+  const deleted: string[] = [];
+  const params: string[] = [];
+  let sql = `SELECT underlying, etf, source FROM research_etf_map WHERE source = 'yahoo'`;
+  if (underlying) {
+    sql += ` AND underlying = $1`;
+    params.push(underlying.toUpperCase());
+  }
+  sql += ` ORDER BY underlying, etf`;
+  const res = await query<{ underlying: string; etf: string; source: string }>(sql, params);
+
+  // Also scrub known bad AVXX→AVGO immediately (even if source flipped somehow)
+  if (!underlying || underlying.toUpperCase() === 'AVGO') {
+    const scrub = await query<{ etf: string }>(
+      `DELETE FROM research_etf_map WHERE underlying = 'AVGO' AND etf = 'AVXX' RETURNING etf`,
+    );
+    if (scrub.rows.length) deleted.push('AVXX->AVGO(scrub)');
+  }
+
+  for (const row of res.rows) {
+    const etf = row.etf.toUpperCase();
+    const under = row.underlying.toUpperCase();
+    try {
+      const meta = await fetchYahooMeta(etf);
+      const name = meta.longName || meta.shortName || '';
+      if (!name) {
+        await query(`DELETE FROM research_etf_map WHERE underlying = $1 AND etf = $2`, [
+          under,
+          etf,
+        ]);
+        deleted.push(`${etf}->${under}(no-name)`);
+        await new Promise((r) => setTimeout(r, 80));
+        continue;
+      }
+      const guessed = guessUnderlying(name, etf);
+      const ok =
+        nameMentionsUnderlying(name, under) &&
+        (!guessed || guessed === under);
+      if (!ok) {
+        await query(`DELETE FROM research_etf_map WHERE underlying = $1 AND etf = $2`, [
+          under,
+          etf,
+        ]);
+        deleted.push(`${etf}->${under}`);
+        // Drop pair_cache yahoo entry for this etf if it claimed same under
+        await query(
+          `DELETE FROM pair_cache WHERE etf = $1 AND underlying = $2 AND source = 'yahoo'`,
+          [etf, under],
+        );
+      }
+      await new Promise((r) => setTimeout(r, 80));
+    } catch {
+      // If Yahoo fails, leave the row (transient); do not delete on network blip
+    }
+  }
+  return { deleted, checked: res.rows.length };
+}
+
 /** Probe candidate tickers and Yahoo search for one underlying. */
 export async function discoverMapsForSymbol(symbol: string): Promise<{ discovered: string[] }> {
   const discovered: string[] = [];
   const sym = symbol.toUpperCase();
+  // Purge stale yahoo mis-maps for this underlying before probing (skips known ETFs otherwise)
+  const purged = await revalidateYahooMaps(sym);
+  for (const d of purged.deleted) discovered.push(`deleted:${d}`);
   const universe = await listUniverse();
   const u = universe.find((x) => x.symbol === sym) ?? {
     symbol: sym,
@@ -522,21 +661,23 @@ export async function discoverMapsForSymbol(symbol: string): Promise<{ discovere
       const name = meta.longName || meta.shortName || '';
       if (!name) continue;
       let { factor, bull } = parseLeverageFromName(name);
-      let under = guessUnderlying(name, cand) ?? null;
       const nameUp = name.toUpperCase();
-      const mentionsUnder =
-        nameUp.includes(u.symbol) ||
-        (u.name.length > 2 && nameUp.includes(u.name.toUpperCase().split(' ')[0]!));
-      if (!under && mentionsUnder) under = u.symbol;
+      const guessed = guessUnderlying(name, cand);
+      // If guess points at a different ticker, never map to this underlying (e.g. AVXX→AVAV ≠ AVGO)
+      if (guessed && guessed !== u.symbol) continue;
+      let under: string | null = guessed;
+      if (!under && nameMentionsUnderlying(name, u.symbol, u.name)) under = u.symbol;
+      // Never default under to u.symbol unless name explicitly mentions ticker/company
+      if (!under || under !== u.symbol) continue;
+      if (!nameMentionsUnderlying(name, u.symbol, u.name)) continue;
       // Weak-parse fallback: name mentions under + leverage/daily ETF cues
-      if ((factor === null || bull === null) && under === u.symbol && looksLikeLeveragedEtfName(nameUp)) {
+      if ((factor === null || bull === null) && looksLikeLeveragedEtfName(nameUp)) {
         const inferred = inferLeverageFromWeakName(nameUp);
         if (inferred) {
           factor = inferred.factor;
           bull = inferred.bull;
         }
       }
-      if (under !== u.symbol) continue;
       if (factor === null || bull === null) continue;
       const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
       let f = factor;
@@ -639,19 +780,20 @@ async function deepDiscoverFromSearchQueries(u: {
         const nameUp = name.toUpperCase();
         if (quoteType && quoteType !== 'ETF' && !looksLikeLeveragedEtfName(nameUp)) continue;
         let { factor, bull } = parseLeverageFromName(name);
-        let under = guessUnderlying(name, etfSym);
-        const mentionsUnder =
-          nameUp.includes(u.symbol) ||
-          (u.name.length > 2 && nameUp.includes(u.name.toUpperCase().split(' ')[0]!));
-        if (!under && mentionsUnder) under = u.symbol;
-        if ((factor === null || bull === null) && under === u.symbol && looksLikeLeveragedEtfName(nameUp)) {
+        const guessed = guessUnderlying(name, etfSym);
+        if (guessed && guessed !== u.symbol) continue;
+        let under: string | null = guessed;
+        if (!under && nameMentionsUnderlying(name, u.symbol, u.name)) under = u.symbol;
+        if (!under || under !== u.symbol) continue;
+        if (!nameMentionsUnderlying(name, u.symbol, u.name)) continue;
+        if ((factor === null || bull === null) && looksLikeLeveragedEtfName(nameUp)) {
           const inferred = inferLeverageFromWeakName(nameUp);
           if (inferred) {
             factor = inferred.factor;
             bull = inferred.bull;
           }
         }
-        if (under !== u.symbol || factor === null || bull === null) continue;
+        if (factor === null || bull === null) continue;
         const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
         let f = factor;
         if (direction === 'bear' && f > 0) f = -f;
@@ -1014,8 +1156,10 @@ export async function postResearchRefreshHandler(c: Context) {
   }
   let discovered: string[] = [];
   if (remap) {
+    const purged = await revalidateYahooMaps();
+    discovered.push(...purged.deleted.map((d) => `deleted:${d}`));
     const d = await discoverMapsForUniverse();
-    discovered = d.discovered;
+    discovered.push(...d.discovered);
   }
   const quotes = await refreshResearchQuotes();
   const summary = await getResearchSummary();

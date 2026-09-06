@@ -122,16 +122,32 @@ export function parseLeverageFromName(name: string): {
 /** Guess underlying ticker from name tokens / common patterns. */
 export function guessUnderlying(name: string, etf: string): string | null {
   const upper = name.toUpperCase();
+  const etfUp = etf.toUpperCase();
+
   // Explicit "on TICKER" / "underlying TICKER"
   const onMatch = upper.match(
     /\b(?:ON|OF|UNDERLYING|TRACKS?|VS\.?)\s+([A-Z]{1,5})\b/,
   );
-  if (onMatch && onMatch[1] !== etf) return onMatch[1];
+  if (onMatch && onMatch[1] !== etfUp) return onMatch[1];
+
+  // Common product-name shapes: Long TICKER, Short TICKER, Daily TICKER Bull/Bear,
+  // 2X Long TICKER, TICKER Daily — ticker must be 2–5 letters and ≠ ETF symbol.
+  const shapePatterns: RegExp[] = [
+    /\b(?:\d+(?:\.\d+)?\s*X\s+)?(?:LONG|SHORT)\s+([A-Z]{2,5})\b/,
+    /\bDAILY\s+([A-Z]{2,5})\s+(?:BULL|BEAR|LONG|SHORT)\b/,
+    /\b([A-Z]{2,5})\s+DAILY\b/,
+    /\b(?:BULL|BEAR)\s+([A-Z]{2,5})\b/,
+  ];
+  for (const re of shapePatterns) {
+    const m = upper.match(re);
+    if (m && m[1] && m[1] !== etfUp) return m[1];
+  }
 
   // Known company-name → ticker hints
   const hints: Array<[RegExp, string]> = [
     [/\bMICRON\b/, 'MU'],
     [/\bBROADCOM\b/, 'AVGO'],
+    [/\bAEROVIRONMENT\b|\bAVAV\b/, 'AVAV'],
     [/\bPALANTIR\b/, 'PLTR'],
     [/\bNVIDIA\b|\bNVIDA\b/, 'NVDA'],
     [/\bTESLA\b/, 'TSLA'],

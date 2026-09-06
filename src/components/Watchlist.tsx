@@ -95,7 +95,7 @@ function compareNullable(
   return (Number(a) - Number(b)) * dir;
 }
 
-export function Watchlist() {
+export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -222,7 +222,7 @@ export function Watchlist() {
     : null;
 
   return (
-    <div className="card">
+    <div className={`card${compact ? " watchlist-side" : ""}`}>
       <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h3 style={{ margin: 0 }}>Watchlist</h3>
@@ -243,10 +243,19 @@ export function Watchlist() {
         </button>
       </div>
 
-      <div className="row-actions" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+      <div
+        className="row-actions"
+        style={{
+          gap: 8,
+          marginBottom: 10,
+          flexWrap: 'wrap',
+          flexDirection: compact ? 'column' : 'row',
+          alignItems: compact ? 'stretch' : undefined,
+        }}
+      >
         <input
           className="mono"
-          style={{ minWidth: 120, flex: '1 1 140px' }}
+          style={{ minWidth: 120, flex: compact ? '1 1 auto' : '1 1 140px', width: compact ? '100%' : undefined }}
           placeholder="Ticker"
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
@@ -260,7 +269,7 @@ export function Watchlist() {
           className="btn primary small"
           disabled={busy || !symbol.trim()}
           onClick={() => void addSymbol()}
-          style={{ minHeight: 44, minWidth: 44 }}
+          style={{ minHeight: 44, minWidth: 44, width: compact ? '100%' : undefined }}
         >
           Add
         </button>
@@ -341,7 +350,9 @@ export function Watchlist() {
       </div>
 
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-        Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.
+        {compact
+          ? 'Bid/ask/cap often — from Yahoo.'
+          : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
         {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh ~5 min
       </p>
     </div>

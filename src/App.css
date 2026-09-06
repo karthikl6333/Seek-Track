@@ -98,7 +98,6 @@
 
 .calc-layout .calc-main > .card {
   padding: 22px 24px;
-  min-height: 420px;
 }
 
 .calc-layout .calc-main .leverage-headline {
@@ -112,6 +111,32 @@
 
 .calc-layout .calc-main .stat-value {
   font-size: 28px;
+}
+
+.calc-layout .calc-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.watchlist-side {
+  padding: 12px 12px;
+}
+
+.watchlist-side .table-wrap {
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.watchlist-side table.data {
+  font-size: 12px;
+}
+
+.watchlist-side th,
+.watchlist-side td {
+  padding: 6px 8px;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {

@@ -22,7 +22,7 @@ export default function App() {
   if (!store.ready || !store.settings) {
     return (
       <div className="main">
-        <p className="muted">Loading IndexedDB…</p>
+        <p className="muted">Loading data…</p>
       </div>
     );
   }

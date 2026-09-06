@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { parseSchwabCsv } from '../lib/csv';
 import * as db from '../lib/db';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import type { AppSettings, CalculatorState, ImportResult, JournalEntry, Trade, ViewId } from '../types';
@@ -51,10 +50,7 @@ export function useStore() {
   const importCsvText = useCallback(
     async (text: string) => {
       setError(null);
-      const hashes = await db.getExistingHashes();
-      const { trades: parsed, result } = await parseSchwabCsv(text, hashes);
-      const added = await db.appendTrades(parsed);
-      const finalResult = { ...result, added };
+      const finalResult = await db.importCsvText(text);
       setImportResult(finalResult);
       await refresh();
       return finalResult;

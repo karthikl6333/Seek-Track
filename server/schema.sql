@@ -1,0 +1,43 @@
+CREATE TABLE IF NOT EXISTS trades (
+  id TEXT PRIMARY KEY,
+  row_hash TEXT NOT NULL UNIQUE,
+  date TEXT NOT NULL,
+  action TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  quantity DOUBLE PRECISION NOT NULL,
+  price DOUBLE PRECISION NOT NULL,
+  fees DOUBLE PRECISION NOT NULL DEFAULT 0,
+  amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  imported_at TIMESTAMPTZ NOT NULL,
+  note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS trades_symbol_idx ON trades (symbol);
+CREATE INDEX IF NOT EXISTS trades_date_idx ON trades (date);
+
+CREATE TABLE IF NOT EXISTS marks (
+  symbol TEXT PRIMARY KEY,
+  price DOUBLE PRECISION NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS journal (
+  id TEXT PRIMARY KEY,
+  symbol TEXT,
+  date TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS journal_date_idx ON journal (date);
+
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+INSERT INTO settings (id, data)
+VALUES (1, '{}'::jsonb)
+ON CONFLICT (id) DO NOTHING;

@@ -1,57 +1,26 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { AppSettings, JournalEntry, MarkPrice, Trade } from '../types';
+import type { AppSettings, ImportResult, JournalEntry, Trade } from '../types';
 import { DEFAULT_SETTINGS } from './pairs';
 
-interface SeekTrackDB extends DBSchema {
-  trades: {
-    key: string;
-    value: Trade;
-    indexes: { 'by-hash': string; 'by-symbol': string; 'by-date': string };
-  };
-  marks: {
-    key: string;
-    value: MarkPrice;
-  };
-  journal: {
-    key: string;
-    value: JournalEntry;
-    indexes: { 'by-date': string };
-  };
-  settings: {
-    key: string;
-    value: AppSettings & { id: string };
-  };
-}
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
-const DB_NAME = 'seek-track';
-const DB_VERSION = 1;
-
-let dbPromise: Promise<IDBPDatabase<SeekTrackDB>> | null = null;
-
-function getDb() {
-  if (!dbPromise) {
-    dbPromise = openDB<SeekTrackDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const trades = db.createObjectStore('trades', { keyPath: 'id' });
-        trades.createIndex('by-hash', 'rowHash', { unique: true });
-        trades.createIndex('by-symbol', 'symbol');
-        trades.createIndex('by-date', 'date');
-
-        db.createObjectStore('marks', { keyPath: 'symbol' });
-
-        const journal = db.createObjectStore('journal', { keyPath: 'id' });
-        journal.createIndex('by-date', 'date');
-
-        db.createObjectStore('settings', { keyPath: 'id' });
-      },
-    });
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
   }
-  return dbPromise;
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
 }
 
 export async function loadAllTrades(): Promise<Trade[]> {
-  const db = await getDb();
-  return db.getAll('trades');
+  return api<Trade[]>('/api/trades');
 }
 
 export async function getExistingHashes(): Promise<Set<string>> {
@@ -62,69 +31,66 @@ export async function getExistingHashes(): Promise<Set<string>> {
 /** Append-only import: skips rows whose rowHash already exists. Never wipes history. */
 export async function appendTrades(trades: Trade[]): Promise<number> {
   if (!trades.length) return 0;
-  const db = await getDb();
-  const tx = db.transaction('trades', 'readwrite');
-  let added = 0;
-  for (const t of trades) {
-    const existing = await tx.store.index('by-hash').get(t.rowHash);
-    if (existing) continue;
-    await tx.store.add(t);
-    added++;
-  }
-  await tx.done;
-  return added;
+  const result = await api<ImportResult>('/api/trades', {
+    method: 'POST',
+    body: JSON.stringify(trades),
+  });
+  return result.added;
+}
+
+export async function importCsvText(csvText: string): Promise<ImportResult> {
+  return api<ImportResult>('/api/import', {
+    method: 'POST',
+    body: JSON.stringify({ csvText }),
+  });
 }
 
 export async function updateTradeNote(id: string, note: string): Promise<void> {
-  const db = await getDb();
-  const trade = await db.get('trades', id);
-  if (!trade) return;
-  trade.note = note;
-  await db.put('trades', trade);
+  await api(`/api/trades/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ note }),
+  });
 }
 
 export async function loadMarks(): Promise<Record<string, number>> {
-  const db = await getDb();
-  const all = await db.getAll('marks');
-  const out: Record<string, number> = {};
-  for (const m of all) out[m.symbol] = m.price;
-  return out;
+  return api<Record<string, number>>('/api/marks');
 }
 
 export async function setMark(symbol: string, price: number): Promise<void> {
-  const db = await getDb();
-  await db.put('marks', {
-    symbol: symbol.toUpperCase(),
-    price,
-    updatedAt: new Date().toISOString(),
+  await api('/api/marks', {
+    method: 'PUT',
+    body: JSON.stringify({ symbol: symbol.toUpperCase(), price }),
   });
 }
 
 export async function loadJournal(): Promise<JournalEntry[]> {
-  const db = await getDb();
-  const all = await db.getAll('journal');
-  return all.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  return api<JournalEntry[]>('/api/journal');
 }
 
 export async function saveJournalEntry(entry: JournalEntry): Promise<void> {
-  const db = await getDb();
-  await db.put('journal', entry);
+  await api('/api/journal', {
+    method: 'POST',
+    body: JSON.stringify(entry),
+  });
 }
 
 export async function deleteJournalEntry(id: string): Promise<void> {
-  const db = await getDb();
-  await db.delete('journal', id);
+  await api(`/api/journal/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 export async function loadSettings(): Promise<AppSettings> {
-  const db = await getDb();
-  const row = await db.get('settings', 'default');
-  if (!row) return structuredClone(DEFAULT_SETTINGS);
-  const { id: _id, ...rest } = row;
-  return rest;
+  try {
+    const data = await api<AppSettings>('/api/settings');
+    if (!data?.pairs || !data?.themes) return structuredClone(DEFAULT_SETTINGS);
+    return data;
+  } catch {
+    return structuredClone(DEFAULT_SETTINGS);
+  }
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  const db = await getDb();
-  await db.put('settings', { ...settings, id: 'default' });
+  await api('/api/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
 }

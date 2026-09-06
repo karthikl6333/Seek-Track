@@ -4,21 +4,33 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
-    "preview": "vite preview"
+    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"tsx watch server/index.ts\"",
+    "build": "npm run build:client && npm run build:server",
+    "preview": "vite preview",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build:client": "tsc -p tsconfig.app.json --noEmit && vite build",
+    "build:server": "tsc -p tsconfig.server.json && cp server/schema.sql dist-server/schema.sql",
+    "start": "node dist-server/index.js",
+    "db:up": "docker compose up -d postgres"
   },
   "dependencies": {
-    "idb": "^8.0.2",
+    "@hono/node-server": "^1.14.1",
+    "hono": "^4.7.5",
+    "pg": "^8.14.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.11",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.3",
     "typescript": "~5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "@types/node": "^22.13.10"
   }
 }

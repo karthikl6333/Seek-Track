@@ -120,6 +120,16 @@
   min-width: 0;
 }
 
+
+.overview-layout {
+  display: grid;
+  grid-template-columns: 3fr 2fr; /* 60/40 */
+  gap: 16px;
+  align-items: start;
+}
+.overview-layout .calc-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
+@media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } }
+
 .watchlist-side {
   padding: 12px 12px;
 }
@@ -131,6 +141,8 @@
 
 .watchlist-side table.data {
   font-size: 12px;
+  table-layout: auto;
+  width: 100%;
 }
 
 .watchlist-side th,
@@ -187,6 +199,7 @@
   }
   .content-split,
   .calc-layout,
+  .overview-layout,
   .research-layout,
   .research-split {
     grid-template-columns: 1fr;

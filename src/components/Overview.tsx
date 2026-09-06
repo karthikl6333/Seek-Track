@@ -76,7 +76,7 @@ export function Overview({ store }: { store: Store }) {
         </div>
       </div>
 
-      <div className="calc-layout">
+      <div className="overview-layout">
         <div className="stack calc-main">
           <div className="card">
             <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>

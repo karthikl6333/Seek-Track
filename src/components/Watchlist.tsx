@@ -286,16 +286,22 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
           <thead>
             <tr>
               {(
-                [
-                  ['symbol', 'Symbol', 'left'],
-                  ['last', 'Last', ''],
-                  ['pctChange', '% change', ''],
-                  ['valChange', 'Val change ($)', ''],
-                  ['bid', 'Bid', ''],
-                  ['ask', 'Ask', ''],
-                  ['marketCap', 'Market cap', ''],
-                  ['volume', 'Volume', ''],
-                ] as Array<[SortKey, string, string]>
+                (
+                  [
+                    ['symbol', 'Symbol', 'left'],
+                    ['last', 'Last', ''],
+                    ['pctChange', '% change', ''],
+                    ['valChange', 'Val change ($)', ''],
+                    ...(compact
+                      ? []
+                      : ([
+                          ['bid', 'Bid', ''],
+                          ['ask', 'Ask', ''],
+                          ['marketCap', 'Market cap', ''],
+                        ] as Array<[SortKey, string, string]>)),
+                    ['volume', 'Volume', ''],
+                  ] as Array<[SortKey, string, string]>
+                )
               ).map(([key, label, align]) => (
                 <th
                   key={key}
@@ -319,9 +325,13 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
                 <td className="mono">{fmtMoney(r.last, 2)}</td>
                 <td className={pnlClass(r.pctChange)}>{fmtPct(r.pctChange)}</td>
                 <td className={pnlClass(r.valChange)}>{fmtMoney(r.valChange)}</td>
-                <td className="mono">{fmtMoney(r.bid, 2)}</td>
-                <td className="mono">{fmtMoney(r.ask, 2)}</td>
-                <td className="mono">{fmtCap(r.marketCap)}</td>
+                {!compact && (
+                  <>
+                    <td className="mono">{fmtMoney(r.bid, 2)}</td>
+                    <td className="mono">{fmtMoney(r.ask, 2)}</td>
+                    <td className="mono">{fmtCap(r.marketCap)}</td>
+                  </>
+                )}
                 <td className="mono">{fmtVolume(r.volume)}</td>
                 <td>
                   <button
@@ -340,7 +350,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td className="left muted" colSpan={9}>
+                <td className="left muted" colSpan={compact ? 6 : 9}>
                   No tickers. Add a symbol above.
                 </td>
               </tr>
@@ -351,7 +361,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
 
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
         {compact
-          ? 'Bid/ask/cap often — from Yahoo.'
+          ? 'Bid / ask / market cap hidden until quote source provides them.'
           : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
         {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh ~5 min
       </p>

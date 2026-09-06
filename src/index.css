@@ -65,72 +65,116 @@ a {
   color: var(--accent);
 }
 
+/* Color-only tones for table cells — no pills (avoids wrap / header misalign) */
 .pos {
   color: var(--gain);
-  background: rgba(61, 214, 140, 0.12);
-  border: 1px solid rgba(61, 214, 140, 0.22);
-  border-radius: 999px;
-  padding: 2px 8px;
-  display: inline-block;
 }
 
 .neg {
   color: var(--loss);
-  background: rgba(240, 113, 120, 0.12);
-  border: 1px solid rgba(240, 113, 120, 0.22);
-  border-radius: 999px;
-  padding: 2px 8px;
-  display: inline-block;
 }
 
 .hl-fee {
   color: var(--warn);
-  background: rgba(230, 180, 80, 0.12);
-  border: 1px solid rgba(230, 180, 80, 0.28);
-  border-radius: 999px;
-  padding: 2px 8px;
-  display: inline-block;
 }
 
 .hl-notional {
   color: var(--text);
-  background: rgba(61, 139, 253, 0.1);
-  border: 1px solid rgba(61, 139, 253, 0.22);
-  border-radius: 999px;
-  padding: 2px 8px;
-  display: inline-block;
 }
 
 .hl-stat {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 10px;
+}
+
+/* Rich pill chrome only on KPI / headline stat values */
+.stat-value.pos {
+  color: var(--gain);
+  background: rgba(61, 214, 140, 0.12);
+  border: 1px solid rgba(61, 214, 140, 0.22);
+  border-radius: 10px;
+  padding: 4px 12px;
   display: inline-block;
 }
 
-.stat-value.pos,
-.stat-value.neg,
-.stat-value.hl-stat,
-.stat-value.hl-fee,
-.stat-value.hl-notional {
+.stat-value.neg {
+  color: var(--loss);
+  background: rgba(240, 113, 120, 0.12);
+  border: 1px solid rgba(240, 113, 120, 0.22);
   border-radius: 10px;
   padding: 4px 12px;
+  display: inline-block;
 }
 
-/* P&L tone wins over neutral money tones when both are present */
-.pos.hl-stat,
+.stat-value.hl-fee {
+  color: var(--warn);
+  background: rgba(230, 180, 80, 0.12);
+  border: 1px solid rgba(230, 180, 80, 0.28);
+  border-radius: 10px;
+  padding: 4px 12px;
+  display: inline-block;
+}
+
+.stat-value.hl-notional {
+  color: var(--text);
+  background: rgba(61, 139, 253, 0.1);
+  border: 1px solid rgba(61, 139, 253, 0.22);
+  border-radius: 10px;
+  padding: 4px 12px;
+  display: inline-block;
+}
+
+.stat-value.hl-stat {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 12px;
+  display: inline-block;
+}
+
+/* P&L tone wins over neutral money tones when both are present on KPIs */
 .stat-value.pos.hl-stat {
   color: var(--gain);
   background: rgba(61, 214, 140, 0.14);
   border-color: rgba(61, 214, 140, 0.28);
 }
-.neg.hl-stat,
 .stat-value.neg.hl-stat {
   color: var(--loss);
   background: rgba(240, 113, 120, 0.14);
   border-color: rgba(240, 113, 120, 0.28);
+}
+
+/* Optional: keep pill look on leverage-panel headlines that use tones */
+.leverage-panel .pos,
+.leverage-panel .neg,
+.leverage-panel .hl-fee,
+.leverage-panel .hl-notional,
+.leverage-panel .hl-stat {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.leverage-panel .pos {
+  background: rgba(61, 214, 140, 0.12);
+  border: 1px solid rgba(61, 214, 140, 0.22);
+}
+.leverage-panel .neg {
+  background: rgba(240, 113, 120, 0.12);
+  border: 1px solid rgba(240, 113, 120, 0.22);
+}
+.leverage-panel .hl-fee {
+  background: rgba(230, 180, 80, 0.12);
+  border: 1px solid rgba(230, 180, 80, 0.28);
+}
+.leverage-panel .hl-notional {
+  background: rgba(61, 139, 253, 0.1);
+  border: 1px solid rgba(61, 139, 253, 0.22);
+}
+.leverage-panel .hl-stat {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
 }
 
 .muted {

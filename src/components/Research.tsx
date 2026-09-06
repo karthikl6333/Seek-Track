@@ -220,6 +220,17 @@ export function Research() {
           selected === symbol
             ? result.universe[0]?.symbol ?? ''
             : selected;
+        // Optimistically patch summary so the chip disappears even before reload
+        setSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                universe: result.universe,
+                rows: (prev.rows ?? []).filter((r) => r.underlying !== symbol),
+                maps: (prev.maps ?? []).filter((m) => m.underlying !== symbol),
+              }
+            : prev,
+        );
         if (next !== selected) setSelected(next);
         await loadSummary();
         if (next) await loadDetail(next);

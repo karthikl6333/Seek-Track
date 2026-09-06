@@ -229,14 +229,22 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
 }
 
 export async function ensureResearchSeeded(): Promise<void> {
-  // Seed once: do not re-insert removed symbols or overwrite user edits.
-  for (const u of RESEARCH_UNIVERSE) {
-    await query(
-      `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (symbol) DO NOTHING`,
-      [u.symbol, u.name, u.sortOrder, u.sectorNote],
-    );
+  // Seed defaults only when the universe table is empty.
+  // If the user removed a seeded ticker, a re-INSERT would bring it back on every GET —
+  // so never re-insert universe rows once the table has any data.
+  const countRes = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM research_universe`,
+  );
+  const count = Number(countRes.rows[0]?.n ?? 0);
+  if (count === 0) {
+    for (const u of RESEARCH_UNIVERSE) {
+      await query(
+        `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (symbol) DO NOTHING`,
+        [u.symbol, u.name, u.sortOrder, u.sectorNote],
+      );
+    }
   }
 
   const present = new Set((await listUniverse()).map((u) => u.symbol));

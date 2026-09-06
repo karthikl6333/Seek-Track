@@ -77,7 +77,12 @@ export function Overview({ store }: { store: Store }) {
             {lastUpdatedLabel ? ` · ${lastUpdatedLabel}` : ''}
           </div>
         </div>
-        <div className="card">
+        <button
+          type="button"
+          className="card stat-card-link"
+          onClick={() => store.setView('charges')}
+          title="Open Charges tab"
+        >
           <h3>Charges</h3>
           <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
           <div className="stat-label">
@@ -88,7 +93,7 @@ export function Overview({ store }: { store: Store }) {
               Credit {fmtMoney(charges.creditInterest)}
             </div>
           )}
-        </div>
+        </button>
       </div>
 
       <div className="overview-layout">

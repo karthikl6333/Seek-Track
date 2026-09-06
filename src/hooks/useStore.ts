@@ -29,6 +29,7 @@ const VALID_VIEWS: ViewId[] = [
   'positions',
   'trades',
   'journal',
+  'charges',
   'charts',
   'research',
 ];

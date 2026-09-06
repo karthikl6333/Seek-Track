@@ -23,6 +23,29 @@ const defaultCalc: CalculatorState = {
 
 const POLL_MS = 15 * 60 * 1000;
 
+const VALID_VIEWS: ViewId[] = [
+  'overview',
+  'pairs',
+  'positions',
+  'trades',
+  'journal',
+  'charts',
+  'research',
+];
+
+function viewFromLocation(): ViewId {
+  const raw = (window.location.hash || '').replace(/^#\/?/, '').split(/[/?#]/)[0];
+  if (VALID_VIEWS.includes(raw as ViewId)) return raw as ViewId;
+  return 'overview';
+}
+
+function writeViewHash(view: ViewId): void {
+  const next = `#${view}`;
+  if (window.location.hash !== next) {
+    window.history.replaceState(null, '', next);
+  }
+}
+
 export function useStore() {
   const [ready, setReady] = useState(false);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -32,12 +55,27 @@ export function useStore() {
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [view, setView] = useState<ViewId>('overview');
+  const [view, setViewState] = useState<ViewId>(() => viewFromLocation());
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [calc, setCalc] = useState<CalculatorState>(defaultCalc);
   const [error, setError] = useState<string | null>(null);
   const [resolvedPair, setResolvedPair] = useState<PairResolveResult | null>(null);
   const [pairBusy, setPairBusy] = useState(false);
+
+  const setView = useCallback((next: ViewId) => {
+    setViewState(next);
+    writeViewHash(next);
+  }, []);
+
+  useEffect(() => {
+    writeViewHash(view);
+    const onHashChange = () => {
+      const fromHash = viewFromLocation();
+      setViewState((cur) => (cur === fromHash ? cur : fromHash));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [view]);
 
   const refreshMarks = useCallback(async () => {
     const detailed = await db.loadMarksDetailed();

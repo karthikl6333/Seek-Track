@@ -82,7 +82,8 @@ export const RESEARCH_SEED_MAPS: Array<{
   { underlying: 'QCOM', etf: 'QCML', direction: 'bull', factor: 2 },
   { underlying: 'AMAT', etf: 'AMA', direction: 'bull', factor: 2 },
   { underlying: 'LRCX', etf: 'LRCU', direction: 'bull', factor: 2 },
-  // Sandisk / Tradr 2x Short SNDK
+  // Sandisk / Tradr 2x Long + Short SNDK
+  { underlying: 'SNDK', etf: 'SNXX', direction: 'bull', factor: 2 },
   { underlying: 'SNDK', etf: 'SNDQ', direction: 'bear', factor: -2 },
 ];
 
@@ -98,7 +99,7 @@ const DISCOVERY_CANDIDATES: Record<string, string[]> = {
   QCOM: ['QCMU'],
   AMAT: ['AMAU'],
   LRCX: [],
-  SNDK: ['SNDQ'],
+  SNDK: ['SNXX', 'SNDQ'],
 };
 
 let researchRefreshInFlight: Promise<unknown> | null = null;
@@ -410,17 +411,25 @@ export async function discoverMapsForSymbol(symbol: string): Promise<{ discovere
     });
   }
 
-  const haveBull = existing.some((m) => m.direction === 'bull');
-  const haveBear = existing.some((m) => m.direction === 'bear');
   const candidates = DISCOVERY_CANDIDATES[u.symbol] ?? [];
 
-  // Also try common ticker patterns if missing a side
-  const patterns: string[] = [];
-  if (!haveBull) {
-    patterns.push(`${u.symbol}L`, `${u.symbol}U`, `${u.symbol}X`);
-  }
-  if (!haveBear) {
-    patterns.push(`${u.symbol}S`, `${u.symbol}Z`, `${u.symbol}D`, `${u.symbol}Q`);
+  // Common single-stock ETF ticker patterns (probe both sides every add/refresh)
+  const patterns: string[] = [
+    `${u.symbol}L`,
+    `${u.symbol}U`,
+    `${u.symbol}X`,
+    `${u.symbol}S`,
+    `${u.symbol}Z`,
+    `${u.symbol}D`,
+    `${u.symbol}Q`,
+    `${u.symbol}W`,
+  ];
+  // Tradr-style shortenings (e.g. SNDK → SNXX / SNDQ)
+  if (u.symbol.length >= 4) {
+    const stem3 = u.symbol.slice(0, 3);
+    const stem2 = u.symbol.slice(0, 2);
+    patterns.push(`${stem3}Q`, `${stem3}X`, `${stem3}L`, `${stem3}S`);
+    patterns.push(`${stem2}XX`, `${stem2}XQ`, `${stem2}XL`);
   }
 
   const toTry = Array.from(new Set([...candidates, ...patterns])).filter(
@@ -448,49 +457,65 @@ export async function discoverMapsForSymbol(symbol: string): Promise<{ discovere
     }
   }
 
-  // Yahoo finance search for "2x Long SYMBOL"
-  if (!haveBull || !haveBear) {
+  // Broad Yahoo search — always run on add/refresh so we pick up ALL linked ETFs
+  const searchQueries = [
+    `2x ${u.symbol}`,
+    `2x Long ${u.symbol}`,
+    `2x Short ${u.symbol}`,
+    `-2x ${u.symbol}`,
+    `Long ${u.symbol} Daily ETF`,
+    `Short ${u.symbol} Daily ETF`,
+    `Tradr ${u.symbol}`,
+    `Direxion ${u.symbol}`,
+    `${u.name} 2x ETF`,
+  ];
+  const known = await listMaps(u.symbol);
+  for (const queryText of searchQueries) {
     try {
-      const q = encodeURIComponent(`2x ${u.symbol}`);
+      const q = encodeURIComponent(queryText);
       const res = await fetch(
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${q}&quotesCount=8&newsCount=0`,
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${q}&quotesCount=12&newsCount=0`,
         { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
       );
-      if (res.ok) {
-        const data = (await res.json()) as {
-          quotes?: Array<{ symbol?: string; shortname?: string; longname?: string }>;
-        };
-        const known = await listMaps(u.symbol);
-        for (const quote of data.quotes ?? []) {
-          const etfSym = (quote.symbol || '').toUpperCase();
-          if (!etfSym || etfSym === u.symbol || etfSym.includes('.')) continue;
-          if (known.some((m) => m.etf === etfSym)) continue;
-          const name = quote.longname || quote.shortname || '';
-          const { factor, bull } = parseLeverageFromName(name);
-          const under = guessUnderlying(name, etfSym);
-          if (under !== u.symbol || factor === null || bull === null) continue;
-          const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
-          let f = factor;
-          if (direction === 'bear' && f > 0) f = -f;
-          if (direction === 'bull' && f < 0) f = Math.abs(f);
-          // Verify live quote exists
-          try {
-            await fetchYahooMeta(etfSym);
-            await saveDiscoveredMap(u.symbol, etfSym, direction, f, 'yahoo');
-            discovered.push(`${etfSym}->${u.symbol}`);
-            known.push({
-              underlying: u.symbol,
-              etf: etfSym,
-              direction,
-              factor: f,
-              source: 'yahoo',
-              updatedAt: new Date().toISOString(),
-            });
-          } catch {
-            // skip
-          }
-          await new Promise((r) => setTimeout(r, 80));
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        quotes?: Array<{ symbol?: string; shortname?: string; longname?: string; quoteType?: string }>;
+      };
+      for (const quote of data.quotes ?? []) {
+        const etfSym = (quote.symbol || '').toUpperCase();
+        // Skip Yahoo currency / composite suffixes (SNXX-USD, etc.)
+        if (!etfSym || etfSym === u.symbol || etfSym.includes('.') || etfSym.includes('-')) continue;
+        if (known.some((m) => m.etf === etfSym)) continue;
+        const name = quote.longname || quote.shortname || '';
+        const { factor, bull } = parseLeverageFromName(name);
+        let under = guessUnderlying(name, etfSym);
+        // Accept if name clearly references the underlying ticker/company
+        const nameUp = name.toUpperCase();
+        const mentionsUnder =
+          nameUp.includes(u.symbol) ||
+          (u.name.length > 2 && nameUp.includes(u.name.toUpperCase().split(' ')[0]!));
+        if (!under && mentionsUnder) under = u.symbol;
+        if (under !== u.symbol || factor === null || bull === null) continue;
+        const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
+        let f = factor;
+        if (direction === 'bear' && f > 0) f = -f;
+        if (direction === 'bull' && f < 0) f = Math.abs(f);
+        try {
+          await fetchYahooMeta(etfSym);
+          await saveDiscoveredMap(u.symbol, etfSym, direction, f, 'yahoo');
+          discovered.push(`${etfSym}->${u.symbol}`);
+          known.push({
+            underlying: u.symbol,
+            etf: etfSym,
+            direction,
+            factor: f,
+            source: 'yahoo',
+            updatedAt: new Date().toISOString(),
+          });
+        } catch {
+          // skip dead tickers
         }
+        await new Promise((r) => setTimeout(r, 80));
       }
     } catch {
       // search best-effort

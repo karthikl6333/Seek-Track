@@ -34,8 +34,10 @@ export function SettingsPanel({ settings, onSave }: Props) {
     <div className="card">
       <h3>Pair Map &amp; Themes (editable)</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
-        Defaults: SNDQ=-2x SNDK; MULL=+2x MU; MUZ=-2x MU; AVL=+2x AVGO; AVS=-1x AVGO (optional); PLTZ=-2x
-        PLTR.
+        Seed defaults (SNDQ/MULL/MUZ/AVL/AVS/PLTZ) are a starting cache only — not an allow-list. Use
+        Calculator &quot;Resolve pair&quot; to discover other leveraged/inverse single-stock ETFs
+        (best-effort via Yahoo name parse + <code>pair_cache</code>). Override here if discovery is
+        wrong.
       </p>
       <div className="grid-2">
         <div className="field">

@@ -31,7 +31,14 @@ export function Positions({ store }: { store: Store }) {
                   <td className="left">{p.theme}</td>
                   <td className="mono">{fmtQty(p.quantity)}</td>
                   <td className="mono">{fmtMoney(p.avgCost, 4)}</td>
-                  <td className="mono">{fmtMoney(p.markPrice, 4)}</td>
+                  <td className="mono">
+                    {fmtMoney(p.markPrice, 4)}
+                    {store.markDetails[p.symbol] && (
+                      <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                        {store.markDetails[p.symbol].source}
+                      </span>
+                    )}
+                  </td>
                   <td className="mono">{fmtMoney(p.marketValue)}</td>
                   <td className={pnlClass(p.unrealizedPnl)}>{fmtMoney(p.unrealizedPnl)}</td>
                   <td className={pnlClass(p.unrealizedPnlPct)}>{fmtPct(p.unrealizedPnlPct)}</td>

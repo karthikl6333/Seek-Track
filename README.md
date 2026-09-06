@@ -65,11 +65,24 @@ This repo includes `render.yaml`:
 
 Alternatively, use Docker Compose on any host (`docker compose up --build`).
 
+## Live prices
+
+- Yahoo Finance chart quotes (no API key) persist to `marks`; server cron + client poll every 15 minutes.
+- `POST /api/quotes/refresh`. Fallback: manual marks if Yahoo fails.
+
+## Dynamic pair map
+
+Seeds (SNDQ/MULL/...) are cache only. Resolve via seeds -> `pair_cache` -> Yahoo name parse (best-effort). Override in Pair Map / `PUT /api/pairs`.
+
+## Manual fills
+
+Overview **Add to existing positions** -> `POST /api/trades` with `source=manual`.
+
 ## CSV import
 
 Expected columns (Schwab-style): Date, Action, Symbol, Description, Quantity, Price, Fees & Comm, Amount.
 
-Imports are **append-only** and **idempotent**: each row is SHA-256 hashed (`row_hash`); re-importing skips duplicates via `ON CONFLICT (row_hash) DO NOTHING`.
+Identical CSV rows are still **deduped by `row_hash`**. Default import mode: **Re-import overrides conflicting manual trades for symbols in this file** (toggle default ON): deletes `source=manual` rows for symbols present in the CSV, then inserts new CSV rows.
 
 Sample file: `public/sample-trades.csv` (also under `fixtures/`).
 
@@ -78,10 +91,14 @@ Sample file: `public/sample-trades.csv` (also under `fixtures/`).
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/health` | Liveness |
-| GET/POST | `/api/trades` | List / append trades |
+| GET/POST | `/api/trades` | List / append or manual fill |
 | PATCH | `/api/trades/:id` | Update note |
-| POST | `/api/import` | `{ csvText }` server-side parse + import |
-| GET/PUT | `/api/marks` | Mark prices |
+| POST | `/api/import` | `{ csvText, overrideManual? }` |
+| GET/PUT | `/api/marks` | Marks (`?detailed=1`)
+| GET/POST | `/api/quotes/refresh` | Yahoo -> marks |
+| GET | `/api/pairs` | Cached pairs |
+| GET | `/api/pairs/resolve?symbol=` | Resolve pair |
+| PUT | `/api/pairs` | Override pair |
 | GET/POST/DELETE | `/api/journal` | Journal entries |
 | GET/PUT | `/api/settings` | Pair map / themes JSON |
 
@@ -102,7 +119,7 @@ No auth (public URL for now).
 | `start` | Serve API + static `dist/` |
 | `db:up` | Start Postgres via Compose |
 
-## Pair map (defaults, editable in Overview)
+## Pair map seeds (defaults; not an allow-list)
 
 | ETF | Factor | Underlying | Theme |
 |-----|--------|------------|-------|

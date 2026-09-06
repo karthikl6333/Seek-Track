@@ -19,6 +19,7 @@ export interface Trade {
   amount: number;
   importedAt: string;
   note?: string;
+  source?: string;
 }
 
 export interface OpenLot {
@@ -59,12 +60,21 @@ export interface PairDef {
   factor: number;
   theme: string;
   optional?: boolean;
+  source?: string;
+  rawName?: string | null;
 }
 
 export interface ThemeDef {
   id: string;
   name: string;
   symbols: string[];
+}
+
+export interface MarkInfo {
+  symbol: string;
+  price: number;
+  updatedAt: string;
+  source: string;
 }
 
 export interface MarkPrice {
@@ -91,6 +101,8 @@ export interface ImportResult {
   added: number;
   skipped: number;
   errors: string[];
+  overridden?: number;
+  overrideManual?: boolean;
 }
 
 export type ViewId = 'overview' | 'positions' | 'trades' | 'journal' | 'charts';
@@ -101,4 +113,20 @@ export interface CalculatorState {
   entryPrice: number;
   fees: number;
   targetPrice: number;
+}
+
+export interface ManualTradeInput {
+  symbol: string;
+  action: string;
+  quantity: number;
+  price: number;
+  fees: number;
+  date: string;
+  description?: string;
+}
+
+export interface PairResolveResult {
+  pair: PairDef | null;
+  as: 'etf' | 'underlying' | 'unknown';
+  message?: string;
 }

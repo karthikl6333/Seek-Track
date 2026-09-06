@@ -14,6 +14,7 @@ export interface Trade {
   amount: number;
   importedAt: string;
   note?: string;
+  source?: string;
 }
 
 export interface ImportResult {

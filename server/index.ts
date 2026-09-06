@@ -7,7 +7,18 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureSchema, query } from './db.js';
 import { deleteJournal, listJournal, postJournal } from './journal.js';
-import { getMarks, putMarks } from './marks.js';
+import {
+  ensureSeedPairsCached,
+  listPairsHandler,
+  putPairOverrideHandler,
+  resolvePairHandler,
+} from './pairs.js';
+import {
+  getMarksHandler,
+  putMarksHandler,
+  refreshQuotesHandler,
+  startQuoteRefreshCron,
+} from './quotes.js';
 import { getSettings, putSettings } from './settings.js';
 import {
   importCsvHandler,
@@ -41,8 +52,15 @@ app.post('/api/trades', postTrades);
 app.patch('/api/trades/:id', patchTrade);
 app.post('/api/import', importCsvHandler);
 
-app.get('/api/marks', getMarks);
-app.put('/api/marks', putMarks);
+app.get('/api/marks', getMarksHandler);
+app.put('/api/marks', putMarksHandler);
+app.post('/api/quotes/refresh', refreshQuotesHandler);
+app.get('/api/quotes/refresh', refreshQuotesHandler);
+
+app.get('/api/pairs', listPairsHandler);
+app.get('/api/pairs/resolve', resolvePairHandler);
+app.get('/api/pairs/resolve/:symbol', resolvePairHandler);
+app.put('/api/pairs', putPairOverrideHandler);
 
 app.get('/api/journal', listJournal);
 app.post('/api/journal', postJournal);
@@ -76,6 +94,8 @@ const port = Number(process.env.PORT || 3000);
 
 async function main() {
   await ensureSchema();
+  await ensureSeedPairsCached();
+  startQuoteRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));
   startServer({ fetch: app.fetch, port });
 }

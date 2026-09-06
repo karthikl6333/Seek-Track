@@ -1,4 +1,13 @@
-import type { AppSettings, ImportResult, JournalEntry, Trade } from '../types';
+import type {
+  AppSettings,
+  ImportResult,
+  JournalEntry,
+  ManualTradeInput,
+  MarkInfo,
+  PairDef,
+  PairResolveResult,
+  Trade,
+} from '../types';
 import { DEFAULT_SETTINGS } from './pairs';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
@@ -38,10 +47,20 @@ export async function appendTrades(trades: Trade[]): Promise<number> {
   return result.added;
 }
 
-export async function importCsvText(csvText: string): Promise<ImportResult> {
+export async function importCsvText(
+  csvText: string,
+  overrideManual = true,
+): Promise<ImportResult> {
   return api<ImportResult>('/api/import', {
     method: 'POST',
-    body: JSON.stringify({ csvText }),
+    body: JSON.stringify({ csvText, overrideManual }),
+  });
+}
+
+export async function addManualTrade(input: ManualTradeInput): Promise<ImportResult & { trade?: Trade }> {
+  return api('/api/trades', {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }
 
@@ -56,11 +75,40 @@ export async function loadMarks(): Promise<Record<string, number>> {
   return api<Record<string, number>>('/api/marks');
 }
 
+export async function loadMarksDetailed(): Promise<{
+  marks: Record<string, MarkInfo>;
+  lastRefreshAt: string | null;
+  lastRefreshError: string | null;
+}> {
+  return api('/api/marks?detailed=1');
+}
+
 export async function setMark(symbol: string, price: number): Promise<void> {
   await api('/api/marks', {
     method: 'PUT',
     body: JSON.stringify({ symbol: symbol.toUpperCase(), price }),
   });
+}
+
+export async function refreshQuotes(symbols?: string[]): Promise<{
+  ok: boolean;
+  updated: string[];
+  failed: string[];
+  error?: string;
+  refreshedAt: string;
+}> {
+  return api('/api/quotes/refresh', {
+    method: 'POST',
+    body: JSON.stringify(symbols?.length ? { symbols } : {}),
+  });
+}
+
+export async function resolvePair(symbol: string): Promise<PairResolveResult> {
+  return api(`/api/pairs/resolve?symbol=${encodeURIComponent(symbol)}`);
+}
+
+export async function listPairCache(): Promise<{ pairs: PairDef[]; note?: string }> {
+  return api('/api/pairs');
 }
 
 export async function loadJournal(): Promise<JournalEntry[]> {

@@ -16,7 +16,8 @@ export function Trades({ store }: { store: Store }) {
       (t) =>
         t.symbol.includes(needle) ||
         t.action.toUpperCase().includes(needle) ||
-        t.description.toUpperCase().includes(needle),
+        t.description.toUpperCase().includes(needle) ||
+        (t.source ?? '').toUpperCase().includes(needle),
     );
   }, [store.trades, q]);
 
@@ -42,6 +43,7 @@ export function Trades({ store }: { store: Store }) {
               <th>Price</th>
               <th>Fees</th>
               <th>Amount</th>
+              <th className="left">Source</th>
               <th className="left">Note</th>
             </tr>
           </thead>
@@ -55,6 +57,7 @@ export function Trades({ store }: { store: Store }) {
                 <td className="mono">{fmtMoney(t.price, 4)}</td>
                 <td className="mono">{fmtMoney(t.fees)}</td>
                 <td className="mono">{fmtMoney(t.amount)}</td>
+                <td className="left muted">{t.source ?? 'csv'}</td>
                 <td className="left">
                   <input
                     style={{ width: '100%', minWidth: 120 }}
@@ -70,7 +73,7 @@ export function Trades({ store }: { store: Store }) {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td className="left muted" colSpan={8}>
+                <td className="left muted" colSpan={9}>
                   No trades yet. Import a Schwab-style CSV from Overview.
                 </td>
               </tr>

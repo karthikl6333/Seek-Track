@@ -16,11 +16,17 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE INDEX IF NOT EXISTS trades_symbol_idx ON trades (symbol);
 CREATE INDEX IF NOT EXISTS trades_date_idx ON trades (date);
 
+-- source: 'csv' | 'manual' (manual fills can be overridden on re-import)
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'csv';
+CREATE INDEX IF NOT EXISTS trades_source_idx ON trades (source);
+
 CREATE TABLE IF NOT EXISTS marks (
   symbol TEXT PRIMARY KEY,
   price DOUBLE PRECISION NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 
 CREATE TABLE IF NOT EXISTS journal (
   id TEXT PRIMARY KEY,
@@ -41,3 +47,14 @@ CREATE TABLE IF NOT EXISTS settings (
 INSERT INTO settings (id, data)
 VALUES (1, '{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
+
+-- Cached leveraged/inverse ETF ↔ underlying resolutions (seeds + discovered)
+CREATE TABLE IF NOT EXISTS pair_cache (
+  etf TEXT PRIMARY KEY,
+  underlying TEXT NOT NULL,
+  factor DOUBLE PRECISION NOT NULL,
+  theme TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'seed',
+  raw_name TEXT,
+  resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -1,5 +1,6 @@
 import type { AppSettings, PairDef, ThemeDef } from '../types';
 
+/** Seed/cache defaults only — not an exclusive allow-list. Server pair_cache grows via Resolve. */
 export const DEFAULT_PAIRS: PairDef[] = [
   { etf: 'SNDQ', underlying: 'SNDK', factor: -2, theme: 'SNDK family' },
   { etf: 'MULL', underlying: 'MU', factor: 2, theme: 'MU family' },

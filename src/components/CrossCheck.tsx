@@ -71,7 +71,8 @@ export function CrossCheck({ pairs }: Props) {
         <div className="stat-value mono">{fmtPct(result?.value ?? null)}</div>
       </div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-        Numbers tool only — not investment advice.
+        Numbers tool only — not investment advice. Pair list includes seeds + any resolved/cached
+        ETFs from the calculator (not limited to the hardcoded set).
       </p>
     </div>
   );

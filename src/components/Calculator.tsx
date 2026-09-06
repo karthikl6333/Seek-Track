@@ -74,27 +74,33 @@ export function Calculator({
   }, [calc.symbol, resolvedPair, settingsPairs]);
 
   const move = useMemo(() => {
-    if (!leverage || !calc.entryPrice || !calc.targetPrice) return null;
+    if (!leverage || !calc.targetPrice) return null;
     const { pair, side } = leverage;
-    // Entry → target (primary ETF/selected % move)
-    const selectedPct = ((calc.targetPrice - calc.entryPrice) / calc.entryPrice) * 100;
-    // Live → target (optional secondary line)
     const liveMark = marks[calc.symbol.trim().toUpperCase()];
-    const liveToTargetPct =
+    const entryToTargetPct =
+      calc.entryPrice && calc.entryPrice !== 0
+        ? ((calc.targetPrice - calc.entryPrice) / calc.entryPrice) * 100
+        : null;
+    // Primary: live → target when live mark exists; else fall back to entry → target
+    const primaryPct =
       liveMark !== undefined && liveMark !== 0
         ? ((calc.targetPrice - liveMark) / liveMark) * 100
-        : null;
+        : entryToTargetPct;
+    if (primaryPct === null) return null;
+    const basis: 'live→target' | 'entry→target' =
+      liveMark !== undefined && liveMark !== 0 ? 'live→target' : 'entry→target';
 
     if (side === 'etf') {
-      const underPct = impliedUnderlyingPct(selectedPct, pair.factor);
+      const underPct = impliedUnderlyingPct(primaryPct, pair.factor);
       if (underPct === null) return null;
       const linkedSym = pair.underlying;
       const linkedMark = marks[linkedSym] ?? null;
       const linkedTarget =
         linkedMark !== null ? linkedMark * (1 + underPct / 100) : null;
       return {
-        selectedPct,
-        liveToTargetPct,
+        primaryPct,
+        entryToTargetPct,
+        basis,
         otherPct: underPct,
         otherLabel: linkedSym,
         selectedLabel: pair.etf,
@@ -105,13 +111,14 @@ export function Calculator({
       };
     }
 
-    const etfPct = impliedEtfPct(selectedPct, pair.factor);
+    const etfPct = impliedEtfPct(primaryPct, pair.factor);
     const linkedSym = pair.etf;
     const linkedMark = marks[linkedSym] ?? null;
     const linkedTarget = linkedMark !== null ? linkedMark * (1 + etfPct / 100) : null;
     return {
-      selectedPct,
-      liveToTargetPct,
+      primaryPct,
+      entryToTargetPct,
+      basis,
       otherPct: etfPct,
       otherLabel: linkedSym,
       selectedLabel: pair.underlying,
@@ -237,7 +244,7 @@ export function Calculator({
             <div className="leverage-headline mono">
               {move ? (
                 <>
-                  If {move.selectedLabel} moves {fmtPct(move.selectedPct)} (entry→target) →{' '}
+                  If {move.selectedLabel} moves {fmtPct(move.primaryPct)} ({move.basis}) →{' '}
                   {move.otherLabel} ≈ {fmtPct(move.otherPct)} (daily factor{' '}
                   {leverage.pair.factor > 0 ? '+' : ''}
                   {leverage.pair.factor}x)
@@ -250,20 +257,28 @@ export function Calculator({
                 </>
               )}
             </div>
-            {move && move.liveToTargetPct !== null && (
+            {move && move.basis === 'live→target' && move.entryToTargetPct !== null && (
               <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
-                Live→target {move.selectedLabel}:{' '}
-                <span className={`mono ${pnlClass(move.liveToTargetPct)}`}>
-                  {fmtPct(move.liveToTargetPct)}
+                Entry→target {move.selectedLabel} (ref):{' '}
+                <span className={`mono ${pnlClass(move.entryToTargetPct)}`}>
+                  {fmtPct(move.entryToTargetPct)}
                 </span>
+              </p>
+            )}
+            {move && move.basis === 'entry→target' && (
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                No live mark for {move.selectedLabel} — using entry→target. Refresh quotes for
+                live→target.
               </p>
             )}
             {move && (
               <div className="grid-2" style={{ marginTop: 8 }}>
                 <div>
-                  <div className="stat-label">{move.selectedLabel} target move (entry→target)</div>
-                  <div className={`mono ${pnlClass(move.selectedPct)}`}>
-                    {fmtPct(move.selectedPct)}
+                  <div className="stat-label">
+                    {move.selectedLabel} target move ({move.basis})
+                  </div>
+                  <div className={`mono ${pnlClass(move.primaryPct)}`}>
+                    {fmtPct(move.primaryPct)}
                   </div>
                 </div>
                 <div>

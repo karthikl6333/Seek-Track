@@ -281,7 +281,8 @@
   }
   .grid-2,
   .grid-3,
-  .grid-4 {
+  .grid-4,
+  .grid-5 {
     grid-template-columns: 1fr;
   }
   .etf-pill-row {

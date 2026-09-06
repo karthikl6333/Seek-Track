@@ -47,39 +47,7 @@ export function Overview({ store }: { store: Store }) {
 
   return (
     <div className="stack">
-      <div className="card">
-        <h3>Charges &amp; interest</h3>
-        <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
-        <div className="stat-label">Total charges</div>
-        <div className="grid-3" style={{ marginTop: 12 }}>
-          <div>
-            <div className="stat-label">Fees &amp; commissions</div>
-            <div className={`stat-value ${moneyTone('fee')}`} style={{ fontSize: 18 }}>
-              {fmtMoney(charges.fees)}
-            </div>
-          </div>
-          <div>
-            <div className="stat-label">Margin interest</div>
-            <div className={`stat-value ${moneyTone('fee')}`} style={{ fontSize: 18 }}>
-              {fmtMoney(charges.marginInterest)}
-            </div>
-          </div>
-          <div>
-            <div className="stat-label">Credit interest</div>
-            <div
-              className={`stat-value ${charges.creditInterest > 0 ? 'mono pos' : 'mono muted'}`}
-              style={{ fontSize: 18 }}
-            >
-              {fmtMoney(charges.creditInterest)}
-            </div>
-          </div>
-        </div>
-        <p className="muted" style={{ fontSize: 12, marginBottom: 0, marginTop: 12 }}>
-          From imported transaction log (Fees &amp; Comm + Margin/Credit Interest actions).
-        </p>
-      </div>
-
-      <div className="grid-4">
+      <div className="grid-5">
         <div className="card">
           <h3>Trades</h3>
           <div className="stat-value mono">{store.trades.length}</div>
@@ -108,6 +76,18 @@ export function Overview({ store }: { store: Store }) {
             {hiddenOpen.length ? ' · excl. hidden' : ''}
             {lastUpdatedLabel ? ` · ${lastUpdatedLabel}` : ''}
           </div>
+        </div>
+        <div className="card">
+          <h3>Charges</h3>
+          <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
+          <div className="stat-label">
+            Fees {fmtMoney(charges.fees)} · Margin {fmtMoney(charges.marginInterest)}
+          </div>
+          {charges.creditInterest !== 0 && (
+            <div className="stat-label" style={{ marginTop: 2 }}>
+              Credit {fmtMoney(charges.creditInterest)}
+            </div>
+          )}
         </div>
       </div>
 

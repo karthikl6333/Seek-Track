@@ -79,4 +79,10 @@ CREATE TABLE IF NOT EXISTS research_etf_map (
 
 CREATE INDEX IF NOT EXISTS research_etf_map_underlying_idx ON research_etf_map (underlying);
 
+-- Tickers the user removed from Research; never re-seed these on refresh
+CREATE TABLE IF NOT EXISTS research_universe_excluded (
+  symbol TEXT PRIMARY KEY,
+  removed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 ALTER TABLE marks ADD COLUMN IF NOT EXISTS day_pct DOUBLE PRECISION;

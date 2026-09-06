@@ -232,16 +232,38 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
   }));
 }
 
+async function getResearchUniverseSeededFlag(): Promise<boolean> {
+  const res = await query<{ data: Record<string, unknown> | null }>(
+    `SELECT data FROM settings WHERE id = 1`,
+  );
+  const data = res.rows[0]?.data;
+  return Boolean(data && typeof data === 'object' && data.researchUniverseSeeded === true);
+}
+
+async function setResearchUniverseSeededFlag(): Promise<void> {
+  await query(
+    `INSERT INTO settings (id, data) VALUES (1, '{"researchUniverseSeeded":true}'::jsonb)
+     ON CONFLICT (id) DO UPDATE SET
+       data = jsonb_set(COALESCE(settings.data, '{}'::jsonb), '{researchUniverseSeeded}', 'true'::jsonb)`,
+  );
+}
+
 export async function ensureResearchSeeded(): Promise<void> {
-  // Seed defaults only when the universe table is empty.
-  // If the user removed a seeded ticker, a re-INSERT would bring it back on every GET —
-  // so never re-insert universe rows once the table has any data.
   const countRes = await query<{ n: number }>(
     `SELECT COUNT(*)::int AS n FROM research_universe`,
   );
   const count = Number(countRes.rows[0]?.n ?? 0);
-  if (count === 0) {
+  const alreadySeeded = await getResearchUniverseSeededFlag();
+
+  if (count > 0 && !alreadySeeded) {
+    await setResearchUniverseSeededFlag();
+  } else if (!alreadySeeded && count === 0) {
+    const excludedRes = await query<{ symbol: string }>(
+      `SELECT symbol FROM research_universe_excluded`,
+    );
+    const excluded = new Set(excludedRes.rows.map((r) => r.symbol.toUpperCase()));
     for (const u of RESEARCH_UNIVERSE) {
+      if (excluded.has(u.symbol.toUpperCase())) continue;
       await query(
         `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
          VALUES ($1, $2, $3, $4)
@@ -249,7 +271,19 @@ export async function ensureResearchSeeded(): Promise<void> {
         [u.symbol, u.name, u.sortOrder, u.sectorNote],
       );
     }
+    await setResearchUniverseSeededFlag();
   }
+  // NEVER seed when alreadySeeded is true (even if table empty)
+
+  // Safety scrub: keep excluded symbols out of universe + maps
+  await query(
+    `DELETE FROM research_etf_map
+     WHERE underlying IN (SELECT symbol FROM research_universe_excluded)`,
+  );
+  await query(
+    `DELETE FROM research_universe
+     WHERE symbol IN (SELECT symbol FROM research_universe_excluded)`,
+  );
 
   const present = new Set((await listUniverse()).map((u) => u.symbol));
 
@@ -786,7 +820,8 @@ function buildTableRows(
 export async function getResearchSummary() {
   await ensureResearchSeeded();
   const universe = await listUniverse();
-  const maps = await listMaps();
+  const present = new Set(universe.map((u) => u.symbol));
+  const maps = (await listMaps()).filter((m) => present.has(m.underlying));
   const symbols = Array.from(
     new Set([...universe.map((u) => u.symbol), ...maps.map((m) => m.etf)]),
   );
@@ -900,6 +935,9 @@ export async function addResearchUniverseSymbol(input: {
   );
   const nextOrder = Number(maxRes.rows[0]?.max ?? 0) + 1;
 
+  // Re-adding clears the exclusion tombstone so the symbol can return
+  await query(`DELETE FROM research_universe_excluded WHERE symbol = $1`, [symbol]);
+
   await query(
     `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
      VALUES ($1, $2, $3, $4)
@@ -947,8 +985,15 @@ export async function removeResearchUniverseSymbol(symbolRaw: string): Promise<{
   const symbol = normalizeResearchSymbol(symbolRaw);
   if (!symbol) throw new Error('Invalid symbol: letters/digits only, 1–10 chars');
 
+  await query(
+    `INSERT INTO research_universe_excluded (symbol, removed_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (symbol) DO UPDATE SET removed_at = NOW()`,
+    [symbol],
+  );
   await query(`DELETE FROM research_etf_map WHERE underlying = $1`, [symbol]);
   await query(`DELETE FROM research_universe WHERE symbol = $1`, [symbol]);
+  await setResearchUniverseSeededFlag();
   const universe = await listUniverse();
   return { universe };
 }

@@ -394,3 +394,105 @@ table.data tr.row-selected td {
   background: rgba(240, 113, 120, 0.15);
   color: #f07178;
 }
+
+.research-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.research-layout .research-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.research-layout .research-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+@media (max-width: 960px) {
+  .research-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.etf-focus-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: 2px 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.etf-focus-item:hover {
+  background: rgba(61, 139, 253, 0.08);
+  border-color: rgba(61, 139, 253, 0.25);
+}
+.etf-focus-item.focused {
+  background: rgba(61, 139, 253, 0.14);
+  border-color: rgba(61, 139, 253, 0.45);
+}
+.etf-map-row { cursor: pointer; }
+.etf-map-row:hover td { background: rgba(61, 139, 253, 0.06); }
+
+.etf-info-card .etf-info-name {
+  font-size: 13px;
+  color: var(--text);
+  margin: 2px 0 4px;
+}
+.etf-info-pc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.etf-info-pc-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.etf-info-pc-label.pros { color: #3dd68c; }
+.etf-info-pc-label.cons { color: #f07178; }
+.etf-info-pros,
+.etf-info-cons {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.etf-info-pros li,
+.etf-info-cons li { margin-bottom: 3px; }
+.etf-yahoo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.news-list-side {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+button.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, #3d8bfd);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+button.linkish:hover { opacity: 0.85; }

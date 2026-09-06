@@ -135,8 +135,47 @@
 }
 
 .watchlist-side .table-wrap {
-  max-height: 52vh;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.watchlist-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.watchlist-toolbar-controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.watchlist-toolbar-controls input {
+  flex: 1 1 auto;
+  min-width: 72px;
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 8px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.watchlist-toolbar-controls .btn {
+  min-height: 32px;
+  height: 32px;
+  min-width: 52px;
+  padding: 4px 10px;
+  font-size: 13px;
+  flex: 0 0 auto;
 }
 
 .watchlist-side table.data {

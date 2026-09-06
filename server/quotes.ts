@@ -68,6 +68,8 @@ export interface YahooChartQuote {
   bid: number | null;
   ask: number | null;
   marketCap: number | null;
+  week52High: number | null;
+  week52Low: number | null;
 }
 
 /** Richer Yahoo chart v8 quote (auth-free). Bid/ask/marketCap typically unavailable. */
@@ -94,6 +96,8 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
           bid?: number;
           ask?: number;
           marketCap?: number;
+          fiftyTwoWeekHigh?: number;
+          fiftyTwoWeekLow?: number;
           symbol?: string;
         };
         indicators?: { quote?: Array<{ volume?: Array<number | null> }> };
@@ -148,6 +152,14 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     typeof meta.marketCap === 'number' && Number.isFinite(meta.marketCap)
       ? Number(meta.marketCap)
       : null;
+  const week52High =
+    typeof meta.fiftyTwoWeekHigh === 'number' && Number.isFinite(meta.fiftyTwoWeekHigh)
+      ? Number(meta.fiftyTwoWeekHigh)
+      : null;
+  const week52Low =
+    typeof meta.fiftyTwoWeekLow === 'number' && Number.isFinite(meta.fiftyTwoWeekLow)
+      ? Number(meta.fiftyTwoWeekLow)
+      : null;
 
   return {
     symbol: (meta.symbol ?? symbol).toUpperCase(),
@@ -159,6 +171,8 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     bid,
     ask,
     marketCap,
+    week52High,
+    week52Low,
   };
 }
 

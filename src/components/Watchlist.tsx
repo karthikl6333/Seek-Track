@@ -14,6 +14,8 @@ interface WatchlistRow {
   ask: number | null;
   marketCap: number | null;
   volume: number | null;
+  week52High: number | null;
+  week52Low: number | null;
   updatedAt: string | null;
 }
 
@@ -31,7 +33,9 @@ type SortKey =
   | 'bid'
   | 'ask'
   | 'marketCap'
-  | 'volume';
+  | 'volume'
+  | 'week52High'
+  | 'week52Low';
 
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
@@ -221,10 +225,27 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
     ? new Date(lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
     : null;
 
+  const columns: Array<[SortKey, string, string]> = [
+    ['symbol', 'Symbol', 'left'],
+    ['last', 'Last', ''],
+    ['pctChange', '% change', ''],
+    ['valChange', 'Val change ($)', ''],
+    ...(compact
+      ? []
+      : ([
+          ['bid', 'Bid', ''],
+          ['ask', 'Ask', ''],
+          ['marketCap', 'Market cap', ''],
+        ] as Array<[SortKey, string, string]>)),
+    ['volume', 'Volume', ''],
+    ['week52High', '52w high', ''],
+    ['week52Low', '52w low', ''],
+  ];
+
   return (
-    <div className={`card${compact ? " watchlist-side" : ""}`}>
-      <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <div>
+    <div className={`card${compact ? ' watchlist-side' : ''}`}>
+      <div className="watchlist-toolbar">
+        <div style={{ flex: '0 1 auto', minWidth: 0 }}>
           <h3 style={{ margin: 0 }}>Watchlist</h3>
           {lastLabel && (
             <p className="muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
@@ -232,47 +253,35 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          className="btn small"
-          disabled={busy}
-          onClick={() => void refreshQuotes()}
-          title="Refresh Yahoo quotes for watchlist now"
-        >
-          {busy ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-
-      <div
-        className="row-actions"
-        style={{
-          gap: 8,
-          marginBottom: 10,
-          flexWrap: 'wrap',
-          flexDirection: compact ? 'column' : 'row',
-          alignItems: compact ? 'stretch' : undefined,
-        }}
-      >
-        <input
-          className="mono"
-          style={{ minWidth: 120, flex: compact ? '1 1 auto' : '1 1 140px', width: compact ? '100%' : undefined }}
-          placeholder="Ticker"
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void addSymbol();
-          }}
-          aria-label="Watchlist ticker"
-        />
-        <button
-          type="button"
-          className="btn primary small"
-          disabled={busy || !symbol.trim()}
-          onClick={() => void addSymbol()}
-          style={{ minHeight: 44, minWidth: 44, width: compact ? '100%' : undefined }}
-        >
-          Add
-        </button>
+        <div className="watchlist-toolbar-controls">
+          <input
+            className="mono"
+            placeholder="Ticker"
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void addSymbol();
+            }}
+            aria-label="Watchlist ticker"
+          />
+          <button
+            type="button"
+            className="btn primary small"
+            disabled={busy || !symbol.trim()}
+            onClick={() => void addSymbol()}
+          >
+            Add
+          </button>
+          <button
+            type="button"
+            className="btn small"
+            disabled={busy}
+            onClick={() => void refreshQuotes()}
+            title="Refresh Yahoo quotes for watchlist now"
+          >
+            {busy ? '…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -285,24 +294,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
         <table className="data">
           <thead>
             <tr>
-              {(
-                (
-                  [
-                    ['symbol', 'Symbol', 'left'],
-                    ['last', 'Last', ''],
-                    ['pctChange', '% change', ''],
-                    ['valChange', 'Val change ($)', ''],
-                    ...(compact
-                      ? []
-                      : ([
-                          ['bid', 'Bid', ''],
-                          ['ask', 'Ask', ''],
-                          ['marketCap', 'Market cap', ''],
-                        ] as Array<[SortKey, string, string]>)),
-                    ['volume', 'Volume', ''],
-                  ] as Array<[SortKey, string, string]>
-                )
-              ).map(([key, label, align]) => (
+              {columns.map(([key, label, align]) => (
                 <th
                   key={key}
                   className={align}
@@ -333,11 +325,13 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
                   </>
                 )}
                 <td className="mono">{fmtVolume(r.volume)}</td>
+                <td className="mono">{fmtMoney(r.week52High, 2)}</td>
+                <td className="mono">{fmtMoney(r.week52Low, 2)}</td>
                 <td>
                   <button
                     type="button"
                     className="btn small ghost"
-                    style={{ minHeight: 44, minWidth: 44, fontSize: 18, lineHeight: 1 }}
+                    style={{ minHeight: 32, minWidth: 32, fontSize: 18, lineHeight: 1 }}
                     title={`Remove ${r.symbol}`}
                     aria-label={`Remove ${r.symbol}`}
                     disabled={busy}
@@ -350,7 +344,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td className="left muted" colSpan={compact ? 6 : 9}>
+                <td className="left muted" colSpan={compact ? 8 : 11}>
                   No tickers. Add a symbol above.
                 </td>
               </tr>

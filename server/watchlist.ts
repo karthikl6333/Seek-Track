@@ -13,6 +13,8 @@ export interface WatchlistQuoteRow {
   ask: number | null;
   marketCap: number | null;
   volume: number | null;
+  week52High: number | null;
+  week52Low: number | null;
   updatedAt: string | null;
 }
 
@@ -101,9 +103,12 @@ async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, Wa
     ask: number | null;
     market_cap: number | null;
     volume: number | null;
+    week52_high: number | null;
+    week52_low: number | null;
     updated_at: Date | string | null;
   }>(
-    `SELECT symbol, last, pct_change, val_change, bid, ask, market_cap, volume, updated_at
+    `SELECT symbol, last, pct_change, val_change, bid, ask, market_cap, volume,
+            week52_high, week52_low, updated_at
      FROM watchlist_quotes WHERE symbol = ANY($1)`,
     [symbols],
   );
@@ -124,6 +129,8 @@ async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, Wa
       ask: r.ask != null ? Number(r.ask) : null,
       marketCap: r.market_cap != null ? Number(r.market_cap) : null,
       volume: r.volume != null ? Number(r.volume) : null,
+      week52High: r.week52_high != null ? Number(r.week52_high) : null,
+      week52Low: r.week52_low != null ? Number(r.week52_low) : null,
       updatedAt,
     };
   }
@@ -139,12 +146,15 @@ async function upsertWatchlistQuote(q: {
   ask: number | null;
   marketCap: number | null;
   volume: number | null;
+  week52High: number | null;
+  week52Low: number | null;
 }): Promise<void> {
   const now = new Date().toISOString();
   await query(
     `INSERT INTO watchlist_quotes
-       (symbol, last, pct_change, val_change, bid, ask, market_cap, volume, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (symbol, last, pct_change, val_change, bid, ask, market_cap, volume,
+        week52_high, week52_low, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (symbol) DO UPDATE SET
        last = EXCLUDED.last,
        pct_change = EXCLUDED.pct_change,
@@ -153,6 +163,8 @@ async function upsertWatchlistQuote(q: {
        ask = EXCLUDED.ask,
        market_cap = EXCLUDED.market_cap,
        volume = EXCLUDED.volume,
+       week52_high = EXCLUDED.week52_high,
+       week52_low = EXCLUDED.week52_low,
        updated_at = EXCLUDED.updated_at`,
     [
       q.symbol.toUpperCase(),
@@ -163,6 +175,8 @@ async function upsertWatchlistQuote(q: {
       q.ask,
       q.marketCap,
       q.volume,
+      q.week52High,
+      q.week52Low,
       now,
     ],
   );
@@ -184,6 +198,8 @@ export async function getWatchlistPayload(): Promise<WatchlistPayload> {
         ask: null,
         marketCap: null,
         volume: null,
+        week52High: null,
+        week52Low: null,
         updatedAt: null,
       }
     );
@@ -223,6 +239,8 @@ export async function refreshWatchlistQuotes(): Promise<{
           ask: q.ask,
           marketCap: q.marketCap,
           volume: q.volume,
+          week52High: q.week52High,
+          week52Low: q.week52Low,
         });
         updated.push(symbol);
         await new Promise((r) => setTimeout(r, 80));
@@ -275,6 +293,8 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
       ask: q.ask,
       marketCap: q.marketCap,
       volume: q.volume,
+      week52High: q.week52High,
+      week52Low: q.week52Low,
     });
     lastWatchlistRefreshAt = new Date().toISOString();
   } catch {

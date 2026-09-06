@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
-import { AddTradeForm } from './AddTradeForm';
+import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CrossCheck } from './CrossCheck';
 import { CsvImport } from './CsvImport';
@@ -75,6 +75,10 @@ export function Overview({ store }: { store: Store }) {
           </div>
         </div>
       </div>
+
+      <Watchlist />
+
+      <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
 
       <div className="card">
         <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
@@ -204,10 +208,6 @@ export function Overview({ store }: { store: Store }) {
             onRefreshQuotes={() => void store.refreshLiveQuotes()}
           />
           {settings && <CrossCheck pairs={settings.pairs} />}
-        </div>
-        <div className="stack calc-side">
-          <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
-          <AddTradeForm onSubmit={store.addManualTrade} />
         </div>
       </div>
 

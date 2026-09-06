@@ -57,6 +57,111 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
   return Number(price);
 }
 
+export interface YahooChartQuote {
+  symbol: string;
+  last: number | null;
+  pctChange: number | null;
+  valChange: number | null;
+  previousClose: number | null;
+  volume: number | null;
+  /** Chart v8 rarely includes these without crumb/auth — usually null. */
+  bid: number | null;
+  ask: number | null;
+  marketCap: number | null;
+}
+
+/** Richer Yahoo chart v8 quote (auth-free). Bid/ask/marketCap typically unavailable. */
+export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQuote> {
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Yahoo HTTP ${res.status} for ${symbol}`);
+  }
+  const data = (await res.json()) as {
+    chart?: {
+      result?: Array<{
+        meta?: {
+          regularMarketPrice?: number;
+          previousClose?: number;
+          chartPreviousClose?: number;
+          regularMarketChangePercent?: number;
+          regularMarketVolume?: number;
+          bid?: number;
+          ask?: number;
+          marketCap?: number;
+          symbol?: string;
+        };
+        indicators?: { quote?: Array<{ volume?: Array<number | null> }> };
+      }>;
+      error?: { description?: string } | null;
+    };
+  };
+  const result = data.chart?.result?.[0];
+  const meta = result?.meta;
+  if (!meta) {
+    throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
+  }
+
+  const lastRaw =
+    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
+  const last = lastRaw !== null && Number.isFinite(lastRaw) ? Number(lastRaw) : null;
+  const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
+  const previousClose =
+    prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
+
+  let pctChange: number | null = null;
+  let valChange: number | null = null;
+  if (last !== null && previousClose !== null) {
+    valChange = last - previousClose;
+    if (previousClose !== 0) {
+      // Prefer computed % — chart meta regularMarketChangePercent is often unreliable
+      pctChange = (valChange / previousClose) * 100;
+    }
+  } else if (
+    typeof meta.regularMarketChangePercent === 'number' &&
+    Number.isFinite(meta.regularMarketChangePercent)
+  ) {
+    pctChange = Number(meta.regularMarketChangePercent);
+  }
+
+  let volume: number | null =
+    typeof meta.regularMarketVolume === 'number' && Number.isFinite(meta.regularMarketVolume)
+      ? Number(meta.regularMarketVolume)
+      : null;
+  if (volume === null) {
+    const vols = result?.indicators?.quote?.[0]?.volume ?? [];
+    const lastVol = [...vols].reverse().find((v) => v != null && Number.isFinite(v));
+    if (lastVol != null) volume = Number(lastVol);
+  }
+
+  // Bid/ask/marketCap are not reliably present on chart v8 without crumb — leave null
+  const bid =
+    typeof meta.bid === 'number' && Number.isFinite(meta.bid) ? Number(meta.bid) : null;
+  const ask =
+    typeof meta.ask === 'number' && Number.isFinite(meta.ask) ? Number(meta.ask) : null;
+  const marketCap =
+    typeof meta.marketCap === 'number' && Number.isFinite(meta.marketCap)
+      ? Number(meta.marketCap)
+      : null;
+
+  return {
+    symbol: (meta.symbol ?? symbol).toUpperCase(),
+    last,
+    pctChange,
+    valChange,
+    previousClose,
+    volume,
+    bid,
+    ask,
+    marketCap,
+  };
+}
+
 export async function upsertMark(
   symbol: string,
   price: number,

@@ -86,3 +86,25 @@ CREATE TABLE IF NOT EXISTS research_universe_excluded (
 );
 
 ALTER TABLE marks ADD COLUMN IF NOT EXISTS day_pct DOUBLE PRECISION;
+
+-- User watchlist (Overview). Seed-once from research_universe when empty + flag unset.
+CREATE TABLE IF NOT EXISTS watchlist (
+  symbol TEXT PRIMARY KEY,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS watchlist_sort_idx ON watchlist (sort_order ASC, symbol ASC);
+
+-- Dedicated quote cache for watchlist (do not overload marks)
+CREATE TABLE IF NOT EXISTS watchlist_quotes (
+  symbol TEXT PRIMARY KEY,
+  last DOUBLE PRECISION,
+  pct_change DOUBLE PRECISION,
+  val_change DOUBLE PRECISION,
+  bid DOUBLE PRECISION,
+  ask DOUBLE PRECISION,
+  market_cap DOUBLE PRECISION,
+  volume DOUBLE PRECISION,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, pnlClass } from '../lib/format';
+import { AddTradeForm } from './AddTradeForm';
 
 export function Positions({ store }: { store: Store }) {
   const { hiddenSet } = store;
@@ -13,6 +14,8 @@ export function Positions({ store }: { store: Store }) {
 
   return (
     <div className="stack">
+      <AddTradeForm onSubmit={store.addManualTrade} />
+
       <div className="card">
         <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <h3 style={{ margin: 0 }}>Open Positions &amp; Lots</h3>

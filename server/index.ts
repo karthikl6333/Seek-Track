@@ -29,6 +29,13 @@ import {
   putResearchUniverseReorderHandler,
   startResearchRefreshCron,
 } from './research.js';
+import {
+  deleteWatchlistHandler,
+  ensureWatchlistSeeded,
+  getWatchlistHandler,
+  postWatchlistHandler,
+  postWatchlistRefreshHandler,
+} from './watchlist.js';
 import { getSettings, putSettings } from './settings.js';
 import {
   importCsvHandler,
@@ -87,6 +94,11 @@ app.put('/api/research/universe/reorder', putResearchUniverseReorderHandler);
 app.delete('/api/research/universe/:symbol', deleteResearchUniverseHandler);
 app.get('/api/research/:symbol', getResearchSymbolHandler);
 
+app.get('/api/watchlist', getWatchlistHandler);
+app.post('/api/watchlist', postWatchlistHandler);
+app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
+app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
+
 const here = dirname(fileURLToPath(import.meta.url));
 const distCandidates = [
   join(process.cwd(), 'dist'),
@@ -113,6 +125,7 @@ async function main() {
   await ensureSchema();
   await ensureSeedPairsCached();
   await ensureResearchSeeded();
+  await ensureWatchlistSeeded();
   startQuoteRefreshCron(15 * 60 * 1000);
   startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));

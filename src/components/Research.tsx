@@ -478,10 +478,7 @@ export function Research() {
               className={`ticker-chip${selected === u.symbol ? ' active' : ''}`}
             >
               <div className="ticker-main">
-                <TickerLink
-                  symbol={u.symbol}
-                  className="ticker-chip-symbol"
-                />
+                <span className="mono ticker-chip-symbol">{u.symbol}</span>
                 <button
                   type="button"
                   className="ticker-select"
@@ -518,7 +515,7 @@ export function Research() {
       <div className="research-layout">
         <div className="research-main">
           <div className="card">
-            <h3><TickerLink symbol={selected} /> · linked ETFs</h3>
+            <h3><span className="mono">{selected}</span> · linked ETFs</h3>
             {selectedRow ? (
               <div className="stack" style={{ gap: 10 }}>
                 <div className="etf-pill-row">
@@ -539,10 +536,7 @@ export function Research() {
                             }
                           }}
                         >
-                          <TickerLink
-                            symbol={m.etf}
-                            className="etf-focus-link"
-                          />{' '}
+                          <span className="mono etf-focus-link">{m.etf}</span>{' '}
                           <span className="muted">{fmtFactor(m.factor)}</span>
                         </div>
                       ))
@@ -567,10 +561,7 @@ export function Research() {
                             }
                           }}
                         >
-                          <TickerLink
-                            symbol={m.etf}
-                            className="etf-focus-link"
-                          />{' '}
+                          <span className="mono etf-focus-link">{m.etf}</span>{' '}
                           <span className="muted">{fmtFactor(m.factor)}</span>
                         </div>
                       ))
@@ -620,7 +611,7 @@ export function Research() {
 
           <div className="card">
             <h3>
-              ETF map · quotes · <TickerLink symbol={selected} />
+              ETF map · quotes · <span className="mono">{selected}</span>
             </h3>
             <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
               All known bull and bear single-stock ETFs for the selected underlying (not the full
@@ -654,8 +645,8 @@ export function Research() {
                           {r.direction === 'bull' ? 'Bull' : 'Bear'}
                         </span>
                       </td>
-                      <td className="left" onClick={(e) => e.stopPropagation()}>
-                        <TickerLink symbol={r.etf} />
+                      <td className="left">
+                        <span className="mono">{r.etf}</span>
                       </td>
                       <td className="mono">{fmtFactor(r.factor)}</td>
                       <td className="mono">{fmtMoney(r.etfLast)}</td>
@@ -669,7 +660,7 @@ export function Research() {
                   {!selectedEtfTableRows.length && (
                     <tr>
                       <td colSpan={9} className="left muted">
-                        No bull/bear ETFs mapped for <TickerLink symbol={selected} /> yet. Click Refresh.
+                        No bull/bear ETFs mapped for <span className="mono">{selected}</span> yet. Click Refresh.
                       </td>
                     </tr>
                   )}
@@ -823,11 +814,11 @@ export function Research() {
           </div>
 
           <div className="card">
-            <h3>News · <TickerLink symbol={selected} /></h3>
+            <h3>News · <span className="mono">{selected}</span></h3>
             {detail?.newsError && !detail.news.length ? (
               <p className="muted">No headlines available ({detail.newsError}).</p>
             ) : !detail?.news?.length ? (
-              <p className="muted">No headlines found for <TickerLink symbol={selected} />.</p>
+              <p className="muted">No headlines found for <span className="mono">{selected}</span>.</p>
             ) : (
               <ul className="news-list news-list-side">
                 {detail.news.map((n) => (

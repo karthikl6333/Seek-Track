@@ -147,6 +147,7 @@ export function guessUnderlying(name: string, etf: string): string | null {
     [/\bSANDISK\b|\bSNDK\b/, 'SNDK'],
     [/\bTSMC\b|\bTAIWAN SEMICONDUCTOR\b|\bTSM\b/, 'TSM'],
     [/\bASML\b/, 'ASML'],
+    [/\bMARVELL\b|\bMRVL\b/, 'MRVL'],
     [/\bQUALCOMM\b|\bQCOM\b/, 'QCOM'],
     [/\bAPPLIED MATERIALS\b|\bAMAT\b/, 'AMAT'],
     [/\bLAM RESEARCH\b|\bLRCX\b/, 'LRCX'],

@@ -5,7 +5,6 @@ import { AddTradeForm } from './AddTradeForm';
 import { Calculator } from './Calculator';
 import { CrossCheck } from './CrossCheck';
 import { CsvImport } from './CsvImport';
-import { MarkPrices } from './MarkPrices';
 
 export function Overview({ store }: { store: Store }) {
   const { analysis, settings, hiddenSet } = store;
@@ -189,15 +188,6 @@ export function Overview({ store }: { store: Store }) {
           </p>
         )}
       </div>
-
-      <MarkPrices
-        positions={analysis?.positions ?? []}
-        marks={store.marks}
-        markDetails={store.markDetails}
-        lastRefreshAt={store.lastRefreshAt}
-        onSave={store.setMarkPrice}
-        onRefresh={() => void store.refreshLiveQuotes()}
-      />
 
       <div className="calc-layout">
         <div className="stack calc-main">

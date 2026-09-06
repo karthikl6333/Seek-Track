@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
+import { summarizeCharges } from '../lib/charges';
 import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CrossCheck } from './CrossCheck';
@@ -42,8 +43,42 @@ export function Overview({ store }: { store: Store }) {
         ).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
       : null;
 
+  const charges = summarizeCharges(store.trades);
+
   return (
     <div className="stack">
+      <div className="card">
+        <h3>Charges &amp; interest</h3>
+        <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
+        <div className="stat-label">Total charges</div>
+        <div className="grid-3" style={{ marginTop: 12 }}>
+          <div>
+            <div className="stat-label">Fees &amp; commissions</div>
+            <div className={`stat-value ${moneyTone('fee')}`} style={{ fontSize: 18 }}>
+              {fmtMoney(charges.fees)}
+            </div>
+          </div>
+          <div>
+            <div className="stat-label">Margin interest</div>
+            <div className={`stat-value ${moneyTone('fee')}`} style={{ fontSize: 18 }}>
+              {fmtMoney(charges.marginInterest)}
+            </div>
+          </div>
+          <div>
+            <div className="stat-label">Credit interest</div>
+            <div
+              className={`stat-value ${charges.creditInterest > 0 ? 'mono pos' : 'mono muted'}`}
+              style={{ fontSize: 18 }}
+            >
+              {fmtMoney(charges.creditInterest)}
+            </div>
+          </div>
+        </div>
+        <p className="muted" style={{ fontSize: 12, marginBottom: 0, marginTop: 12 }}>
+          From imported transaction log (Fees &amp; Comm + Margin/Credit Interest actions).
+        </p>
+      </div>
+
       <div className="grid-4">
         <div className="card">
           <h3>Trades</h3>

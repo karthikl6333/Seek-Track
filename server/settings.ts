@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
     { id: 'avgo', name: 'AVGO family', symbols: ['AVGO', 'AVL', 'AVS'] },
     { id: 'pltr', name: 'PLTR family', symbols: ['PLTR', 'PLTZ'] },
   ],
+  hiddenSymbols: [] as string[],
 };
 
 export async function getSettings(c: Context) {
@@ -24,10 +25,13 @@ export async function getSettings(c: Context) {
   if (!data || typeof data !== 'object' || Object.keys(data as object).length === 0) {
     return c.json(DEFAULT_SETTINGS);
   }
-  const obj = data as { pairs?: unknown; themes?: unknown };
+  const obj = data as { pairs?: unknown; themes?: unknown; hiddenSymbols?: unknown };
   return c.json({
     pairs: Array.isArray(obj.pairs) ? obj.pairs : DEFAULT_SETTINGS.pairs,
     themes: Array.isArray(obj.themes) ? obj.themes : DEFAULT_SETTINGS.themes,
+    hiddenSymbols: Array.isArray(obj.hiddenSymbols)
+      ? (obj.hiddenSymbols as string[]).map((s) => String(s).toUpperCase())
+      : DEFAULT_SETTINGS.hiddenSymbols,
   });
 }
 

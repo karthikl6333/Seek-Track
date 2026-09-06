@@ -130,7 +130,12 @@ export async function loadSettings(): Promise<AppSettings> {
   try {
     const data = await api<AppSettings>('/api/settings');
     if (!data?.pairs || !data?.themes) return structuredClone(DEFAULT_SETTINGS);
-    return data;
+    return {
+      ...data,
+      hiddenSymbols: Array.isArray(data.hiddenSymbols)
+        ? data.hiddenSymbols.map((s) => String(s).toUpperCase())
+        : [],
+    };
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }

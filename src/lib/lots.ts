@@ -1,14 +1,38 @@
 import type { OpenLot, SymbolPosition, ThemeDef, ThemeSummary, Trade } from '../types';
 import { themeForSymbol } from './pairs';
 
+/** Cancel / Canceled / Cancelled — must not open or close lots. */
+function isCancelledAction(action: string): boolean {
+  return /\bcancell?ed?\b/i.test(action) || action.toLowerCase().includes('cancel');
+}
+
+/**
+ * Non-trade / cash / interest / journal rows that must not affect positions.
+ * Journals are ignored unless we can safely model them (we cannot yet).
+ */
+export function isNonTradeAction(action: string): boolean {
+  const a = action.toLowerCase().trim();
+  if (!a) return true;
+  if (isCancelledAction(action)) return true;
+  if (a.includes('wire')) return true; // Wire Sent, Wire Received, …
+  if (a.includes('interest')) return true; // Credit Interest, Margin Interest
+  if (a === 'journal' || a.startsWith('journal ') || a.includes('journal ')) return true;
+  if (a.includes('funds received') || a.includes('funds sent')) return true;
+  if (a.includes('transfer')) return true;
+  if (a.includes('adj') && a.includes('cash')) return true;
+  return false;
+}
+
 function isBuy(action: string): boolean {
   const a = action.toLowerCase();
+  if (isCancelledAction(action)) return false;
   if (a.includes('cover')) return false;
   return a.includes('buy') || a.startsWith('bought') || a.includes('buy to open');
 }
 
 function isSell(action: string): boolean {
   const a = action.toLowerCase();
+  if (isCancelledAction(action)) return false;
   return (
     (a.includes('sell') && !a.includes('short')) ||
     a === 'sell' ||
@@ -18,10 +42,12 @@ function isSell(action: string): boolean {
 }
 
 function isBuyToCover(action: string): boolean {
+  if (isCancelledAction(action)) return false;
   return action.toLowerCase().includes('buy to cover') || action.toLowerCase().includes('cover');
 }
 
 function isSellShort(action: string): boolean {
+  if (isCancelledAction(action)) return false;
   return action.toLowerCase().includes('short');
 }
 
@@ -54,6 +80,7 @@ export function computePositions(
   const bySymbol = new Map<string, Trade[]>();
   for (const t of trades) {
     if (!t.symbol) continue;
+    if (isNonTradeAction(t.action)) continue;
     const list = bySymbol.get(t.symbol) ?? [];
     list.push(t);
     bySymbol.set(t.symbol, list);
@@ -70,6 +97,7 @@ export function computePositions(
     for (const t of ordered) {
       const qty = Math.abs(t.quantity);
       if (qty === 0) continue;
+      if (isNonTradeAction(t.action)) continue;
       const fees = Math.abs(t.fees);
 
       if (isSellShort(t.action)) {

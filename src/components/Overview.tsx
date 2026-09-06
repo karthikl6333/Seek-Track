@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, pnlClass } from '../lib/format';
 import { AddTradeForm } from './AddTradeForm';
@@ -7,23 +8,34 @@ import { CsvImport } from './CsvImport';
 import { MarkPrices } from './MarkPrices';
 
 export function Overview({ store }: { store: Store }) {
-  const { analysis, settings } = store;
-  const realized = analysis?.positions.reduce((s, p) => s + p.realizedPnl, 0) ?? 0;
-  const openPositions = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
-  const unrealizedParts = openPositions.map((p) => p.unrealizedPnl);
-  const hasAllMarks = openPositions.length > 0 && unrealizedParts.every((u) => u !== null);
-  const unrealized = openPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
+  const { analysis, settings, hiddenSet } = store;
+  const [showHidden, setShowHidden] = useState(false);
+
+  const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
+  const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
+  const hiddenOpen = allOpen.filter((p) => hiddenSet.has(p.symbol.toUpperCase()));
+  const openPositions = showHidden ? allOpen : visibleOpen;
+
+  // Totals exclude hidden symbols (unless viewing them only for display — totals stay on visible)
+  const totalsPositions = visibleOpen;
+  const realized =
+    analysis?.positions
+      .filter((p) => !hiddenSet.has(p.symbol.toUpperCase()))
+      .reduce((s, p) => s + p.realizedPnl, 0) ?? 0;
+  const unrealizedParts = totalsPositions.map((p) => p.unrealizedPnl);
+  const hasAllMarks = totalsPositions.length > 0 && unrealizedParts.every((u) => u !== null);
+  const unrealized = totalsPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
 
   const lastUpdatedLabel = store.lastRefreshAt
     ? new Date(store.lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) +
       ' IST'
-    : openPositions
+    : totalsPositions
           .map((p) => store.markDetails[p.symbol]?.updatedAt)
           .filter(Boolean)
           .sort()
           .at(-1)
       ? new Date(
-          openPositions
+          totalsPositions
             .map((p) => store.markDetails[p.symbol]?.updatedAt)
             .filter(Boolean)
             .sort()
@@ -41,21 +53,25 @@ export function Overview({ store }: { store: Store }) {
         </div>
         <div className="card">
           <h3>Open symbols</h3>
-          <div className="stat-value mono">{openPositions.length}</div>
-          <div className="stat-label">Non-zero positions</div>
+          <div className="stat-value mono">{totalsPositions.length}</div>
+          <div className="stat-label">
+            Non-zero positions
+            {hiddenOpen.length > 0 ? ` · ${hiddenOpen.length} hidden` : ''}
+          </div>
         </div>
         <div className="card">
           <h3>Realized P&amp;L</h3>
           <div className={`stat-value ${pnlClass(realized)}`}>{fmtMoney(realized)}</div>
-          <div className="stat-label">Closed lots (FIFO)</div>
+          <div className="stat-label">Closed lots (FIFO){hiddenOpen.length ? ' · excl. hidden' : ''}</div>
         </div>
         <div className="card">
           <h3>Unrealized P&amp;L</h3>
           <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)}`}>
-            {hasAllMarks || openPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
+            {hasAllMarks || totalsPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
           </div>
           <div className="stat-label">
             Live marks when available
+            {hiddenOpen.length ? ' · excl. hidden' : ''}
             {lastUpdatedLabel ? ` · ${lastUpdatedLabel}` : ''}
           </div>
         </div>
@@ -64,14 +80,26 @@ export function Overview({ store }: { store: Store }) {
       <div className="card">
         <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <h3 style={{ margin: 0 }}>Holdings (open positions)</h3>
-          <button
-            type="button"
-            className="btn small"
-            onClick={() => void store.refreshLiveQuotes()}
-            title="Fetch Yahoo quotes for open symbols + calculator"
-          >
-            Refresh quotes
-          </button>
+          <div className="row-actions" style={{ gap: 8 }}>
+            {hiddenOpen.length > 0 && (
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => setShowHidden((v) => !v)}
+                title="Toggle rows you hid (CSV noise)"
+              >
+                {showHidden ? 'Hide hidden' : `Show hidden (${hiddenOpen.length})`}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn small"
+              onClick={() => void store.refreshLiveQuotes()}
+              title="Fetch Yahoo quotes for open symbols + calculator + pair"
+            >
+              Refresh quotes
+            </button>
+          </div>
         </div>
         {store.lastRefreshError && (
           <p className="muted" style={{ fontSize: 12 }}>
@@ -95,10 +123,16 @@ export function Overview({ store }: { store: Store }) {
             <tbody>
               {openPositions.map((p) => {
                 const info = store.markDetails[p.symbol];
+                const isHidden = hiddenSet.has(p.symbol.toUpperCase());
                 return (
-                  <tr key={p.symbol}>
+                  <tr key={p.symbol} style={isHidden ? { opacity: 0.55 } : undefined}>
                     <td className="left mono">
                       {p.symbol}
+                      {isHidden && (
+                        <span className="badge" style={{ marginLeft: 6 }}>
+                          hidden
+                        </span>
+                      )}
                       {info && (
                         <span className="muted" style={{ display: 'block', fontSize: 11 }}>
                           {info.source}
@@ -112,13 +146,27 @@ export function Overview({ store }: { store: Store }) {
                     <td className={pnlClass(p.unrealizedPnl)}>{fmtMoney(p.unrealizedPnl)}</td>
                     <td className={pnlClass(p.unrealizedPnlPct)}>{fmtPct(p.unrealizedPnlPct)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn small"
-                        onClick={() => store.loadPositionIntoCalc(p.symbol)}
-                      >
-                        → Calc
-                      </button>
+                      <div className="row-actions" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="btn small"
+                          onClick={() => store.loadPositionIntoCalc(p.symbol)}
+                        >
+                          → Calc
+                        </button>
+                        <button
+                          type="button"
+                          className="btn small ghost"
+                          onClick={() => void store.toggleHiddenSymbol(p.symbol)}
+                          title={
+                            isHidden
+                              ? 'Unhide this symbol from holdings totals'
+                              : 'Hide this symbol (CSV may be inaccurate)'
+                          }
+                        >
+                          {isHidden ? 'Unhide' : 'Hide'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -126,7 +174,9 @@ export function Overview({ store }: { store: Store }) {
               {openPositions.length === 0 && (
                 <tr>
                   <td className="left muted" colSpan={8}>
-                    No open holdings. Import CSV or add a manual trade.
+                    {allOpen.length > 0 && !showHidden
+                      ? 'All open holdings are hidden. Click “Show hidden”.'
+                      : 'No open holdings. Import CSV or add a manual trade.'}
                   </td>
                 </tr>
               )}
@@ -190,6 +240,7 @@ export function Overview({ store }: { store: Store }) {
             markDetails={store.markDetails}
             marks={store.marks}
             settingsPairs={settings?.pairs ?? []}
+            onRefreshQuotes={() => void store.refreshLiveQuotes()}
           />
           {settings && <CrossCheck pairs={settings.pairs} />}
           <MarkPrices

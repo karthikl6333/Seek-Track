@@ -84,6 +84,20 @@ const HEADER_MAP: Record<string, keyof ParsedRow> = {
   amount: 'amount',
 };
 
+
+/** Skip cancel / cash / interest / journal / empty-symbol rows — same rules as lot engine. */
+function isNonTradeAction(action: string): boolean {
+  const a = action.toLowerCase().trim();
+  if (!a) return true;
+  if (/\bcancell?ed?\b/i.test(action) || a.includes('cancel')) return true;
+  if (a.includes('wire')) return true;
+  if (a.includes('interest')) return true;
+  if (a === 'journal' || a.startsWith('journal ') || a.includes('journal ')) return true;
+  if (a.includes('funds received') || a.includes('funds sent')) return true;
+  if (a.includes('transfer')) return true;
+  return false;
+}
+
 export function parseSchwabCsv(
   text: string,
   existingHashes: Set<string>,
@@ -142,7 +156,7 @@ export function parseSchwabCsv(
       amount = -(signedQty * price) - fees;
     }
 
-    if (!symbol && !action) {
+    if (!symbol || isNonTradeAction(action)) {
       skipped++;
       continue;
     }

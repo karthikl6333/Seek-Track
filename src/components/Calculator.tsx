@@ -13,6 +13,7 @@ interface Props {
   markDetails: Record<string, MarkInfo>;
   marks: Record<string, number>;
   settingsPairs: PairDef[];
+  onRefreshQuotes?: () => void;
 }
 
 function findPair(
@@ -52,6 +53,7 @@ export function Calculator({
   markDetails,
   marks,
   settingsPairs,
+  onRefreshQuotes,
 }: Props) {
   const set = (patch: Partial<CalculatorState>) => setCalc({ ...calc, ...patch });
 
@@ -74,38 +76,51 @@ export function Calculator({
   const move = useMemo(() => {
     if (!leverage || !calc.entryPrice || !calc.targetPrice) return null;
     const { pair, side } = leverage;
+    // Entry → target (primary ETF/selected % move)
     const selectedPct = ((calc.targetPrice - calc.entryPrice) / calc.entryPrice) * 100;
+    // Live → target (optional secondary line)
+    const liveMark = marks[calc.symbol.trim().toUpperCase()];
+    const liveToTargetPct =
+      liveMark !== undefined && liveMark !== 0
+        ? ((calc.targetPrice - liveMark) / liveMark) * 100
+        : null;
 
     if (side === 'etf') {
       const underPct = impliedUnderlyingPct(selectedPct, pair.factor);
       if (underPct === null) return null;
-      const underMark = marks[pair.underlying] ?? null;
-      const underEst =
-        underMark !== null ? underMark * (1 + underPct / 100) : null;
+      const linkedSym = pair.underlying;
+      const linkedMark = marks[linkedSym] ?? null;
+      const linkedTarget =
+        linkedMark !== null ? linkedMark * (1 + underPct / 100) : null;
       return {
         selectedPct,
+        liveToTargetPct,
         otherPct: underPct,
-        otherLabel: pair.underlying,
+        otherLabel: linkedSym,
         selectedLabel: pair.etf,
-        otherEstPrice: underEst,
-        otherMark: underMark,
+        linkedSym,
+        linkedCurrent: linkedMark,
+        linkedImpliedTarget: linkedTarget,
         direction: 'etf→under' as const,
       };
     }
 
     const etfPct = impliedEtfPct(selectedPct, pair.factor);
-    const etfMark = marks[pair.etf] ?? null;
-    const etfEst = etfMark !== null ? etfMark * (1 + etfPct / 100) : null;
+    const linkedSym = pair.etf;
+    const linkedMark = marks[linkedSym] ?? null;
+    const linkedTarget = linkedMark !== null ? linkedMark * (1 + etfPct / 100) : null;
     return {
       selectedPct,
+      liveToTargetPct,
       otherPct: etfPct,
-      otherLabel: pair.etf,
+      otherLabel: linkedSym,
       selectedLabel: pair.underlying,
-      otherEstPrice: etfEst,
-      otherMark: etfMark,
+      linkedSym,
+      linkedCurrent: linkedMark,
+      linkedImpliedTarget: linkedTarget,
       direction: 'under→etf' as const,
     };
-  }, [leverage, calc.entryPrice, calc.targetPrice, marks]);
+  }, [leverage, calc.entryPrice, calc.targetPrice, calc.symbol, marks]);
 
   return (
     <div className="card">
@@ -222,8 +237,9 @@ export function Calculator({
             <div className="leverage-headline mono">
               {move ? (
                 <>
-                  If {move.selectedLabel} moves {fmtPct(move.selectedPct)} → {move.otherLabel} ≈{' '}
-                  {fmtPct(move.otherPct)} (daily factor {leverage.pair.factor > 0 ? '+' : ''}
+                  If {move.selectedLabel} moves {fmtPct(move.selectedPct)} (entry→target) →{' '}
+                  {move.otherLabel} ≈ {fmtPct(move.otherPct)} (daily factor{' '}
+                  {leverage.pair.factor > 0 ? '+' : ''}
                   {leverage.pair.factor}x)
                 </>
               ) : (
@@ -234,10 +250,18 @@ export function Calculator({
                 </>
               )}
             </div>
+            {move && move.liveToTargetPct !== null && (
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                Live→target {move.selectedLabel}:{' '}
+                <span className={`mono ${pnlClass(move.liveToTargetPct)}`}>
+                  {fmtPct(move.liveToTargetPct)}
+                </span>
+              </p>
+            )}
             {move && (
               <div className="grid-2" style={{ marginTop: 8 }}>
                 <div>
-                  <div className="stat-label">{move.selectedLabel} target move</div>
+                  <div className="stat-label">{move.selectedLabel} target move (entry→target)</div>
                   <div className={`mono ${pnlClass(move.selectedPct)}`}>
                     {fmtPct(move.selectedPct)}
                   </div>
@@ -246,18 +270,55 @@ export function Calculator({
                   <div className="stat-label">Implied {move.otherLabel} daily move</div>
                   <div className={`mono ${pnlClass(move.otherPct)}`}>{fmtPct(move.otherPct)}</div>
                 </div>
-                {move.otherMark !== null && move.otherEstPrice !== null && (
-                  <>
-                    <div>
-                      <div className="stat-label">{move.otherLabel} mark</div>
-                      <div className="mono">{fmtMoney(move.otherMark, 4)}</div>
-                    </div>
-                    <div>
-                      <div className="stat-label">{move.otherLabel} est. price</div>
-                      <div className="mono">{fmtMoney(move.otherEstPrice, 4)}</div>
-                    </div>
-                  </>
-                )}
+                {/* Always show linked current + implied target (Fetching… if mark missing) */}
+                <div>
+                  <div className="stat-label">{move.linkedSym} current</div>
+                  <div className="mono">
+                    {move.linkedCurrent !== null ? (
+                      fmtMoney(move.linkedCurrent, 4)
+                    ) : (
+                      <span className="muted">
+                        Fetching…
+                        {onRefreshQuotes && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => onRefreshQuotes()}
+                            >
+                              Refresh
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="stat-label">{move.linkedSym} implied target</div>
+                  <div className="mono">
+                    {move.linkedImpliedTarget !== null ? (
+                      fmtMoney(move.linkedImpliedTarget, 4)
+                    ) : (
+                      <span className="muted">
+                        Fetching…
+                        {onRefreshQuotes && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => onRefreshQuotes()}
+                            >
+                              Refresh
+                            </button>
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             <div className="caveat" style={{ marginTop: 8 }}>

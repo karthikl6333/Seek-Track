@@ -95,6 +95,8 @@ export interface JournalEntry {
 export interface AppSettings {
   pairs: PairDef[];
   themes: ThemeDef[];
+  /** Symbols hidden from holdings / overview totals (CSV noise). */
+  hiddenSymbols: string[];
 }
 
 export interface ImportResult {

@@ -16,7 +16,7 @@ export function SettingsPanel({ settings, onSave }: Props) {
     try {
       const pairs = JSON.parse(pairsText) as PairDef[];
       const themes = JSON.parse(themesText) as ThemeDef[];
-      await onSave({ pairs, themes });
+      await onSave({ pairs, themes, hiddenSymbols: settings.hiddenSymbols ?? [] });
       setMsg('Saved pair map & themes.');
     } catch (e) {
       setMsg(`Invalid JSON: ${String(e)}`);
@@ -26,8 +26,11 @@ export function SettingsPanel({ settings, onSave }: Props) {
   const reset = async () => {
     setPairsText(JSON.stringify(DEFAULT_SETTINGS.pairs, null, 2));
     setThemesText(JSON.stringify(DEFAULT_SETTINGS.themes, null, 2));
-    await onSave(structuredClone(DEFAULT_SETTINGS));
-    setMsg('Reset to defaults.');
+    await onSave({
+      ...structuredClone(DEFAULT_SETTINGS),
+      hiddenSymbols: settings.hiddenSymbols ?? [],
+    });
+    setMsg('Reset to defaults (kept hidden symbols).');
   };
 
   return (

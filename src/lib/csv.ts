@@ -1,4 +1,5 @@
 import { hashTradeRow } from './hash';
+import { isNonTradeAction } from './lots';
 import type { ImportResult, Trade } from '../types';
 
 function parseNumber(raw: string): number {
@@ -121,7 +122,7 @@ export async function parseSchwabCsv(
       amount = -(signedQty * price) - fees;
     }
 
-    if (!symbol && !action) {
+    if (!symbol || isNonTradeAction(action)) {
       skipped++;
       continue;
     }

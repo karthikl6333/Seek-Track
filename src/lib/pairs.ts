@@ -20,6 +20,7 @@ export const DEFAULT_THEMES: ThemeDef[] = [
 export const DEFAULT_SETTINGS: AppSettings = {
   pairs: DEFAULT_PAIRS,
   themes: DEFAULT_THEMES,
+  hiddenSymbols: [],
 };
 
 export function themeForSymbol(symbol: string, themes: ThemeDef[]): string {

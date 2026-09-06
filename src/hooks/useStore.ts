@@ -79,7 +79,12 @@ export function useStore() {
     const id = setInterval(() => {
       void (async () => {
         try {
-          await db.refreshQuotes(calc.symbol ? [calc.symbol] : undefined);
+          const pollSyms: string[] = [];
+          if (calc.symbol) pollSyms.push(calc.symbol);
+          if (resolvedPair?.pair) {
+            pollSyms.push(resolvedPair.pair.etf, resolvedPair.pair.underlying);
+          }
+          await db.refreshQuotes(pollSyms.length ? pollSyms : undefined);
           await refreshMarks();
         } catch (e) {
           console.warn('quote poll failed', e);
@@ -87,7 +92,7 @@ export function useStore() {
       })();
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [calc.symbol, refreshMarks]);
+  }, [calc.symbol, refreshMarks, resolvedPair]);
 
   const analysis: LotEngineResult | null = useMemo(() => {
     if (!settings) return null;
@@ -128,15 +133,27 @@ export function useStore() {
   const refreshLiveQuotes = useCallback(
     async (extra?: string[]) => {
       setError(null);
-      const symbols = extra ?? [];
+      const symbols = [...(extra ?? [])];
       if (calc.symbol) symbols.push(calc.symbol);
+      // When a pair is known, always refresh BOTH etf and underlying (e.g. SNDQ + SNDK)
+      const pair = resolvedPair?.pair;
+      if (pair) {
+        symbols.push(pair.etf, pair.underlying);
+      } else if (settings) {
+        const sym = calc.symbol.trim().toUpperCase();
+        const found = settings.pairs.find(
+          (p) => p.etf.toUpperCase() === sym || p.underlying.toUpperCase() === sym,
+        );
+        if (found) symbols.push(found.etf, found.underlying);
+      }
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
-      const result = await db.refreshQuotes([...symbols, ...open]);
+      const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
+      const result = await db.refreshQuotes(unique);
       await refreshMarks();
       return result;
     },
-    [analysis, calc.symbol, refreshMarks],
+    [analysis, calc.symbol, refreshMarks, resolvedPair, settings],
   );
 
   const loadPositionIntoCalc = useCallback(
@@ -173,8 +190,18 @@ export function useStore() {
           const next = {
             ...settings,
             pairs: [...settings.pairs, result.pair],
+            hiddenSymbols: settings.hiddenSymbols ?? [],
           };
           setSettings(next);
+        }
+      }
+      // Refresh quotes for BOTH etf and underlying when pair resolves
+      if (result.pair) {
+        try {
+          await db.refreshQuotes([result.pair.etf, result.pair.underlying, sym]);
+          await refreshMarks();
+        } catch (e) {
+          console.warn('pair quote refresh failed', e);
         }
       }
       return result;
@@ -184,7 +211,7 @@ export function useStore() {
     } finally {
       setPairBusy(false);
     }
-  }, [calc.symbol, settings]);
+  }, [calc.symbol, settings, refreshMarks]);
 
   // Auto-resolve when calculator symbol changes
   useEffect(() => {
@@ -231,6 +258,26 @@ export function useStore() {
     [refresh],
   );
 
+  const toggleHiddenSymbol = useCallback(
+    async (symbol: string) => {
+      if (!settings) return;
+      const sym = symbol.toUpperCase();
+      const current = new Set((settings.hiddenSymbols ?? []).map((s) => s.toUpperCase()));
+      if (current.has(sym)) current.delete(sym);
+      else current.add(sym);
+      await updateSettings({
+        ...settings,
+        hiddenSymbols: Array.from(current).sort(),
+      });
+    },
+    [settings, updateSettings],
+  );
+
+  const hiddenSet = useMemo(
+    () => new Set((settings?.hiddenSymbols ?? []).map((s) => s.toUpperCase())),
+    [settings],
+  );
+
   return {
     ready,
     error,
@@ -262,6 +309,8 @@ export function useStore() {
     resolvedPair,
     resolveCalcPair,
     pairBusy,
+    toggleHiddenSymbol,
+    hiddenSet,
   };
 }
 

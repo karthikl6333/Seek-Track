@@ -134,7 +134,9 @@
   padding: 12px 12px;
 }
 
-.watchlist-side .table-wrap {
+.watchlist-side .table-wrap,
+.watchlist-card .table-wrap {
+  max-height: none;
   overflow-x: auto;
   overflow-y: visible;
 }

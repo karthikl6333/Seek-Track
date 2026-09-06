@@ -243,7 +243,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
   ];
 
   return (
-    <div className={`card${compact ? ' watchlist-side' : ''}`}>
+    <div className={`card watchlist-card${compact ? ' watchlist-side' : ''}`}>
       <div className="watchlist-toolbar">
         <div style={{ flex: '0 1 auto', minWidth: 0 }}>
           <h3 style={{ margin: 0 }}>Watchlist</h3>

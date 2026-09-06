@@ -82,6 +82,8 @@ export const RESEARCH_SEED_MAPS: Array<{
   { underlying: 'QCOM', etf: 'QCML', direction: 'bull', factor: 2 },
   { underlying: 'AMAT', etf: 'AMA', direction: 'bull', factor: 2 },
   { underlying: 'LRCX', etf: 'LRCU', direction: 'bull', factor: 2 },
+  // Sandisk / Tradr 2x Short SNDK
+  { underlying: 'SNDK', etf: 'SNDQ', direction: 'bear', factor: -2 },
 ];
 
 /** Extra candidates to probe via Yahoo name heuristics (discovery). */
@@ -96,6 +98,7 @@ const DISCOVERY_CANDIDATES: Record<string, string[]> = {
   QCOM: ['QCMU'],
   AMAT: ['AMAU'],
   LRCX: [],
+  SNDK: ['SNDQ'],
 };
 
 let researchRefreshInFlight: Promise<unknown> | null = null;
@@ -358,7 +361,55 @@ export async function discoverMapsForSymbol(symbol: string): Promise<{ discovere
     sectorNote: '',
   };
 
+  // Always ensure curated seed maps for this underlying are present
+  for (const m of RESEARCH_SEED_MAPS.filter((x) => x.underlying === u.symbol)) {
+    await query(
+      `INSERT INTO research_etf_map (underlying, etf, direction, factor, source, updated_at)
+       VALUES ($1, $2, $3, $4, 'seed', NOW())
+       ON CONFLICT (underlying, etf) DO UPDATE SET
+         direction = EXCLUDED.direction,
+         factor = EXCLUDED.factor,
+         source = CASE
+           WHEN research_etf_map.source = 'override' THEN research_etf_map.source
+           ELSE EXCLUDED.source
+         END,
+         updated_at = NOW()`,
+      [m.underlying, m.etf, m.direction, m.factor],
+    );
+    discovered.push(`${m.etf}->${m.underlying}(seed)`);
+  }
+
   const existing = await listMaps(u.symbol);
+  // Import any already-known pairs from pair_cache (calculator seeds / prior resolves)
+  const cached = await query<{
+    etf: string;
+    underlying: string;
+    factor: number;
+    source: string;
+  }>(
+    `SELECT etf, underlying, factor, source FROM pair_cache
+     WHERE UPPER(underlying) = $1 OR UPPER(etf) = $1`,
+    [u.symbol],
+  );
+  for (const row of cached.rows) {
+    const etf = row.etf.toUpperCase();
+    const under = row.underlying.toUpperCase();
+    if (under !== u.symbol) continue; // only maps where this symbol is the underlying
+    if (existing.some((m) => m.etf === etf)) continue;
+    const factor = Number(row.factor);
+    const direction: 'bull' | 'bear' = factor < 0 ? 'bear' : 'bull';
+    await saveDiscoveredMap(u.symbol, etf, direction, factor, row.source || 'pair_cache');
+    discovered.push(`${etf}->${u.symbol}`);
+    existing.push({
+      underlying: u.symbol,
+      etf,
+      direction,
+      factor,
+      source: row.source || 'pair_cache',
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   const haveBull = existing.some((m) => m.direction === 'bull');
   const haveBear = existing.some((m) => m.direction === 'bear');
   const candidates = DISCOVERY_CANDIDATES[u.symbol] ?? [];

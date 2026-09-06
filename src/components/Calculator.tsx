@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { CalculatorState, MarkInfo, PairDef, PairResolveResult } from '../types';
-import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
+import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../lib/format';
 import { impliedEtfPct, impliedUnderlyingPct } from '../lib/pairs';
 
 interface Props {
@@ -228,11 +228,11 @@ export function Calculator({
       <div className="grid-2" style={{ marginTop: 8 }}>
         <div>
           <div className="stat-label">P&amp;L $</div>
-          <div className={`stat-value ${pnlClass(whatIf.pnl)}`}>{fmtMoney(whatIf.pnl)}</div>
+          <div className={`stat-value ${pnlClass(whatIf.pnl)} ${moneyTone("stat")}`}>{fmtMoney(whatIf.pnl)}</div>
         </div>
         <div>
           <div className="stat-label">P&amp;L % of cost basis</div>
-          <div className={`stat-value ${pnlClass(whatIf.pnlPct)}`}>{fmtPct(whatIf.pnlPct)}</div>
+          <div className={`stat-value ${pnlClass(whatIf.pnlPct)} ${moneyTone("stat")}`}>{fmtPct(whatIf.pnlPct)}</div>
         </div>
       </div>
 

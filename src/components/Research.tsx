@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
+import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../lib/format';
 import { TickerLink, yahooQuoteUrl } from '../lib/yahoo';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
@@ -763,7 +763,7 @@ export function Research() {
                     </div>
                     <div>
                       <div className="stat-label">Day %</div>
-                      <div className={`stat-value ${pnlClass(focusInfo.dayPct)}`} style={{ fontSize: 18 }}>
+                      <div className={`stat-value ${pnlClass(focusInfo.dayPct)} ${moneyTone("stat")}`} style={{ fontSize: 18 }}>
                         {fmtPct(focusInfo.dayPct)}
                       </div>
                     </div>

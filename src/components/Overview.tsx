@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
-import { fmtMoney, fmtPct, fmtQty, pnlClass } from '../lib/format';
+import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { AddTradeForm } from './AddTradeForm';
 import { Calculator } from './Calculator';
 import { CrossCheck } from './CrossCheck';
@@ -60,12 +60,12 @@ export function Overview({ store }: { store: Store }) {
         </div>
         <div className="card">
           <h3>Realized P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(realized)}`}>{fmtMoney(realized)}</div>
+          <div className={`stat-value ${pnlClass(realized)} ${moneyTone("stat")}`}>{fmtMoney(realized)}</div>
           <div className="stat-label">Closed lots (FIFO){hiddenOpen.length ? ' · excl. hidden' : ''}</div>
         </div>
         <div className="card">
           <h3>Unrealized P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)}`}>
+          <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)} ${moneyTone("stat")}`}>
             {hasAllMarks || totalsPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
           </div>
           <div className="stat-label">
@@ -141,7 +141,7 @@ export function Overview({ store }: { store: Store }) {
                     <td className="mono">{fmtQty(p.quantity)}</td>
                     <td className="mono">{fmtMoney(p.avgCost, 4)}</td>
                     <td className="mono">{fmtMoney(p.markPrice, 4)}</td>
-                    <td className="mono">{fmtMoney(p.marketValue)}</td>
+                    <td className={moneyTone("notional")}>{fmtMoney(p.marketValue)}</td>
                     <td className={pnlClass(p.unrealizedPnl)}>{fmtMoney(p.unrealizedPnl)}</td>
                     <td className={pnlClass(p.unrealizedPnlPct)}>{fmtPct(p.unrealizedPnlPct)}</td>
                     <td>

@@ -1,11 +1,11 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0f14;
-  --bg-elev: #121821;
-  --bg-elev-2: #182030;
-  --border: #243044;
-  --text: #e8eef7;
-  --muted: #8b9bb4;
+  --bg: #05080c;
+  --bg-elev: #0a0e14;
+  --bg-elev-2: #10161f;
+  --border: #1a2230;
+  --text: #e4ebf5;
+  --muted: #7a8ba3;
   --accent: #3d8bfd;
   --accent-2: #20c997;
   --danger: #f07178;
@@ -30,7 +30,7 @@ body,
 
 body {
   font-family: var(--font);
-  background: radial-gradient(1200px 600px at 10% -10%, #152033 0%, var(--bg) 55%);
+  background: radial-gradient(1200px 600px at 10% -10%, #0e1624 0%, var(--bg) 55%);
   color: var(--text);
   line-height: 1.45;
 }
@@ -67,10 +67,70 @@ a {
 
 .pos {
   color: var(--gain);
+  background: rgba(61, 214, 140, 0.12);
+  border: 1px solid rgba(61, 214, 140, 0.22);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-block;
 }
 
 .neg {
   color: var(--loss);
+  background: rgba(240, 113, 120, 0.12);
+  border: 1px solid rgba(240, 113, 120, 0.22);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+
+.hl-fee {
+  color: var(--warn);
+  background: rgba(230, 180, 80, 0.12);
+  border: 1px solid rgba(230, 180, 80, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+
+.hl-notional {
+  color: var(--text);
+  background: rgba(61, 139, 253, 0.1);
+  border: 1px solid rgba(61, 139, 253, 0.22);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+
+.hl-stat {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  display: inline-block;
+}
+
+.stat-value.pos,
+.stat-value.neg,
+.stat-value.hl-stat,
+.stat-value.hl-fee,
+.stat-value.hl-notional {
+  border-radius: 10px;
+  padding: 4px 12px;
+}
+
+/* P&L tone wins over neutral money tones when both are present */
+.pos.hl-stat,
+.stat-value.pos.hl-stat {
+  color: var(--gain);
+  background: rgba(61, 214, 140, 0.14);
+  border-color: rgba(61, 214, 140, 0.28);
+}
+.neg.hl-stat,
+.stat-value.neg.hl-stat {
+  color: var(--loss);
+  background: rgba(240, 113, 120, 0.14);
+  border-color: rgba(240, 113, 120, 0.28);
 }
 
 .muted {
@@ -78,7 +138,7 @@ a {
 }
 
 .card {
-  background: linear-gradient(180deg, var(--bg-elev) 0%, #10161f 100%);
+  background: linear-gradient(180deg, var(--bg-elev) 0%, #080c12 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
@@ -198,7 +258,7 @@ table.data tr:hover td {
 .field input,
 .field select,
 .field textarea {
-  background: #0d131c;
+  background: #070b11;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
@@ -215,7 +275,7 @@ table.data tr:hover td {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #1a2738;
+  background: #121a26;
   border: 1px solid var(--border);
   font-size: 11px;
   color: var(--muted);

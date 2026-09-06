@@ -16,7 +16,19 @@ export function fmtQty(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+/** P&L tone: mono + pos/neg pill classes when non-zero. */
 export function pnlClass(n: number | null | undefined): string {
-  if (n === null || n === undefined || n === 0) return 'mono';
+  if (n === null || n === undefined || Number.isNaN(n) || n === 0) return 'mono';
   return n > 0 ? 'mono pos' : 'mono neg';
+}
+
+/** Highlight helpers for important money cells (fees, notional, stats). */
+export function moneyTone(kind: 'fee' | 'notional' | 'stat'): string {
+  return `mono hl-${kind}`;
+}
+
+/** Fee highlight when fee is non-zero. */
+export function feeClass(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n) || n === 0) return 'mono';
+  return 'mono hl-fee';
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Store } from '../hooks/useStore';
-import { fmtMoney, fmtQty } from '../lib/format';
+import { feeClass, fmtMoney, fmtQty } from '../lib/format';
 
 export function Trades({ store }: { store: Store }) {
   const [q, setQ] = useState('');
@@ -55,7 +55,7 @@ export function Trades({ store }: { store: Store }) {
                 <td className="left mono">{t.symbol}</td>
                 <td className="mono">{fmtQty(t.quantity)}</td>
                 <td className="mono">{fmtMoney(t.price, 4)}</td>
-                <td className="mono">{fmtMoney(t.fees)}</td>
+                <td className={feeClass(t.fees)}>{fmtMoney(t.fees)}</td>
                 <td className="mono">{fmtMoney(t.amount)}</td>
                 <td className="left muted">{t.source ?? 'csv'}</td>
                 <td className="left">

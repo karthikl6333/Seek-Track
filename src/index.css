@@ -55,6 +55,16 @@ a {
   font-family: var(--mono);
 }
 
+.ticker-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ticker-link:hover {
+  color: var(--accent);
+}
+
 .pos {
   color: var(--gain);
 }

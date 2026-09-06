@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
+import { TickerLink } from '../lib/yahoo';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const POLL_MS = 15 * 60 * 1000;
@@ -372,15 +373,20 @@ export function Research() {
               key={u.symbol}
               className={`ticker-chip${selected === u.symbol ? ' active' : ''}`}
             >
-              <button
-                type="button"
-                className="ticker-btn"
-                onClick={() => setSelected(u.symbol)}
-                title={u.name}
-              >
-                <span className="mono">{u.symbol}</span>
-                <span className="ticker-name">{u.name}</span>
-              </button>
+              <div className="ticker-main">
+                <TickerLink
+                  symbol={u.symbol}
+                  className="ticker-chip-symbol"
+                />
+                <button
+                  type="button"
+                  className="ticker-select"
+                  onClick={() => setSelected(u.symbol)}
+                  title={u.name}
+                >
+                  <span className="ticker-name">{u.name}</span>
+                </button>
+              </div>
               <button
                 type="button"
                 className="ticker-remove"
@@ -407,7 +413,7 @@ export function Research() {
 
       <div className="grid-2 research-split">
         <div className="card">
-          <h3>{selected} · linked ETFs</h3>
+          <h3><TickerLink symbol={selected} /> · linked ETFs</h3>
           {selectedRow ? (
             <div className="stack" style={{ gap: 10 }}>
               <div className="etf-pill-row">
@@ -415,8 +421,8 @@ export function Research() {
                   <span className="stat-label">Bull ETF(s)</span>
                   {selectedRow.bullEtfs?.length ? (
                     selectedRow.bullEtfs.map((m) => (
-                      <div key={m.etf} className="mono">
-                        {m.etf}{' '}
+                      <div key={m.etf}>
+                        <TickerLink symbol={m.etf} />{' '}
                         <span className="muted">{fmtFactor(m.factor)}</span>
                       </div>
                     ))
@@ -428,8 +434,8 @@ export function Research() {
                   <span className="stat-label">Bear / inverse ETF(s)</span>
                   {selectedRow.bearEtfs?.length ? (
                     selectedRow.bearEtfs.map((m) => (
-                      <div key={m.etf} className="mono">
-                        {m.etf}{' '}
+                      <div key={m.etf}>
+                        <TickerLink symbol={m.etf} />{' '}
                         <span className="muted">{fmtFactor(m.factor)}</span>
                       </div>
                     ))
@@ -521,7 +527,7 @@ export function Research() {
 
       <div className="card">
         <h3>
-          ETF map · quotes · {selected}
+          ETF map · quotes · <TickerLink symbol={selected} />
         </h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
           All known bull and bear single-stock ETFs for the selected underlying (not the full
@@ -550,7 +556,7 @@ export function Research() {
                       {r.direction === 'bull' ? 'Bull' : 'Bear'}
                     </span>
                   </td>
-                  <td className="left mono">{r.etf}</td>
+                  <td className="left"><TickerLink symbol={r.etf} /></td>
                   <td className="mono">{fmtFactor(r.factor)}</td>
                   <td className="mono">{fmtMoney(r.etfLast)}</td>
                   <td className={pnlClass(r.etfDayPct)}>{fmtPct(r.etfDayPct)}</td>
@@ -563,7 +569,7 @@ export function Research() {
               {!selectedEtfTableRows.length && (
                 <tr>
                   <td colSpan={9} className="left muted">
-                    No bull/bear ETFs mapped for {selected} yet. Click Refresh.
+                    No bull/bear ETFs mapped for <TickerLink symbol={selected} /> yet. Click Refresh.
                   </td>
                 </tr>
               )}
@@ -573,11 +579,11 @@ export function Research() {
       </div>
 
       <div className="card">
-        <h3>News · {selected}</h3>
+        <h3>News · <TickerLink symbol={selected} /></h3>
         {detail?.newsError && !detail.news.length ? (
           <p className="muted">No headlines available ({detail.newsError}).</p>
         ) : !detail?.news?.length ? (
-          <p className="muted">No headlines found for {selected}.</p>
+          <p className="muted">No headlines found for <TickerLink symbol={selected} />.</p>
         ) : (
           <ul className="news-list">
             {detail.news.map((n) => (

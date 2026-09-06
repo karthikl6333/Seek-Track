@@ -145,6 +145,11 @@ export function guessUnderlying(name: string, etf: string): string | null {
     [/\bCOINBASE\b/, 'COIN'],
     [/\bSUPER MICRO\b|\bSMCI\b/, 'SMCI'],
     [/\bSANDISK\b|\bSNDK\b/, 'SNDK'],
+    [/\bTSMC\b|\bTAIWAN SEMICONDUCTOR\b|\bTSM\b/, 'TSM'],
+    [/\bASML\b/, 'ASML'],
+    [/\bQUALCOMM\b|\bQCOM\b/, 'QCOM'],
+    [/\bAPPLIED MATERIALS\b|\bAMAT\b/, 'AMAT'],
+    [/\bLAM RESEARCH\b|\bLRCX\b/, 'LRCX'],
   ];
   for (const [re, ticker] of hints) {
     if (re.test(upper)) return ticker;

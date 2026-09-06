@@ -1,5 +1,6 @@
 import './App.css';
 import { Charts } from './components/Charts';
+import { Research } from './components/Research';
 import { Journal } from './components/Journal';
 import { Overview } from './components/Overview';
 import { Positions } from './components/Positions';
@@ -15,6 +16,7 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'trades', label: 'Trades' },
   { id: 'journal', label: 'Journal' },
   { id: 'charts', label: 'Charts' },
+  { id: 'research', label: 'Research' },
 ];
 
 export default function App() {
@@ -67,6 +69,7 @@ export default function App() {
         {store.view === 'trades' && <Trades store={store} />}
         {store.view === 'journal' && <Journal store={store} />}
         {store.view === 'charts' && <Charts store={store} />}
+        {store.view === 'research' && <Research />}
       </main>
     </div>
   );

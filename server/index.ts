@@ -19,6 +19,13 @@ import {
   refreshQuotesHandler,
   startQuoteRefreshCron,
 } from './quotes.js';
+import {
+  ensureResearchSeeded,
+  getResearchHandler,
+  getResearchSymbolHandler,
+  postResearchRefreshHandler,
+  startResearchRefreshCron,
+} from './research.js';
 import { getSettings, putSettings } from './settings.js';
 import {
   importCsvHandler,
@@ -70,6 +77,10 @@ app.delete('/api/journal/:id', deleteJournal);
 app.get('/api/settings', getSettings);
 app.put('/api/settings', putSettings);
 
+app.get('/api/research', getResearchHandler);
+app.get('/api/research/:symbol', getResearchSymbolHandler);
+app.post('/api/research/refresh', postResearchRefreshHandler);
+
 const here = dirname(fileURLToPath(import.meta.url));
 const distCandidates = [
   join(process.cwd(), 'dist'),
@@ -95,7 +106,9 @@ const port = Number(process.env.PORT || 3000);
 async function main() {
   await ensureSchema();
   await ensureSeedPairsCached();
+  await ensureResearchSeeded();
   startQuoteRefreshCron(15 * 60 * 1000);
+  startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));
   startServer({ fetch: app.fetch, port });
 }

@@ -58,3 +58,25 @@ CREATE TABLE IF NOT EXISTS pair_cache (
   raw_name TEXT,
   resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Research tab: top silicon / semiconductor universe
+CREATE TABLE IF NOT EXISTS research_universe (
+  symbol TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  sector_note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS research_etf_map (
+  underlying TEXT NOT NULL,
+  etf TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('bull', 'bear')),
+  factor DOUBLE PRECISION NOT NULL,
+  source TEXT NOT NULL DEFAULT 'seed',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (underlying, etf)
+);
+
+CREATE INDEX IF NOT EXISTS research_etf_map_underlying_idx ON research_etf_map (underlying);
+
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS day_pct DOUBLE PRECISION;

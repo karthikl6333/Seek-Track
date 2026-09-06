@@ -17,6 +17,18 @@
   padding: 6px 10px 18px;
 }
 
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-icon {
+  flex-shrink: 0;
+  border-radius: 5px;
+  display: block;
+}
+
 .brand h1 {
   margin: 0;
   font-size: 18px;
@@ -74,6 +86,41 @@
   grid-template-columns: 1.4fr 0.9fr;
   gap: 14px;
   align-items: start;
+}
+
+.calc-layout {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.calc-layout .calc-main > .card {
+  padding: 22px 24px;
+  min-height: 420px;
+}
+
+.calc-layout .calc-main .leverage-headline {
+  font-size: 18px;
+}
+
+.calc-layout .calc-main .leverage-panel {
+  padding: 16px 18px;
+  margin-top: 16px;
+}
+
+.calc-layout .calc-main .stat-value {
+  font-size: 28px;
+}
+
+@media (max-width: 1100px) {
+  .calc-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .calc-layout .calc-main > .card {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 1200px) {

@@ -190,46 +190,17 @@ export function Overview({ store }: { store: Store }) {
         )}
       </div>
 
-      <div className="content-split">
-        <div className="stack">
-          <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
-          <AddTradeForm onSubmit={store.addManualTrade} />
-          <div className="card">
-            <h3>P&amp;L by Theme</h3>
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th className="left">Theme</th>
-                    <th>Realized</th>
-                    <th>Unrealized</th>
-                    <th>Cost basis</th>
-                    <th className="left">Symbols</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(analysis?.themes ?? []).map((t) => (
-                    <tr key={t.theme}>
-                      <td className="left">{t.theme}</td>
-                      <td className={pnlClass(t.realizedPnl)}>{fmtMoney(t.realizedPnl)}</td>
-                      <td className={pnlClass(t.unrealizedPnl)}>{fmtMoney(t.unrealizedPnl)}</td>
-                      <td className="mono">{fmtMoney(t.costBasis)}</td>
-                      <td className="left muted">{t.symbols.join(', ')}</td>
-                    </tr>
-                  ))}
-                  {(analysis?.themes.length ?? 0) === 0 && (
-                    <tr>
-                      <td className="left muted" colSpan={5}>
-                        Import trades to see theme rollups.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div className="stack">
+      <MarkPrices
+        positions={analysis?.positions ?? []}
+        marks={store.marks}
+        markDetails={store.markDetails}
+        lastRefreshAt={store.lastRefreshAt}
+        onSave={store.setMarkPrice}
+        onRefresh={() => void store.refreshLiveQuotes()}
+      />
+
+      <div className="calc-layout">
+        <div className="stack calc-main">
           <Calculator
             calc={store.calc}
             setCalc={store.setCalc}
@@ -243,14 +214,45 @@ export function Overview({ store }: { store: Store }) {
             onRefreshQuotes={() => void store.refreshLiveQuotes()}
           />
           {settings && <CrossCheck pairs={settings.pairs} />}
-          <MarkPrices
-            positions={analysis?.positions ?? []}
-            marks={store.marks}
-            markDetails={store.markDetails}
-            lastRefreshAt={store.lastRefreshAt}
-            onSave={store.setMarkPrice}
-            onRefresh={() => void store.refreshLiveQuotes()}
-          />
+        </div>
+        <div className="stack calc-side">
+          <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
+          <AddTradeForm onSubmit={store.addManualTrade} />
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>P&amp;L by Theme</h3>
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th className="left">Theme</th>
+                <th>Realized</th>
+                <th>Unrealized</th>
+                <th>Cost basis</th>
+                <th className="left">Symbols</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(analysis?.themes ?? []).map((t) => (
+                <tr key={t.theme}>
+                  <td className="left">{t.theme}</td>
+                  <td className={pnlClass(t.realizedPnl)}>{fmtMoney(t.realizedPnl)}</td>
+                  <td className={pnlClass(t.unrealizedPnl)}>{fmtMoney(t.unrealizedPnl)}</td>
+                  <td className="mono">{fmtMoney(t.costBasis)}</td>
+                  <td className="left muted">{t.symbols.join(', ')}</td>
+                </tr>
+              ))}
+              {(analysis?.themes.length ?? 0) === 0 && (
+                <tr>
+                  <td className="left muted" colSpan={5}>
+                    Import trades to see theme rollups.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

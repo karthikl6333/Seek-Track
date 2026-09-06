@@ -10,6 +10,7 @@ import type { ViewId } from './types';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'pairs', label: 'Pairs & Themes' },
   { id: 'positions', label: 'Positions' },
   { id: 'trades', label: 'Trades' },
   { id: 'journal', label: 'Journal' },
@@ -31,7 +32,10 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <h1>Seek&amp;Track</h1>
+          <div className="brand-row">
+            <img src="/favicon.svg" alt="" className="brand-icon" width={22} height={22} />
+            <h1>Seek&amp;Track</h1>
+          </div>
           <p>Numbers-first trading ledger</p>
         </div>
         {NAV.map((n) => (
@@ -55,11 +59,9 @@ export default function App() {
             {store.error}
           </div>
         )}
-        {store.view === 'overview' && (
-          <div className="stack">
-            <Overview store={store} />
-            <SettingsPanel settings={store.settings} onSave={store.updateSettings} />
-          </div>
+        {store.view === 'overview' && <Overview store={store} />}
+        {store.view === 'pairs' && (
+          <SettingsPanel settings={store.settings} onSave={store.updateSettings} />
         )}
         {store.view === 'positions' && <Positions store={store} />}
         {store.view === 'trades' && <Trades store={store} />}

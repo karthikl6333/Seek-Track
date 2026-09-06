@@ -189,6 +189,34 @@ export function Research() {
     [rows, selected, detail],
   );
 
+  /** One row per bull/bear ETF for the currently selected underlying only. */
+  const selectedEtfTableRows = useMemo(() => {
+    const maps =
+      detail?.maps?.filter((m) => m.underlying === selected) ??
+      summary?.maps?.filter((m) => m.underlying === selected) ??
+      [
+        ...(selectedRow?.bullEtfs ?? []),
+        ...(selectedRow?.bearEtfs ?? []),
+      ];
+    const quotes = detail?.quotes ?? summary?.quotes ?? {};
+    const underQ = quotes[selected];
+    const sorted = [...maps].sort((a, b) => {
+      if (a.direction !== b.direction) return a.direction === 'bull' ? -1 : 1;
+      return Math.abs(b.factor) - Math.abs(a.factor) || a.etf.localeCompare(b.etf);
+    });
+    return sorted.map((m) => {
+      const etfQ = quotes[m.etf];
+      return {
+        ...m,
+        underlyingLast: underQ?.price ?? selectedRow?.underlyingLast ?? null,
+        underlyingDayPct: underQ?.dayPct ?? selectedRow?.underlyingDayPct ?? null,
+        etfLast: etfQ?.price ?? null,
+        etfDayPct: etfQ?.dayPct ?? null,
+        quoteUpdated: etfQ?.updatedAt ?? underQ?.updatedAt ?? m.updatedAt ?? null,
+      };
+    });
+  }, [detail, summary, selected, selectedRow]);
+
   const chartData = detail?.chart ?? [];
   const chartSymbols = detail?.chartSymbols ?? [];
 
@@ -348,51 +376,50 @@ export function Research() {
       </div>
 
       <div className="card">
-        <h3>ETF map · quotes</h3>
+        <h3>
+          ETF map · quotes · {selected}
+        </h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+          All known bull and bear single-stock ETFs for the selected underlying (not the full
+          universe).
+        </p>
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
-                <th className="left">Underlying</th>
-                <th className="left">Bull ETF</th>
-                <th>Bull factor</th>
-                <th className="left">Bear ETF</th>
-                <th>Bear factor</th>
+                <th className="left">Direction</th>
+                <th className="left">ETF</th>
+                <th>Factor</th>
+                <th>ETF last</th>
+                <th>ETF day %</th>
                 <th>Underlying last</th>
-                <th>Bull last</th>
-                <th>Bear last</th>
                 <th>Underlying day %</th>
-                <th>Bull day %</th>
-                <th>Bear day %</th>
+                <th className="left">Source</th>
                 <th>Updated</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.underlying}
-                  className={r.underlying === selected ? 'row-selected' : undefined}
-                  onClick={() => setSelected(r.underlying)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <td className="left mono">{r.underlying}</td>
-                  <td className="left mono">{r.bullEtf ?? '—'}</td>
-                  <td className="mono">{fmtFactor(r.bullFactor)}</td>
-                  <td className="left mono">{r.bearEtf ?? '—'}</td>
-                  <td className="mono">{fmtFactor(r.bearFactor)}</td>
+              {selectedEtfTableRows.map((r) => (
+                <tr key={`${r.direction}-${r.etf}`}>
+                  <td className="left">
+                    <span className={r.direction === 'bull' ? 'badge bull-badge' : 'badge bear-badge'}>
+                      {r.direction === 'bull' ? 'Bull' : 'Bear'}
+                    </span>
+                  </td>
+                  <td className="left mono">{r.etf}</td>
+                  <td className="mono">{fmtFactor(r.factor)}</td>
+                  <td className="mono">{fmtMoney(r.etfLast)}</td>
+                  <td className={pnlClass(r.etfDayPct)}>{fmtPct(r.etfDayPct)}</td>
                   <td className="mono">{fmtMoney(r.underlyingLast)}</td>
-                  <td className="mono">{fmtMoney(r.bullLast)}</td>
-                  <td className="mono">{fmtMoney(r.bearLast)}</td>
                   <td className={pnlClass(r.underlyingDayPct)}>{fmtPct(r.underlyingDayPct)}</td>
-                  <td className={pnlClass(r.bullDayPct)}>{fmtPct(r.bullDayPct)}</td>
-                  <td className={pnlClass(r.bearDayPct)}>{fmtPct(r.bearDayPct)}</td>
-                  <td className="muted">{fmtTime(r.updated)}</td>
+                  <td className="left muted">{r.source || '—'}</td>
+                  <td className="muted">{fmtTime(r.quoteUpdated)}</td>
                 </tr>
               ))}
-              {!rows.length && (
+              {!selectedEtfTableRows.length && (
                 <tr>
-                  <td colSpan={12} className="left muted">
-                    No research data yet. Click Refresh.
+                  <td colSpan={9} className="left muted">
+                    No bull/bear ETFs mapped for {selected} yet. Click Refresh.
                   </td>
                 </tr>
               )}

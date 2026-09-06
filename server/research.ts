@@ -180,44 +180,6 @@ export async function upsertMarkWithDayPct(
   );
 }
 
-export async function ensureResearchSeeded(): Promise<void> {
-  for (const u of RESEARCH_UNIVERSE) {
-    await query(
-      `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (symbol) DO UPDATE SET
-         name = EXCLUDED.name,
-         sort_order = EXCLUDED.sort_order,
-         sector_note = EXCLUDED.sector_note`,
-      [u.symbol, u.name, u.sortOrder, u.sectorNote],
-    );
-  }
-
-  for (const m of RESEARCH_SEED_MAPS) {
-    await query(
-      `INSERT INTO research_etf_map (underlying, etf, direction, factor, source, updated_at)
-       VALUES ($1, $2, $3, $4, 'seed', NOW())
-       ON CONFLICT (underlying, etf) DO UPDATE SET
-         direction = EXCLUDED.direction,
-         factor = EXCLUDED.factor,
-         source = CASE
-           WHEN research_etf_map.source = 'override' THEN research_etf_map.source
-           ELSE EXCLUDED.source
-         END,
-         updated_at = NOW()`,
-      [m.underlying, m.etf, m.direction, m.factor],
-    );
-
-    // Keep pair_cache in sync for CrossCheck / pair resolver
-    await query(
-      `INSERT INTO pair_cache (etf, underlying, factor, theme, source, raw_name, resolved_at)
-       VALUES ($1, $2, $3, $4, 'seed', NULL, NOW())
-       ON CONFLICT (etf) DO NOTHING`,
-      [m.etf, m.underlying, m.factor, `${m.underlying} family`],
-    );
-  }
-}
-
 async function listUniverse(): Promise<UniverseRow[]> {
   const res = await query<{
     symbol: string;
@@ -264,6 +226,45 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
     updatedAt:
       typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
   }));
+}
+
+export async function ensureResearchSeeded(): Promise<void> {
+  // Seed once: do not re-insert removed symbols or overwrite user edits.
+  for (const u of RESEARCH_UNIVERSE) {
+    await query(
+      `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (symbol) DO NOTHING`,
+      [u.symbol, u.name, u.sortOrder, u.sectorNote],
+    );
+  }
+
+  const present = new Set((await listUniverse()).map((u) => u.symbol));
+
+  for (const m of RESEARCH_SEED_MAPS) {
+    if (!present.has(m.underlying)) continue;
+    await query(
+      `INSERT INTO research_etf_map (underlying, etf, direction, factor, source, updated_at)
+       VALUES ($1, $2, $3, $4, 'seed', NOW())
+       ON CONFLICT (underlying, etf) DO UPDATE SET
+         direction = EXCLUDED.direction,
+         factor = EXCLUDED.factor,
+         source = CASE
+           WHEN research_etf_map.source = 'override' THEN research_etf_map.source
+           ELSE EXCLUDED.source
+         END,
+         updated_at = NOW()`,
+      [m.underlying, m.etf, m.direction, m.factor],
+    );
+
+    // Keep pair_cache in sync for CrossCheck / pair resolver
+    await query(
+      `INSERT INTO pair_cache (etf, underlying, factor, theme, source, raw_name, resolved_at)
+       VALUES ($1, $2, $3, $4, 'seed', NULL, NOW())
+       ON CONFLICT (etf) DO NOTHING`,
+      [m.etf, m.underlying, m.factor, `${m.underlying} family`],
+    );
+  }
 }
 
 async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>> {
@@ -337,92 +338,117 @@ async function saveDiscoveredMap(
   );
 }
 
+/** Probe candidate tickers and Yahoo search for one underlying. */
+export async function discoverMapsForSymbol(symbol: string): Promise<{ discovered: string[] }> {
+  const discovered: string[] = [];
+  const sym = symbol.toUpperCase();
+  const universe = await listUniverse();
+  const u = universe.find((x) => x.symbol === sym) ?? {
+    symbol: sym,
+    name: sym,
+    sortOrder: 0,
+    sectorNote: '',
+  };
+
+  const existing = await listMaps(u.symbol);
+  const haveBull = existing.some((m) => m.direction === 'bull');
+  const haveBear = existing.some((m) => m.direction === 'bear');
+  const candidates = DISCOVERY_CANDIDATES[u.symbol] ?? [];
+
+  // Also try common ticker patterns if missing a side
+  const patterns: string[] = [];
+  if (!haveBull) {
+    patterns.push(`${u.symbol}L`, `${u.symbol}U`, `${u.symbol}X`);
+  }
+  if (!haveBear) {
+    patterns.push(`${u.symbol}S`, `${u.symbol}Z`, `${u.symbol}D`, `${u.symbol}Q`);
+  }
+
+  const toTry = Array.from(new Set([...candidates, ...patterns])).filter(
+    (t) => t !== u.symbol && !existing.some((m) => m.etf === t),
+  );
+
+  for (const cand of toTry) {
+    try {
+      const meta = await fetchYahooMeta(cand);
+      const name = meta.longName || meta.shortName || '';
+      if (!name) continue;
+      const { factor, bull } = parseLeverageFromName(name);
+      const under = guessUnderlying(name, cand) ?? u.symbol;
+      if (under !== u.symbol) continue;
+      if (factor === null || bull === null) continue;
+      const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
+      let f = factor;
+      if (direction === 'bear' && f > 0) f = -f;
+      if (direction === 'bull' && f < 0) f = Math.abs(f);
+      await saveDiscoveredMap(u.symbol, cand, direction, f, 'yahoo');
+      discovered.push(`${cand}->${u.symbol}`);
+      await new Promise((r) => setTimeout(r, 100));
+    } catch {
+      // candidate missing / not an ETF
+    }
+  }
+
+  // Yahoo finance search for "2x Long SYMBOL"
+  if (!haveBull || !haveBear) {
+    try {
+      const q = encodeURIComponent(`2x ${u.symbol}`);
+      const res = await fetch(
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${q}&quotesCount=8&newsCount=0`,
+        { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          quotes?: Array<{ symbol?: string; shortname?: string; longname?: string }>;
+        };
+        const known = await listMaps(u.symbol);
+        for (const quote of data.quotes ?? []) {
+          const etfSym = (quote.symbol || '').toUpperCase();
+          if (!etfSym || etfSym === u.symbol || etfSym.includes('.')) continue;
+          if (known.some((m) => m.etf === etfSym)) continue;
+          const name = quote.longname || quote.shortname || '';
+          const { factor, bull } = parseLeverageFromName(name);
+          const under = guessUnderlying(name, etfSym);
+          if (under !== u.symbol || factor === null || bull === null) continue;
+          const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
+          let f = factor;
+          if (direction === 'bear' && f > 0) f = -f;
+          if (direction === 'bull' && f < 0) f = Math.abs(f);
+          // Verify live quote exists
+          try {
+            await fetchYahooMeta(etfSym);
+            await saveDiscoveredMap(u.symbol, etfSym, direction, f, 'yahoo');
+            discovered.push(`${etfSym}->${u.symbol}`);
+            known.push({
+              underlying: u.symbol,
+              etf: etfSym,
+              direction,
+              factor: f,
+              source: 'yahoo',
+              updatedAt: new Date().toISOString(),
+            });
+          } catch {
+            // skip
+          }
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      }
+    } catch {
+      // search best-effort
+    }
+  }
+
+  return { discovered };
+}
+
 /** Probe candidate tickers and Yahoo search; persist verified single-stock ETFs. */
 export async function discoverMapsForUniverse(): Promise<{ discovered: string[] }> {
   const discovered: string[] = [];
   const universe = await listUniverse();
-
   for (const u of universe) {
-    const existing = await listMaps(u.symbol);
-    const haveBull = existing.some((m) => m.direction === 'bull');
-    const haveBear = existing.some((m) => m.direction === 'bear');
-    const candidates = DISCOVERY_CANDIDATES[u.symbol] ?? [];
-
-    // Also try common ticker patterns if missing a side
-    const patterns: string[] = [];
-    if (!haveBull) {
-      patterns.push(`${u.symbol}L`, `${u.symbol}U`, `${u.symbol}X`);
-    }
-    if (!haveBear) {
-      patterns.push(`${u.symbol}S`, `${u.symbol}Z`, `${u.symbol}D`, `${u.symbol}Q`);
-    }
-
-    const toTry = Array.from(new Set([...candidates, ...patterns])).filter(
-      (t) => t !== u.symbol && !existing.some((m) => m.etf === t),
-    );
-
-    for (const cand of toTry) {
-      try {
-        const meta = await fetchYahooMeta(cand);
-        const name = meta.longName || meta.shortName || '';
-        if (!name) continue;
-        const { factor, bull } = parseLeverageFromName(name);
-        const under = guessUnderlying(name, cand) ?? u.symbol;
-        if (under !== u.symbol) continue;
-        if (factor === null || bull === null) continue;
-        const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
-        let f = factor;
-        if (direction === 'bear' && f > 0) f = -f;
-        if (direction === 'bull' && f < 0) f = Math.abs(f);
-        await saveDiscoveredMap(u.symbol, cand, direction, f, 'yahoo');
-        discovered.push(`${cand}->${u.symbol}`);
-        await new Promise((r) => setTimeout(r, 100));
-      } catch {
-        // candidate missing / not an ETF
-      }
-    }
-
-    // Yahoo finance search for "2x Long SYMBOL"
-    if (!haveBull || !haveBear) {
-      try {
-        const q = encodeURIComponent(`2x ${u.symbol}`);
-        const res = await fetch(
-          `https://query2.finance.yahoo.com/v1/finance/search?q=${q}&quotesCount=8&newsCount=0`,
-          { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
-        );
-        if (res.ok) {
-          const data = (await res.json()) as {
-            quotes?: Array<{ symbol?: string; shortname?: string; longname?: string }>;
-          };
-          for (const quote of data.quotes ?? []) {
-            const sym = (quote.symbol || '').toUpperCase();
-            if (!sym || sym === u.symbol || sym.includes('.')) continue;
-            if (existing.some((m) => m.etf === sym)) continue;
-            const name = quote.longname || quote.shortname || '';
-            const { factor, bull } = parseLeverageFromName(name);
-            const under = guessUnderlying(name, sym);
-            if (under !== u.symbol || factor === null || bull === null) continue;
-            const direction: 'bull' | 'bear' = bull ? 'bull' : 'bear';
-            let f = factor;
-            if (direction === 'bear' && f > 0) f = -f;
-            if (direction === 'bull' && f < 0) f = Math.abs(f);
-            // Verify live quote exists
-            try {
-              await fetchYahooMeta(sym);
-              await saveDiscoveredMap(u.symbol, sym, direction, f, 'yahoo');
-              discovered.push(`${sym}->${u.symbol}`);
-            } catch {
-              // skip
-            }
-            await new Promise((r) => setTimeout(r, 80));
-          }
-        }
-      } catch {
-        // search best-effort
-      }
-    }
+    const d = await discoverMapsForSymbol(u.symbol);
+    discovered.push(...d.discovered);
   }
-
   return { discovered };
 }
 
@@ -475,6 +501,30 @@ export async function refreshResearchQuotes(): Promise<{
     failed: string[];
     refreshedAt: string;
   }>;
+}
+
+export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
+  ok: boolean;
+  updated: string[];
+  failed: string[];
+  refreshedAt: string;
+}> {
+  const unique = Array.from(new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean)));
+  const updated: string[] = [];
+  const failed: string[] = [];
+  for (const symbol of unique) {
+    try {
+      const q = await fetchYahooQuoteFull(symbol);
+      await upsertMarkWithDayPct(symbol, q.price, q.dayPct, 'yahoo');
+      updated.push(symbol);
+      await new Promise((r) => setTimeout(r, 80));
+    } catch {
+      failed.push(symbol);
+    }
+  }
+  const refreshedAt = new Date().toISOString();
+  if (updated.length) lastResearchRefreshAt = refreshedAt;
+  return { ok: updated.length > 0, updated, failed, refreshedAt };
 }
 
 export async function fetchChartSeries(
@@ -730,6 +780,163 @@ export async function postResearchRefreshHandler(c: Context) {
   const quotes = await refreshResearchQuotes();
   const summary = await getResearchSummary();
   return c.json({ ...quotes, discovered, summary });
+}
+
+const SYMBOL_RE = /^[A-Za-z0-9]{1,10}$/;
+
+export function normalizeResearchSymbol(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const sym = raw.trim().toUpperCase();
+  if (!SYMBOL_RE.test(sym)) return null;
+  return sym;
+}
+
+export async function addResearchUniverseSymbol(input: {
+  symbol: string;
+  name?: string;
+  sectorNote?: string;
+}): Promise<{ universe: UniverseRow[]; discovered: string[]; quotes: { updated: string[]; failed: string[] } }> {
+  const symbol = normalizeResearchSymbol(input.symbol);
+  if (!symbol) throw new Error('Invalid symbol: letters/digits only, 1–10 chars');
+
+  let name = (input.name ?? '').trim();
+  const sectorNote = (input.sectorNote ?? '').trim();
+
+  if (!name) {
+    try {
+      const meta = await fetchYahooMeta(symbol);
+      name = meta.shortName || meta.longName || symbol;
+    } catch {
+      name = symbol;
+    }
+  }
+
+  const maxRes = await query<{ max: number | null }>(
+    `SELECT MAX(sort_order) AS max FROM research_universe`,
+  );
+  const nextOrder = Number(maxRes.rows[0]?.max ?? 0) + 1;
+
+  await query(
+    `INSERT INTO research_universe (symbol, name, sort_order, sector_note)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (symbol) DO UPDATE SET
+       name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE research_universe.name END,
+       sector_note = CASE
+         WHEN EXCLUDED.sector_note <> '' THEN EXCLUDED.sector_note
+         ELSE research_universe.sector_note
+       END`,
+    [symbol, name, nextOrder, sectorNote],
+  );
+
+  // Apply curated seed maps for this underlying if any
+  for (const m of RESEARCH_SEED_MAPS.filter((x) => x.underlying === symbol)) {
+    await query(
+      `INSERT INTO research_etf_map (underlying, etf, direction, factor, source, updated_at)
+       VALUES ($1, $2, $3, $4, 'seed', NOW())
+       ON CONFLICT (underlying, etf) DO UPDATE SET
+         direction = EXCLUDED.direction,
+         factor = EXCLUDED.factor,
+         source = CASE
+           WHEN research_etf_map.source = 'override' THEN research_etf_map.source
+           ELSE EXCLUDED.source
+         END,
+         updated_at = NOW()`,
+      [m.underlying, m.etf, m.direction, m.factor],
+    );
+    await query(
+      `INSERT INTO pair_cache (etf, underlying, factor, theme, source, raw_name, resolved_at)
+       VALUES ($1, $2, $3, $4, 'seed', NULL, NOW())
+       ON CONFLICT (etf) DO NOTHING`,
+      [m.etf, m.underlying, m.factor, `${m.underlying} family`],
+    );
+  }
+
+  const { discovered } = await discoverMapsForSymbol(symbol);
+  const maps = await listMaps(symbol);
+  const quoteSymbols = [symbol, ...maps.map((m) => m.etf)];
+  const quotes = await refreshQuotesForSymbols(quoteSymbols);
+  const universe = await listUniverse();
+  return { universe, discovered, quotes: { updated: quotes.updated, failed: quotes.failed } };
+}
+
+export async function removeResearchUniverseSymbol(symbolRaw: string): Promise<{ universe: UniverseRow[] }> {
+  const symbol = normalizeResearchSymbol(symbolRaw);
+  if (!symbol) throw new Error('Invalid symbol: letters/digits only, 1–10 chars');
+
+  await query(`DELETE FROM research_etf_map WHERE underlying = $1`, [symbol]);
+  await query(`DELETE FROM research_universe WHERE symbol = $1`, [symbol]);
+  const universe = await listUniverse();
+  return { universe };
+}
+
+export async function reorderResearchUniverse(symbols: string[]): Promise<{ universe: UniverseRow[] }> {
+  if (!Array.isArray(symbols) || !symbols.length) {
+    throw new Error('symbols array required');
+  }
+  const normalized: string[] = [];
+  for (const s of symbols) {
+    const sym = normalizeResearchSymbol(s);
+    if (!sym) throw new Error(`Invalid symbol: ${String(s)}`);
+    if (!normalized.includes(sym)) normalized.push(sym);
+  }
+  for (let i = 0; i < normalized.length; i++) {
+    await query(`UPDATE research_universe SET sort_order = $1 WHERE symbol = $2`, [
+      i + 1,
+      normalized[i],
+    ]);
+  }
+  return { universe: await listUniverse() };
+}
+
+export async function postResearchUniverseHandler(c: Context) {
+  let body: { symbol?: string; name?: string; sectorNote?: string } = {};
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+  const symbol = normalizeResearchSymbol(body.symbol);
+  if (!symbol) {
+    return c.json({ error: 'Invalid symbol: letters/digits only, 1–10 chars' }, 400);
+  }
+  try {
+    const result = await addResearchUniverseSymbol({
+      symbol,
+      name: body.name,
+      sectorNote: body.sectorNote,
+    });
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+}
+
+export async function deleteResearchUniverseHandler(c: Context) {
+  const symbol = normalizeResearchSymbol(c.req.param('symbol') || '');
+  if (!symbol) {
+    return c.json({ error: 'Invalid symbol: letters/digits only, 1–10 chars' }, 400);
+  }
+  try {
+    const result = await removeResearchUniverseSymbol(symbol);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+}
+
+export async function putResearchUniverseReorderHandler(c: Context) {
+  let body: { symbols?: string[] } = {};
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ error: 'JSON body required' }, 400);
+  }
+  try {
+    const result = await reorderResearchUniverse(body.symbols ?? []);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: String(e) }, 400);
+  }
 }
 
 export function startResearchRefreshCron(intervalMs = 15 * 60 * 1000): void {

@@ -20,10 +20,13 @@ import {
   startQuoteRefreshCron,
 } from './quotes.js';
 import {
+  deleteResearchUniverseHandler,
   ensureResearchSeeded,
   getResearchHandler,
   getResearchSymbolHandler,
   postResearchRefreshHandler,
+  postResearchUniverseHandler,
+  putResearchUniverseReorderHandler,
   startResearchRefreshCron,
 } from './research.js';
 import { getSettings, putSettings } from './settings.js';
@@ -78,8 +81,11 @@ app.get('/api/settings', getSettings);
 app.put('/api/settings', putSettings);
 
 app.get('/api/research', getResearchHandler);
-app.get('/api/research/:symbol', getResearchSymbolHandler);
 app.post('/api/research/refresh', postResearchRefreshHandler);
+app.post('/api/research/universe', postResearchUniverseHandler);
+app.put('/api/research/universe/reorder', putResearchUniverseReorderHandler);
+app.delete('/api/research/universe/:symbol', deleteResearchUniverseHandler);
+app.get('/api/research/:symbol', getResearchSymbolHandler);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const distCandidates = [

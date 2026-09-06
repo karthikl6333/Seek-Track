@@ -96,6 +96,27 @@ async function apiGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const j = JSON.parse(text) as { error?: string };
+      if (j?.error) msg = j.error;
+      else if (text) msg += `: ${text}`;
+    } catch {
+      if (text) msg += `: ${text}`;
+    }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
 function fmtFactor(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   const sign = n > 0 ? '+' : '';
@@ -122,12 +143,15 @@ export function Research() {
   const [selected, setSelected] = useState<string>('NVDA');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addSymbol, setAddSymbol] = useState('');
+  const [addName, setAddName] = useState('');
+  const [universeBusy, setUniverseBusy] = useState(false);
 
   const loadSummary = useCallback(async () => {
     const data = await apiGet<ResearchSummary>('/api/research');
     setSummary(data);
-    if (data.universe.length && !data.universe.some((u) => u.symbol === selected)) {
-      setSelected(data.universe[0].symbol);
+    if (!data.universe.some((u) => u.symbol === selected)) {
+      setSelected(data.universe[0]?.symbol ?? '');
     }
   }, [selected]);
 
@@ -148,7 +172,8 @@ export function Research() {
         });
       }
       await loadSummary();
-      await loadDetail(selected);
+      if (selected) await loadDetail(selected);
+      else setDetail(null);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -156,11 +181,67 @@ export function Research() {
     }
   }, [loadDetail, loadSummary, selected]);
 
+  const handleAddUniverse = useCallback(async () => {
+    const sym = addSymbol.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,10}$/.test(sym)) {
+      setError('Ticker: letters/digits only, 1–10 chars');
+      return;
+    }
+    setUniverseBusy(true);
+    setError(null);
+    try {
+      const body: { symbol: string; name?: string } = { symbol: sym };
+      const name = addName.trim();
+      if (name) body.name = name;
+      await apiSend<{ universe: UniverseRow[] }>('/api/research/universe', 'POST', body);
+      setAddSymbol('');
+      setAddName('');
+      setSelected(sym);
+      await loadSummary();
+      await loadDetail(sym);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUniverseBusy(false);
+    }
+  }, [addSymbol, addName, loadSummary, loadDetail]);
+
+  const handleRemoveUniverse = useCallback(
+    async (symbol: string) => {
+      if (!window.confirm(`Remove ${symbol} from research universe?`)) return;
+      setUniverseBusy(true);
+      setError(null);
+      try {
+        const result = await apiSend<{ universe: UniverseRow[] }>(
+          `/api/research/universe/${encodeURIComponent(symbol)}`,
+          'DELETE',
+        );
+        const next =
+          selected === symbol
+            ? result.universe[0]?.symbol ?? ''
+            : selected;
+        if (next !== selected) setSelected(next);
+        await loadSummary();
+        if (next) await loadDetail(next);
+        else setDetail(null);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setUniverseBusy(false);
+      }
+    },
+    [selected, loadSummary, loadDetail],
+  );
+
   useEffect(() => {
     void refreshAll(false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!selected) {
+      setDetail(null);
+      return;
+    }
     let cancelled = false;
     setBusy(true);
     loadDetail(selected)
@@ -227,30 +308,82 @@ export function Research() {
           <div>
             <h3 style={{ marginBottom: 4 }}>Universe</h3>
             <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-              Top silicon / semiconductor names · quotes refresh ~15m
+              Add/remove tickers · quotes refresh ~15m
             </p>
           </div>
           <button
             type="button"
             className="btn small"
-            disabled={busy}
+            disabled={busy || universeBusy}
             onClick={() => void refreshAll(true)}
           >
             {busy ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
+        <div className="universe-controls">
+          <input
+            className="universe-input mono"
+            type="text"
+            placeholder="Ticker"
+            maxLength={10}
+            value={addSymbol}
+            disabled={universeBusy}
+            onChange={(e) => setAddSymbol(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleAddUniverse();
+            }}
+            aria-label="Add ticker"
+          />
+          <input
+            className="universe-input"
+            type="text"
+            placeholder="Name (optional)"
+            value={addName}
+            disabled={universeBusy}
+            onChange={(e) => setAddName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleAddUniverse();
+            }}
+            aria-label="Optional name"
+          />
+          <button
+            type="button"
+            className="btn small"
+            disabled={universeBusy || !addSymbol.trim()}
+            onClick={() => void handleAddUniverse()}
+          >
+            {universeBusy ? '…' : 'Add'}
+          </button>
+        </div>
         <div className="ticker-row">
           {universe.map((u) => (
-            <button
+            <div
               key={u.symbol}
-              type="button"
-              className={`ticker-btn${selected === u.symbol ? ' active' : ''}`}
-              onClick={() => setSelected(u.symbol)}
-              title={u.name}
+              className={`ticker-chip${selected === u.symbol ? ' active' : ''}`}
             >
-              <span className="mono">{u.symbol}</span>
-              <span className="ticker-name">{u.name}</span>
-            </button>
+              <button
+                type="button"
+                className="ticker-btn"
+                onClick={() => setSelected(u.symbol)}
+                title={u.name}
+              >
+                <span className="mono">{u.symbol}</span>
+                <span className="ticker-name">{u.name}</span>
+              </button>
+              <button
+                type="button"
+                className="ticker-remove"
+                title={`Remove ${u.symbol}`}
+                disabled={universeBusy}
+                aria-label={`Remove ${u.symbol}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleRemoveUniverse(u.symbol);
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       </div>

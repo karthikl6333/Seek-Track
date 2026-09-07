@@ -1,9 +1,9 @@
-import { neonConfig, Pool, type NeonQueryFunction, type PoolClient } from '@neondatabase/serverless';
+import { neon } from '@neondatabase/serverless';
 
-// Neon serverless Pool for Cloudflare Workers compatibility
-// Falls back to node-pg Pool for local development
+// Use Neon HTTP driver for Cloudflare Workers compatibility
+// HTTP driver works everywhere: Workers and Node.js
 
-let pool: Pool | null = null;
+let sql: ReturnType<typeof neon> | null = null;
 let isCloudflareEnv = false;
 
 // Detect Cloudflare Workers environment
@@ -18,36 +18,43 @@ if (typeof globalThis !== 'undefined') {
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;
 
-export function getPool(): Pool {
-  if (!pool) {
+export function getSQL() {
+  if (!sql) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error('DATABASE_URL is required');
     }
 
-    // Configure Neon for Cloudflare Workers (uses fetch for WebSocket upgrade)
-    if (isCloudflareEnv) {
-      // In Cloudflare Workers, use fetch-based WebSocket
-      neonConfig.fetchConnectionCache = true;
-      // Cloudflare Workers have a global fetch
-      neonConfig.webSocketConstructor = (globalThis as any).WebSocket;
-    }
-
-    pool = new Pool({ 
-      connectionString,
-      // Neon serverless handles SSL automatically
-    });
+    // Use Neon HTTP driver with fullResults for proper row metadata
+    sql = neon(connectionString, { fullResults: true });
   }
-  return pool;
+  return sql;
+}
+
+/**
+ * Strip SQL line comments (-- ...) before splitting into statements.
+ * Prevents false semicolon splits on commented semicolons like "Research; never re-seed"
+ */
+function stripSqlLineComments(sqlText: string): string {
+  return sqlText
+    .split('\n')
+    .map((line) => {
+      const commentIdx = line.indexOf('--');
+      if (commentIdx >= 0) {
+        return line.slice(0, commentIdx);
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 export async function ensureSchema(): Promise<void> {
-  const p = getPool();
+  const db = getSQL();
   
-  let sql: string | null = EMBEDDED_SCHEMA;
+  let schemaText: string | null = EMBEDDED_SCHEMA;
   
   // If schema not embedded (local dev), try reading from filesystem
-  if (!sql && typeof process !== 'undefined' && process.versions?.node) {
+  if (!schemaText && typeof process !== 'undefined' && process.versions?.node) {
     try {
       // Dynamic imports for Node-only modules (won't be in Workers bundle)
       const { readFileSync } = await import('node:fs');
@@ -63,7 +70,7 @@ export async function ensureSchema(): Promise<void> {
       
       for (const path of candidates) {
         try {
-          sql = readFileSync(path, 'utf8');
+          schemaText = readFileSync(path, 'utf8');
           break;
         } catch {
           // try next
@@ -74,11 +81,23 @@ export async function ensureSchema(): Promise<void> {
     }
   }
   
-  if (!sql) {
+  if (!schemaText) {
     throw new Error('Could not find schema.sql (not embedded and filesystem unavailable)');
   }
   
-  await p.query(sql);
+  // CRITICAL: Strip line comments BEFORE splitting to avoid false splits on "Research; never..."
+  const cleaned = stripSqlLineComments(schemaText);
+  
+  // Split into individual statements (naive semicolon split works AFTER comment stripping)
+  const statements = cleaned
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  
+  // Execute all DDL statements in ONE transaction (required for Neon HTTP driver)
+  // Use sql.query() for raw SQL strings within transaction
+  const queries = statements.map((stmt) => db.query(stmt, []));
+  await db.transaction(queries);
 }
 
 export interface QueryResult<T = any> {
@@ -90,9 +109,14 @@ export async function query<T = any>(
   text: string,
   params?: unknown[],
 ): Promise<QueryResult<T>> {
-  const result = await getPool().query(text, params);
+  const db = getSQL();
+  // Use .query() method for parameterized queries with $1, $2 placeholders
+  const result = await db.query(text, params ?? []);
+  // Neon HTTP driver with fullResults returns { rows, rowCount, fields, ... }
+  // Type assertion needed because result type is union
+  const fullResult = result as { rows: T[]; rowCount: number };
   return {
-    rows: result.rows as T[],
-    rowCount: result.rowCount,
+    rows: fullResult.rows,
+    rowCount: fullResult.rowCount,
   };
 }

@@ -363,6 +363,12 @@ export async function refreshQuotesHandler(c: Context) {
 }
 
 export function startQuoteRefreshCron(intervalMs = 15 * 60 * 1000): void {
+  // DISABLE in Cloudflare Workers (scheduled cron triggers too many subrequests on free tier)
+  if (typeof process === 'undefined' || !process.versions?.node) {
+    console.log('Quote refresh cron disabled in Workers environment');
+    return;
+  }
+  
   setTimeout(() => {
     void refreshQuotes().catch((e) => console.error('quote refresh failed:', e));
   }, 5_000);

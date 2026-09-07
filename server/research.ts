@@ -183,6 +183,19 @@ export function nameMentionsUnderlying(
   return false;
 }
 
+/**
+ * Reliable Cloudflare Workers detection.
+ * nodejs_compat makes process.versions.node unreliable, so check CF-specific globals.
+ */
+function isCloudflareWorkers(): boolean {
+  // CF Workers have HTMLRewriter and caches, but no DOM window
+  return (
+    typeof (globalThis as any).HTMLRewriter !== 'undefined' &&
+    typeof (globalThis as any).caches !== 'undefined' &&
+    typeof (globalThis as any).window === 'undefined'
+  );
+}
+
 let researchRefreshInFlight: Promise<unknown> | null = null;
 let lastResearchRefreshAt: string | null = null;
 
@@ -288,7 +301,7 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
         direction: string;
         factor: number;
         source: string;
-        updated_at: Date | string;
+        updated_at: Date | string | null;
       }>(
         `SELECT * FROM research_etf_map WHERE underlying = $1 ORDER BY direction, abs(factor) DESC, etf`,
         [underlying.toUpperCase()],
@@ -299,7 +312,7 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
         direction: string;
         factor: number;
         source: string;
-        updated_at: Date | string;
+        updated_at: Date | string | null;
       }>(`SELECT * FROM research_etf_map ORDER BY underlying, direction, abs(factor) DESC, etf`);
 
   return res.rows.map((r) => ({
@@ -309,7 +322,11 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
     factor: Number(r.factor),
     source: r.source,
     updatedAt:
-      typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
+      r.updated_at === null
+        ? new Date().toISOString()
+        : typeof r.updated_at === 'string'
+          ? r.updated_at
+          : r.updated_at.toISOString(),
   }));
 }
 
@@ -335,6 +352,18 @@ export async function ensureResearchSeeded(): Promise<void> {
   );
   const count = Number(countRes.rows[0]?.n ?? 0);
   const alreadySeeded = await getResearchUniverseSeededFlag();
+
+  // CRITICAL: Early return when data already seeded (skip expensive DELETE + INSERT loops on every GET)
+  if (count > 0 && alreadySeeded) {
+    return;
+  }
+
+  // DISABLE expensive seeding on Cloudflare Workers (causes "Too many subrequests" on free tier)
+  // Workers should rely on data already seeded via Node.js local boot or manual admin tool
+  if (isCloudflareWorkers()) {
+    console.log('ensureResearchSeeded: skipping seed on Cloudflare Workers');
+    return;
+  }
 
   if (count > 0 && !alreadySeeded) {
     await setResearchUniverseSeededFlag();
@@ -1133,37 +1162,52 @@ export async function getResearchDetail(symbol: string) {
 }
 
 export async function getResearchHandler(c: Context) {
-  const data = await getResearchSummary();
-  return c.json(data);
+  try {
+    const data = await getResearchSummary();
+    return c.json(data);
+  } catch (err) {
+    console.error('getResearchHandler error:', err);
+    return c.json({ error: String(err) }, 500);
+  }
 }
 
 export async function getResearchSymbolHandler(c: Context) {
-  const symbol = c.req.param('symbol') || '';
-  if (!symbol) return c.json({ error: 'symbol required' }, 400);
-  const data = await getResearchDetail(symbol);
-  if (!data) return c.json({ error: 'Unknown research symbol' }, 404);
-  return c.json(data);
+  try {
+    const symbol = c.req.param('symbol') || '';
+    if (!symbol) return c.json({ error: 'symbol required' }, 400);
+    const data = await getResearchDetail(symbol);
+    if (!data) return c.json({ error: 'Unknown research symbol' }, 404);
+    return c.json(data);
+  } catch (err) {
+    console.error('getResearchSymbolHandler error:', err);
+    return c.json({ error: String(err) }, 500);
+  }
 }
 
 export async function postResearchRefreshHandler(c: Context) {
-  await ensureResearchSeeded();
-  let remap = true;
   try {
-    const body = await c.req.json().catch(() => ({}));
-    if (body && body.remap === false) remap = false;
-  } catch {
-    // ignore
+    await ensureResearchSeeded();
+    let remap = true;
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (body && body.remap === false) remap = false;
+    } catch {
+      // ignore
+    }
+    let discovered: string[] = [];
+    if (remap) {
+      const purged = await revalidateYahooMaps();
+      discovered.push(...purged.deleted.map((d) => `deleted:${d}`));
+      const d = await discoverMapsForUniverse();
+      discovered.push(...d.discovered);
+    }
+    const quotes = await refreshResearchQuotes();
+    const summary = await getResearchSummary();
+    return c.json({ ...quotes, discovered, summary });
+  } catch (err) {
+    console.error('postResearchRefreshHandler error:', err);
+    return c.json({ error: String(err) }, 500);
   }
-  let discovered: string[] = [];
-  if (remap) {
-    const purged = await revalidateYahooMaps();
-    discovered.push(...purged.deleted.map((d) => `deleted:${d}`));
-    const d = await discoverMapsForUniverse();
-    discovered.push(...d.discovered);
-  }
-  const quotes = await refreshResearchQuotes();
-  const summary = await getResearchSummary();
-  return c.json({ ...quotes, discovered, summary });
 }
 
 const SYMBOL_RE = /^[A-Za-z0-9]{1,10}$/;
@@ -1334,9 +1378,9 @@ export async function putResearchUniverseReorderHandler(c: Context) {
 }
 
 export function startResearchRefreshCron(intervalMs = 15 * 60 * 1000): void {
-  // DISABLE in Cloudflare Workers (scheduled cron triggers too many subrequests on free tier)
-  if (typeof process === 'undefined' || !process.versions?.node) {
-    console.log('Research refresh cron disabled in Workers environment');
+  // DISABLE in Cloudflare Workers (scheduled cron + seeding cause "Too many subrequests" on free tier)
+  if (isCloudflareWorkers()) {
+    console.log('Research refresh cron disabled in Cloudflare Workers environment');
     return;
   }
   

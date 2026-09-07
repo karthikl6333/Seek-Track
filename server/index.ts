@@ -1,10 +1,5 @@
-import { serve as startServer } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createAuthMiddleware } from './auth.js';
 import { ensureSchema, query } from './db.js';
 import { deleteJournal, listJournal, postJournal } from './journal.js';
@@ -104,33 +99,53 @@ app.post('/api/watchlist', postWatchlistHandler);
 app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
 app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
 
-const here = dirname(fileURLToPath(import.meta.url));
-const distCandidates = [
-  join(process.cwd(), 'dist'),
-  join(here, '..', 'dist'),
-  join(here, 'dist'),
-];
-const distRoot = distCandidates.find((p) => existsSync(join(p, 'index.html')));
+// Export app for Cloudflare Workers/Pages Functions (must be before any Node-specific code)
+export default app;
 
-if (distRoot) {
-  let relativeRoot = distRoot;
-  const cwd = process.cwd();
-  if (distRoot.startsWith(cwd)) {
-    relativeRoot = distRoot.slice(cwd.length).replace(/^[/\\]/, '') || '.';
+// Setup static file serving for Node.js (not used in Cloudflare Workers)
+async function setupStaticServing() {
+  if (typeof process === 'undefined' || !process.versions?.node) {
+    // Not Node.js - Cloudflare serves static files directly
+    return;
   }
-  app.use('/*', serveStatic({ root: relativeRoot }));
-  app.get('*', serveStatic({ root: relativeRoot, path: 'index.html' }));
-} else {
-  app.get('/', (c) => c.text('Seek&Track API - build client first'));
+  
+  try {
+    // Dynamic imports for Node-only modules
+    const { serveStatic } = await import('@hono/node-server/serve-static');
+    const { existsSync } = await import('node:fs');
+    const { dirname, join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    
+    const here = dirname(fileURLToPath(import.meta.url));
+    const distCandidates = [
+      join(process.cwd(), 'dist'),
+      join(here, '..', 'dist'),
+      join(here, 'dist'),
+    ];
+    const distRoot = distCandidates.find((p) => existsSync(join(p, 'index.html')));
+
+    if (distRoot) {
+      let relativeRoot = distRoot;
+      const cwd = process.cwd();
+      if (distRoot.startsWith(cwd)) {
+        relativeRoot = distRoot.slice(cwd.length).replace(/^[/\\]/, '') || '.';
+      }
+      app.use('/*', serveStatic({ root: relativeRoot }));
+      app.get('*', serveStatic({ root: relativeRoot, path: 'index.html' }));
+    } else {
+      app.get('/', (c) => c.text('Seek&Track API - build client first'));
+    }
+  } catch (err) {
+    console.error('Failed to setup static serving:', err);
+    app.get('/', (c) => c.text('Seek&Track API - static assets not available'));
+  }
 }
 
 const port = Number(process.env.PORT || 3000);
 
-// Export app for Cloudflare Workers/Pages Functions
-export default app;
-
 // Node.js server entry (development and traditional hosting)
 async function main() {
+  await setupStaticServing();
   await ensureSchema();
   await ensureSeedPairsCached();
   await ensureResearchSeeded();
@@ -138,11 +153,14 @@ async function main() {
   startQuoteRefreshCron(15 * 60 * 1000);
   startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));
+  
+  // Dynamic import for Node-only server
+  const { serve: startServer } = await import('@hono/node-server');
   startServer({ fetch: app.fetch, port });
 }
 
-// Only run server when executed directly (not when imported)
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Only run server when executed directly (not when imported by Workers)
+if (typeof process !== 'undefined' && import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => {
     console.error('Failed to start server:', err);
     process.exitCode = 1;

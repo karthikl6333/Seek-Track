@@ -2,9 +2,10 @@
 /**
  * Prepare Cloudflare Pages deployment structure
  * Copies dist/ (static assets) and creates a _worker.js for the API
+ * Embeds schema.sql into db.js so it doesn't need filesystem access
  */
 
-import { existsSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, cpSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const rootDir = process.cwd();
@@ -29,6 +30,23 @@ console.log('Copying server code from dist-server/ to dist-cf/dist-server/...');
 const cfServerDir = join(cfDist, 'dist-server');
 mkdirSync(cfServerDir, { recursive: true });
 cpSync(distServer, cfServerDir, { recursive: true });
+
+// Read schema.sql and embed it into db.js
+console.log('Embedding schema.sql into db.js for Workers compatibility...');
+const schemaPath = join(rootDir, 'server', 'schema.sql');
+const schemaSql = readFileSync(schemaPath, 'utf8');
+const dbJsPath = join(cfServerDir, 'db.js');
+let dbJsContent = readFileSync(dbJsPath, 'utf8');
+
+// Replace the placeholder with the actual schema as a string literal
+// Escape backticks and backslashes in the SQL
+const escapedSql = schemaSql.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+dbJsContent = dbJsContent.replace(
+  '// @SCHEMA_SQL_PLACEHOLDER@\nlet EMBEDDED_SCHEMA = null;',
+  `// Schema embedded at build time for Cloudflare Workers\nconst EMBEDDED_SCHEMA = \`${escapedSql}\`;`
+);
+writeFileSync(dbJsPath, dbJsContent, 'utf8');
+console.log('✅ Schema embedded successfully');
 
 // Create _worker.js for Cloudflare Pages Advanced mode
 console.log('Creating _worker.js for Cloudflare Pages...');

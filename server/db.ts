@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { neonConfig, Pool, type NeonQueryFunction, type PoolClient } from '@neondatabase/serverless';
 
 // Neon serverless Pool for Cloudflare Workers compatibility
@@ -16,6 +13,10 @@ if (typeof globalThis !== 'undefined') {
     (typeof process === 'undefined' || !process.versions?.node) ||
     typeof (globalThis as any).WebSocketPair !== 'undefined';
 }
+
+// Embedded schema for Cloudflare Workers (injected at build time by prepare-cf-pages.js)
+// @SCHEMA_SQL_PLACEHOLDER@
+let EMBEDDED_SCHEMA: string | null = null;
 
 export function getPool(): Pool {
   if (!pool) {
@@ -42,25 +43,41 @@ export function getPool(): Pool {
 
 export async function ensureSchema(): Promise<void> {
   const p = getPool();
-  const here = dirname(fileURLToPath(import.meta.url));
-  // In production, schema.sql is copied next to the compiled JS; in dev, same folder.
-  const candidates = [
-    join(here, 'schema.sql'),
-    join(here, '..', 'server', 'schema.sql'),
-    join(process.cwd(), 'server', 'schema.sql'),
-  ];
-  let sql: string | null = null;
-  for (const path of candidates) {
+  
+  let sql: string | null = EMBEDDED_SCHEMA;
+  
+  // If schema not embedded (local dev), try reading from filesystem
+  if (!sql && typeof process !== 'undefined' && process.versions?.node) {
     try {
-      sql = readFileSync(path, 'utf8');
-      break;
-    } catch {
-      // try next
+      // Dynamic imports for Node-only modules (won't be in Workers bundle)
+      const { readFileSync } = await import('node:fs');
+      const { dirname, join } = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+      
+      const here = dirname(fileURLToPath(import.meta.url));
+      const candidates = [
+        join(here, 'schema.sql'),
+        join(here, '..', 'server', 'schema.sql'),
+        join(process.cwd(), 'server', 'schema.sql'),
+      ];
+      
+      for (const path of candidates) {
+        try {
+          sql = readFileSync(path, 'utf8');
+          break;
+        } catch {
+          // try next
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load schema from filesystem:', err);
     }
   }
+  
   if (!sql) {
-    throw new Error('Could not find schema.sql');
+    throw new Error('Could not find schema.sql (not embedded and filesystem unavailable)');
   }
+  
   await p.query(sql);
 }
 

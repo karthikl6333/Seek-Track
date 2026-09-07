@@ -4,7 +4,6 @@ import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
 import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
-import { CrossCheck } from './CrossCheck';
 import { CsvImport } from './CsvImport';
 
 export function Overview({ store }: { store: Store }) {
@@ -223,7 +222,6 @@ export function Overview({ store }: { store: Store }) {
             settingsPairs={settings?.pairs ?? []}
             onRefreshQuotes={() => void store.refreshLiveQuotes()}
           />
-          {settings && <CrossCheck pairs={settings.pairs} />}
 
           <div className="card">
             <h3>P&amp;L by Theme</h3>

@@ -1,0 +1,14 @@
+name = "seek-track"
+compatibility_date = "2024-01-01"
+
+# Build output for Cloudflare Pages
+# Run: npm run build:cf
+# Then: wrangler pages deploy dist-cf --project-name=seek-track
+
+# Environment variables (secrets) are managed via Cloudflare Dashboard or CLI:
+# wrangler pages secret put DATABASE_URL --project-name=seek-track
+# wrangler pages secret put AUTH_PASSWORD --project-name=seek-track
+# wrangler pages secret put AUTH_USER --project-name=seek-track (optional, defaults to "admin")
+
+[env.production]
+# Production environment - secrets set via wrangler pages secret put

@@ -5,6 +5,7 @@ import { cors } from 'hono/cors';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAuthMiddleware } from './auth.js';
 import { ensureSchema, query } from './db.js';
 import { deleteJournal, listJournal, postJournal } from './journal.js';
 import {
@@ -53,6 +54,10 @@ app.use(
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
+
+// Apply authentication middleware to all API routes and frontend
+// (excludes /api/health for monitoring)
+app.use('*', createAuthMiddleware());
 
 app.get('/api/health', async (c) => {
   try {
@@ -121,6 +126,10 @@ if (distRoot) {
 
 const port = Number(process.env.PORT || 3000);
 
+// Export app for Cloudflare Workers/Pages Functions
+export default app;
+
+// Node.js server entry (development and traditional hosting)
 async function main() {
   await ensureSchema();
   await ensureSeedPairsCached();
@@ -132,7 +141,10 @@ async function main() {
   startServer({ fetch: app.fetch, port });
 }
 
-main().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exitCode = 1;
-});
+// Only run server when executed directly (not when imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exitCode = 1;
+  });
+}

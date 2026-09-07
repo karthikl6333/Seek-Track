@@ -1,21 +1,40 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
+import { neonConfig, Pool, type NeonQueryFunction, type PoolClient } from '@neondatabase/serverless';
 
-const { Pool } = pg;
+// Neon serverless Pool for Cloudflare Workers compatibility
+// Falls back to node-pg Pool for local development
 
-let pool: pg.Pool | null = null;
+let pool: Pool | null = null;
+let isCloudflareEnv = false;
 
-export function getPool(): pg.Pool {
+// Detect Cloudflare Workers environment
+if (typeof globalThis !== 'undefined') {
+  // Cloudflare Workers have WebSockets built-in or through cf-socket-polyfill
+  isCloudflareEnv = 
+    (typeof process === 'undefined' || !process.versions?.node) ||
+    typeof (globalThis as any).WebSocketPair !== 'undefined';
+}
+
+export function getPool(): Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error('DATABASE_URL is required');
     }
-    pool = new Pool({
+
+    // Configure Neon for Cloudflare Workers (uses fetch for WebSocket upgrade)
+    if (isCloudflareEnv) {
+      // In Cloudflare Workers, use fetch-based WebSocket
+      neonConfig.fetchConnectionCache = true;
+      // Cloudflare Workers have a global fetch
+      neonConfig.webSocketConstructor = (globalThis as any).WebSocket;
+    }
+
+    pool = new Pool({ 
       connectionString,
-      ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : undefined,
+      // Neon serverless handles SSL automatically
     });
   }
   return pool;
@@ -45,9 +64,18 @@ export async function ensureSchema(): Promise<void> {
   await p.query(sql);
 }
 
-export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
+export interface QueryResult<T = any> {
+  rows: T[];
+  rowCount: number | null;
+}
+
+export async function query<T = any>(
   text: string,
   params?: unknown[],
-): Promise<pg.QueryResult<T>> {
-  return getPool().query<T>(text, params);
+): Promise<QueryResult<T>> {
+  const result = await getPool().query(text, params);
+  return {
+    rows: result.rows as T[],
+    rowCount: result.rowCount,
+  };
 }

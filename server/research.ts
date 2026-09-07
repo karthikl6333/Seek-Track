@@ -183,6 +183,19 @@ export function nameMentionsUnderlying(
   return false;
 }
 
+/**
+ * Reliable Cloudflare Workers detection.
+ * nodejs_compat makes process.versions.node unreliable, so check CF-specific globals.
+ */
+function isCloudflareWorkers(): boolean {
+  // CF Workers have HTMLRewriter and caches, but no DOM window
+  return (
+    typeof (globalThis as any).HTMLRewriter !== 'undefined' &&
+    typeof (globalThis as any).caches !== 'undefined' &&
+    typeof (globalThis as any).window === 'undefined'
+  );
+}
+
 let researchRefreshInFlight: Promise<unknown> | null = null;
 let lastResearchRefreshAt: string | null = null;
 
@@ -334,18 +347,23 @@ async function setResearchUniverseSeededFlag(): Promise<void> {
 }
 
 export async function ensureResearchSeeded(): Promise<void> {
-  // DISABLE expensive seeding on Cloudflare Workers (causes "Too many subrequests" on free tier)
-  // Workers should rely on data already seeded via Node.js local boot or manual admin tool
-  if (typeof process === 'undefined' || !process.versions?.node) {
-    // Workers environment: skip all seeding + map insertion (read-only research queries)
-    return;
-  }
-
   const countRes = await query<{ n: number }>(
     `SELECT COUNT(*)::int AS n FROM research_universe`,
   );
   const count = Number(countRes.rows[0]?.n ?? 0);
   const alreadySeeded = await getResearchUniverseSeededFlag();
+
+  // CRITICAL: Early return when data already seeded (skip expensive DELETE + INSERT loops on every GET)
+  if (count > 0 && alreadySeeded) {
+    return;
+  }
+
+  // DISABLE expensive seeding on Cloudflare Workers (causes "Too many subrequests" on free tier)
+  // Workers should rely on data already seeded via Node.js local boot or manual admin tool
+  if (isCloudflareWorkers()) {
+    console.log('ensureResearchSeeded: skipping seed on Cloudflare Workers');
+    return;
+  }
 
   if (count > 0 && !alreadySeeded) {
     await setResearchUniverseSeededFlag();
@@ -855,10 +873,7 @@ export async function refreshResearchQuotes(): Promise<{
   }
 
   const run = (async () => {
-    // Skip seeding on Cloudflare Workers — universe + maps must already exist via Node.js boot or admin
-    if (typeof process !== 'undefined' && process.versions?.node) {
-      await ensureResearchSeeded();
-    }
+    await ensureResearchSeeded();
     const universe = await listUniverse();
     const maps = await listMaps();
     const symbols = Array.from(
@@ -1095,10 +1110,7 @@ function buildTableRows(
 }
 
 export async function getResearchSummary() {
-  // Skip seeding on Cloudflare Workers — universe + maps must already exist via Node.js boot or admin
-  if (typeof process !== 'undefined' && process.versions?.node) {
-    await ensureResearchSeeded();
-  }
+  await ensureResearchSeeded();
   const universe = await listUniverse();
   const present = new Set(universe.map((u) => u.symbol));
   const maps = (await listMaps()).filter((m) => present.has(m.underlying));
@@ -1116,10 +1128,7 @@ export async function getResearchSummary() {
 }
 
 export async function getResearchDetail(symbol: string) {
-  // Skip seeding on Cloudflare Workers — universe + maps must already exist via Node.js boot or admin
-  if (typeof process !== 'undefined' && process.versions?.node) {
-    await ensureResearchSeeded();
-  }
+  await ensureResearchSeeded();
   const sym = symbol.toUpperCase();
   const universe = await listUniverse();
   const u = universe.find((x) => x.symbol === sym);
@@ -1177,10 +1186,7 @@ export async function getResearchSymbolHandler(c: Context) {
 
 export async function postResearchRefreshHandler(c: Context) {
   try {
-    // Skip seeding on Cloudflare Workers — universe + maps must already exist via Node.js boot or admin
-    if (typeof process !== 'undefined' && process.versions?.node) {
-      await ensureResearchSeeded();
-    }
+    await ensureResearchSeeded();
     let remap = true;
     try {
       const body = await c.req.json().catch(() => ({}));
@@ -1373,8 +1379,8 @@ export async function putResearchUniverseReorderHandler(c: Context) {
 
 export function startResearchRefreshCron(intervalMs = 15 * 60 * 1000): void {
   // DISABLE in Cloudflare Workers (scheduled cron + seeding cause "Too many subrequests" on free tier)
-  if (typeof process === 'undefined' || !process.versions?.node) {
-    console.log('Research refresh cron disabled in Workers environment');
+  if (isCloudflareWorkers()) {
+    console.log('Research refresh cron disabled in Cloudflare Workers environment');
     return;
   }
   

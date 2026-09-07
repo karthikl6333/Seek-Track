@@ -11,6 +11,8 @@ import {
 } from 'recharts';
 import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../lib/format';
 import { TickerLink, yahooQuoteUrl } from '../lib/yahoo';
+import { CrossCheck } from './CrossCheck';
+import type { AppSettings } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const POLL_MS = 15 * 60 * 1000;
@@ -180,7 +182,11 @@ function generalCharacteristics(
   };
 }
 
-export function Research() {
+interface ResearchProps {
+  settings: AppSettings | null;
+}
+
+export function Research({ settings }: ResearchProps) {
   const [summary, setSummary] = useState<ResearchSummary | null>(null);
   const [detail, setDetail] = useState<ResearchDetail | null>(null);
   const [selected, setSelected] = useState<string>('NVDA');
@@ -505,6 +511,8 @@ export function Research() {
           ))}
         </div>
       </div>
+
+      {settings && <CrossCheck pairs={settings.pairs} />}
 
       {error && (
         <div className="caveat" role="alert">

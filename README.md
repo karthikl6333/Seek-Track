@@ -50,8 +50,12 @@ Requires `DATABASE_URL` in the environment.
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes (prod/API) | Postgres connection string |
 | `PORT` | No | API listen port (default `3000`; Render sets this) |
-| `PGSSL` | No | Set to `true` to enable SSL for managed Postgres |
+| `PGSSL` | No | Set to `true` to enable SSL for managed Postgres (Node only) |
 | `VITE_API_BASE` | No | Frontend API prefix (default empty = same origin) |
+| `AUTH_PASSWORD` | No* | Password for HTTP Basic Auth (Cloudflare deployment) |
+| `AUTH_USER` | No | Username for HTTP Basic Auth (default `admin`; Cloudflare deployment) |
+
+*Required for Cloudflare Pages deployment; optional for local/Node development.
 
 Copy `.env.example` to `.env` for local development. The API runs schema migration/`ensureSchema` on boot.
 
@@ -64,6 +68,19 @@ This repo includes `render.yaml`:
 3. `DATABASE_URL` is injected automatically; `PGSSL=true` is set for managed Postgres.
 
 Alternatively, use Docker Compose on any host (`docker compose up --build`).
+
+## Deploy (Cloudflare Pages + Workers)
+
+**New**: Deploy to Cloudflare Pages with Workers (free tier, no credit card required).
+
+See **[DEPLOY.md](./DEPLOY.md)** for complete instructions.
+
+Quick overview:
+- **Build command**: `npm run build:cf`
+- **Build output**: `dist-cf/`
+- **Required secrets**: `DATABASE_URL`, `AUTH_PASSWORD`
+- **Database**: Uses `@neondatabase/serverless` (Neon Postgres compatible)
+- **Authentication**: HTTP Basic Auth with `AUTH_PASSWORD` env var
 
 ## Live prices
 
@@ -107,7 +124,8 @@ No auth (public URL for now).
 ## Stack
 
 - TypeScript + Vite + React 18
-- Hono API (`server/`) + Postgres (`pg`)
+- Hono API (`server/`)
+- Postgres: Node (`pg`) or Cloudflare Workers (`@neondatabase/serverless`)
 - Recharts (client-side analytics)
 
 ## Scripts
@@ -115,8 +133,9 @@ No auth (public URL for now).
 | Script | Purpose |
 |--------|---------|
 | `dev` | Vite + API (tsx watch), proxy `/api` |
-| `build` | Client + server production build |
-| `start` | Serve API + static `dist/` |
+| `build` | Client + server production build (Node) |
+| `build:cf` | Client + server + Cloudflare Pages build |
+| `start` | Serve API + static `dist/` (Node) |
 | `db:up` | Start Postgres via Compose |
 
 ## Pair map seeds (defaults; not an allow-list)

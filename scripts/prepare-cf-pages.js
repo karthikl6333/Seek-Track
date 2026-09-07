@@ -51,20 +51,17 @@ console.log('✅ Schema embedded successfully');
 // Create _worker.js for Cloudflare Pages Advanced mode
 console.log('Creating _worker.js for Cloudflare Pages...');
 const workerJs = `
-// Cloudflare Pages _worker.js
-// This worker handles all API routes and serves static assets
+// Cloudflare Pages _worker.js (Advanced Mode)
+// Handles API routes and serves static assets via ASSETS binding
 
 import app from './dist-server/index.js';
 import { ensureSchema } from './dist-server/db.js';
-import { ensureSeedPairsCached } from './dist-server/pairs.js';
-import { ensureResearchSeeded } from './dist-server/research.js';
-import { ensureWatchlistSeeded } from './dist-server/watchlist.js';
 
 let schemaInitialized = false;
 
 export default {
   async fetch(request, env, ctx) {
-    // Initialize schema once per cold start
+    // Initialize schema once per cold start (fast — no seeding in Workers)
     if (!schemaInitialized) {
       try {
         // Pass Cloudflare environment variables to process.env
@@ -72,20 +69,38 @@ export default {
         if (env.AUTH_PASSWORD) process.env.AUTH_PASSWORD = env.AUTH_PASSWORD;
         if (env.AUTH_USER) process.env.AUTH_USER = env.AUTH_USER;
         
+        // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();
-        await ensureSeedPairsCached();
-        await ensureResearchSeeded();
-        await ensureWatchlistSeeded();
         schemaInitialized = true;
         console.log('Schema initialized for Cloudflare Pages');
       } catch (err) {
         console.error('Failed to initialize schema:', err);
+        // Continue anyway to allow health check to report the error
       }
     }
 
-    // Forward request to Hono app
-    const response = await app.fetch(request, env, ctx);
-    return response;
+    // API routes handled by Hono app
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/')) {
+      return app.fetch(request, env, ctx);
+    }
+
+    // Static assets served by Cloudflare Pages ASSETS binding
+    // Try ASSETS first, then fallback to Hono app (includes index.html SPA fallback)
+    try {
+      if (env.ASSETS) {
+        const assetResponse = await env.ASSETS.fetch(request);
+        // If asset found (200), return it; otherwise fall through to Hono SPA handler
+        if (assetResponse.status < 400) {
+          return assetResponse;
+        }
+      }
+    } catch {
+      // ASSETS fetch failed; fall through to app handler
+    }
+
+    // Fallback to Hono app for SPA routing (serves index.html for non-API routes)
+    return app.fetch(request, env, ctx);
   },
 };
 `;

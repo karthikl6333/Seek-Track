@@ -1334,6 +1334,12 @@ export async function putResearchUniverseReorderHandler(c: Context) {
 }
 
 export function startResearchRefreshCron(intervalMs = 15 * 60 * 1000): void {
+  // DISABLE in Cloudflare Workers (scheduled cron triggers too many subrequests on free tier)
+  if (typeof process === 'undefined' || !process.versions?.node) {
+    console.log('Research refresh cron disabled in Workers environment');
+    return;
+  }
+  
   setTimeout(() => {
     void (async () => {
       await ensureResearchSeeded();

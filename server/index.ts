@@ -99,6 +99,14 @@ app.post('/api/watchlist', postWatchlistHandler);
 app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
 app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
 
+// Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
+// This ensures Workers have schema ready but skip expensive seeding/cron operations
+if (typeof process === 'undefined' || !process.versions?.node) {
+  // Workers environment: just call these to register (they're no-ops or self-disable)
+  startQuoteRefreshCron(15 * 60 * 1000);
+  startResearchRefreshCron(15 * 60 * 1000);
+}
+
 // Export app for Cloudflare Workers/Pages Functions (must be before any Node-specific code)
 export default app;
 
@@ -147,9 +155,13 @@ const port = Number(process.env.PORT || 3000);
 async function main() {
   await setupStaticServing();
   await ensureSchema();
+  
+  // Seed data ONLY in local Node.js development (never in Workers/Cloudflare)
+  // Workers have expensive cold starts; seeding should be done via separate migration/admin tool
   await ensureSeedPairsCached();
   await ensureResearchSeeded();
   await ensureWatchlistSeeded();
+  
   startQuoteRefreshCron(15 * 60 * 1000);
   startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));

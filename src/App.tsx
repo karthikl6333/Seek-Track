@@ -72,7 +72,7 @@ export default function App() {
         {store.view === 'journal' && <Journal store={store} />}
         {store.view === 'charges' && <Charges store={store} />}
         {store.view === 'charts' && <Charts store={store} />}
-        {store.view === 'research' && <Research settings={store.settings} />}
+        {store.view === 'research' && <Research />}
       </main>
     </div>
   );

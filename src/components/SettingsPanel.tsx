@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { AppSettings, PairDef, ThemeDef } from '../types';
 import { DEFAULT_SETTINGS } from '../lib/pairs';
+import { CrossCheck } from './CrossCheck';
 
 interface Props {
   settings: AppSettings;
@@ -34,14 +35,17 @@ export function SettingsPanel({ settings, onSave }: Props) {
   };
 
   return (
-    <div className="card">
-      <h3>Pair Map &amp; Themes (editable)</h3>
-      <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
-        Seed defaults (SNDQ/MULL/MUZ/AVL/AVS/PLTZ) are a starting cache only — not an allow-list. Use
-        Calculator &quot;Resolve pair&quot; to discover other leveraged/inverse single-stock ETFs
-        (best-effort via Yahoo name parse + <code>pair_cache</code>). Override here if discovery is
-        wrong.
-      </p>
+    <div className="stack">
+      <CrossCheck pairs={settings.pairs} />
+
+      <div className="card">
+        <h3>Pair Map &amp; Themes (editable)</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+          Seed defaults (SNDQ/MULL/MUZ/AVL/AVS/PLTZ) are a starting cache only — not an allow-list. Use
+          Calculator &quot;Resolve pair&quot; to discover other leveraged/inverse single-stock ETFs
+          (best-effort via Yahoo name parse + <code>pair_cache</code>). Override here if discovery is
+          wrong.
+        </p>
       <div className="grid-2">
         <div className="field">
           <label>Pairs JSON</label>
@@ -66,6 +70,7 @@ export function SettingsPanel({ settings, onSave }: Props) {
         </button>
       </div>
       {msg && <p className="mono" style={{ fontSize: 12 }}>{msg}</p>}
+      </div>
     </div>
   );
 }

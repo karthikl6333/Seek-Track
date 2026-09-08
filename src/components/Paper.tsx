@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { loadPaperSummary } from '../lib/db';
+import { loadPaperSummary, refreshPaperData } from '../lib/db';
 import type { PaperSummary } from '../types';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
@@ -29,6 +29,25 @@ export function Paper() {
       setBusy(false);
     }
   }, [fetchData]);
+
+  const refreshLiveData = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await refreshPaperData();
+      if (result.ok) {
+        const data = await loadPaperSummary();
+        setSummary(data);
+        setLastRefreshAt(result.refreshedAt || new Date().toISOString());
+      } else {
+        setError(result.error || 'Refresh failed');
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,9 +146,18 @@ export function Paper() {
               className="btn small"
               disabled={busy}
               onClick={() => void refreshData()}
-              title="Refresh paper trading data"
+              title="Refresh paper trading data from database"
             >
               {busy ? '…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              className="btn small"
+              disabled={busy}
+              onClick={() => void refreshLiveData()}
+              title="Refresh live P&L from Alpaca paper API"
+            >
+              {busy ? '…' : 'Live P&L'}
             </button>
             <span className={statusBadgeClass}>{state.status}</span>
           </div>

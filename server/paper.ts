@@ -271,3 +271,166 @@ export async function postPaperJournal(c: Context) {
 
   return c.json({ ok: true });
 }
+
+interface AlpacaAccount {
+  equity: string;
+  cash: string;
+  buying_power: string;
+  portfolio_value: string;
+  long_market_value?: string;
+  short_market_value?: string;
+}
+
+interface AlpacaPosition {
+  symbol: string;
+  qty: string;
+  avg_entry_price: string;
+  market_value: string;
+  unrealized_pl: string;
+  side: string;
+}
+
+export async function refreshPaperFromAlpaca(c: Context) {
+  const apiKey = process.env.ALPACA_API_KEY;
+  const apiSecret = process.env.ALPACA_SECRET_KEY;
+
+  if (!apiKey || !apiSecret) {
+    return c.json(
+      {
+        ok: false,
+        error:
+          'Alpaca API credentials not configured. Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables.',
+      },
+      503,
+    );
+  }
+
+  const PAPER_API_BASE = 'https://paper-api.alpaca.markets';
+
+  try {
+    const accountRes = await fetch(`${PAPER_API_BASE}/v2/account`, {
+      headers: {
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
+      },
+    });
+
+    if (!accountRes.ok) {
+      const errText = await accountRes.text().catch(() => '');
+      return c.json(
+        {
+          ok: false,
+          error: `Alpaca API error (${accountRes.status}): ${errText || accountRes.statusText}`,
+        },
+        502,
+      );
+    }
+
+    const account = (await accountRes.json()) as AlpacaAccount;
+
+    const positionsRes = await fetch(`${PAPER_API_BASE}/v2/positions`, {
+      headers: {
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
+      },
+    });
+
+    if (!positionsRes.ok) {
+      const errText = await positionsRes.text().catch(() => '');
+      return c.json(
+        {
+          ok: false,
+          error: `Alpaca positions API error (${positionsRes.status}): ${errText || positionsRes.statusText}`,
+        },
+        502,
+      );
+    }
+
+    const positions = (await positionsRes.json()) as AlpacaPosition[];
+
+    const existingStateRes = await query<{
+      status: string;
+      mandate_start: string;
+      mandate_end: string;
+      strategy_note: string;
+    }>(`SELECT status, mandate_start, mandate_end, strategy_note FROM paper_state WHERE id = 1`);
+
+    const existingState = existingStateRes.rows[0] || {
+      status: 'active',
+      mandate_start: '2026-09-08',
+      mandate_end: '2026-09-12',
+      strategy_note: 'Levered semis / mega-cap swing',
+    };
+
+    const equity = parseFloat(account.equity);
+    const cash = parseFloat(account.cash);
+    const buyingPower = parseFloat(account.buying_power);
+
+    const prevEquityRes = await query<{ equity: number }>(
+      `SELECT equity FROM paper_state WHERE id = 1`,
+    );
+    const prevEquity = prevEquityRes.rows[0]?.equity ?? equity;
+    const dayPnl = equity - prevEquity;
+
+    const weekPnlRes = await query<{ week_pnl: number }>(
+      `SELECT week_pnl FROM paper_state WHERE id = 1`,
+    );
+    const weekPnl = weekPnlRes.rows[0]?.week_pnl ?? 0;
+
+    await query(
+      `INSERT INTO paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         equity = EXCLUDED.equity,
+         cash = EXCLUDED.cash,
+         buying_power = EXCLUDED.buying_power,
+         day_pnl = EXCLUDED.day_pnl,
+         updated_at = NOW()`,
+      [
+        equity,
+        cash,
+        buyingPower,
+        dayPnl,
+        weekPnl,
+        existingState.status,
+        existingState.mandate_start,
+        existingState.mandate_end,
+        existingState.strategy_note,
+      ],
+    );
+
+    await query(`DELETE FROM paper_positions`);
+
+    for (const pos of positions) {
+      const existingPosRes = await query<{ theme: string }>(
+        `SELECT theme FROM paper_positions WHERE symbol = $1`,
+        [pos.symbol],
+      );
+      const theme = existingPosRes.rows[0]?.theme ?? '';
+
+      await query(
+        `INSERT INTO paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          pos.symbol,
+          parseFloat(pos.qty) * (pos.side === 'short' ? -1 : 1),
+          parseFloat(pos.avg_entry_price),
+          parseFloat(pos.market_value),
+          parseFloat(pos.unrealized_pl),
+          theme,
+        ],
+      );
+    }
+
+    return c.json({ ok: true, refreshedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Alpaca refresh error:', err);
+    return c.json(
+      {
+        ok: false,
+        error: `Failed to refresh from Alpaca: ${String(err)}`,
+      },
+      500,
+    );
+  }
+}

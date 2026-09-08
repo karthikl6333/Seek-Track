@@ -42,6 +42,7 @@ import {
 import {
   getPaperSummary,
   postPaperJournal,
+  refreshPaperFromAlpaca,
   upsertPaperOrders,
   upsertPaperPositions,
   upsertPaperState,
@@ -107,6 +108,7 @@ app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
 app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
 
 app.get('/api/paper', getPaperSummary);
+app.post('/api/paper/refresh', refreshPaperFromAlpaca);
 app.post('/api/paper/state', upsertPaperState);
 app.post('/api/paper/positions', upsertPaperPositions);
 app.post('/api/paper/orders', upsertPaperOrders);

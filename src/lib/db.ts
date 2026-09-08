@@ -151,3 +151,9 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 export async function loadPaperSummary(): Promise<import('../types').PaperSummary> {
   return api<import('../types').PaperSummary>('/api/paper');
 }
+
+export async function refreshPaperData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {
+  return api<{ ok: boolean; error?: string; refreshedAt?: string }>('/api/paper/refresh', {
+    method: 'POST',
+  });
+}

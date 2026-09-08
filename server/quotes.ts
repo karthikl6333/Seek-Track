@@ -63,6 +63,7 @@ export interface YahooChartQuote {
   pctChange: number | null;
   valChange: number | null;
   previousClose: number | null;
+  sessionOpen: number | null;
   volume: number | null;
   /** Chart v8 rarely includes these without crumb/auth — usually null. */
   bid: number | null;
@@ -99,8 +100,20 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
           fiftyTwoWeekHigh?: number;
           fiftyTwoWeekLow?: number;
           symbol?: string;
+          currentTradingPeriod?: {
+            regular?: {
+              start?: number;
+              end?: number;
+            };
+          };
         };
-        indicators?: { quote?: Array<{ volume?: Array<number | null> }> };
+        timestamp?: number[];
+        indicators?: {
+          quote?: Array<{
+            open?: Array<number | null>;
+            volume?: Array<number | null>;
+          }>;
+        };
       }>;
       error?: { description?: string } | null;
     };
@@ -118,12 +131,38 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
   const previousClose =
     prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
 
+  // Extract session open from daily bars
+  let sessionOpen: number | null = null;
+  const timestamps = result?.timestamp ?? [];
+  const opens = result?.indicators?.quote?.[0]?.open ?? [];
+  const sessionStart = meta.currentTradingPeriod?.regular?.start;
+
+  if (sessionStart && timestamps.length > 0) {
+    // Find today's bar by matching timestamp with currentTradingPeriod.regular.start
+    const todayBarIndex = timestamps.findIndex((ts) => ts === sessionStart);
+    if (todayBarIndex >= 0 && todayBarIndex < opens.length) {
+      const openRaw = opens[todayBarIndex];
+      if (openRaw !== null && Number.isFinite(openRaw)) {
+        sessionOpen = Number(openRaw);
+      }
+    }
+  }
+
+  // Calculate session-based change (reset at session start)
   let pctChange: number | null = null;
   let valChange: number | null = null;
-  if (last !== null && previousClose !== null) {
+
+  if (last !== null && sessionOpen !== null) {
+    // Use session open as baseline when available (intraday during active session)
+    valChange = last - sessionOpen;
+    if (sessionOpen !== 0) {
+      pctChange = (valChange / sessionOpen) * 100;
+    }
+  } else if (last !== null && previousClose !== null) {
+    // Fallback to previousClose when no session open (pre-market, weekend, or closed market)
+    // This represents the most recent completed session's change
     valChange = last - previousClose;
     if (previousClose !== 0) {
-      // Prefer computed % — chart meta regularMarketChangePercent is often unreliable
       pctChange = (valChange / previousClose) * 100;
     }
   } else if (
@@ -167,6 +206,7 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     pctChange,
     valChange,
     previousClose,
+    sessionOpen,
     volume,
     bid,
     ask,

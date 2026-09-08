@@ -25,6 +25,8 @@ Set these environment variables in the Cloudflare Dashboard (Settings → Enviro
 | `DATABASE_URL` | **Yes** | Neon Postgres connection string | `postgres://user:pass@host/db` |
 | `AUTH_PASSWORD` | **Yes** | Password for dashboard access | `my-secure-password-123` |
 | `AUTH_USER` | No | Username for HTTP Basic auth (default: `admin`) | `admin` |
+| `ALPACA_API_KEY` | No | Alpaca API key for paper trading refresh | `PK...` |
+| `ALPACA_SECRET_KEY` | No | Alpaca secret key for paper trading refresh | `...` |
 
 ### Setting Secrets via Cloudflare Dashboard
 
@@ -33,6 +35,8 @@ Set these environment variables in the Cloudflare Dashboard (Settings → Enviro
    - `DATABASE_URL`: Your Neon Postgres connection string
    - `AUTH_PASSWORD`: Your chosen password
    - `AUTH_USER`: (optional) Username, defaults to `admin`
+   - `ALPACA_API_KEY`: (optional) Your Alpaca API key for live paper trading updates
+   - `ALPACA_SECRET_KEY`: (optional) Your Alpaca secret key for live paper trading updates
 
 ### Setting Secrets via Wrangler CLI
 
@@ -40,6 +44,8 @@ Set these environment variables in the Cloudflare Dashboard (Settings → Enviro
 wrangler pages secret put DATABASE_URL --project-name=seek-track
 wrangler pages secret put AUTH_PASSWORD --project-name=seek-track
 wrangler pages secret put AUTH_USER --project-name=seek-track  # optional
+wrangler pages secret put ALPACA_API_KEY --project-name=seek-track  # optional
+wrangler pages secret put ALPACA_SECRET_KEY --project-name=seek-track  # optional
 ```
 
 ## Build Commands
@@ -86,7 +92,12 @@ Configure in Cloudflare Dashboard → Pages → Settings → Builds:
    - Select branch: `cursor/cloudflare-pages-workers-deployment-a301` (or `main` after merge)
    - **Build command**: `npm run build:cf`
    - **Build output directory**: `dist-cf`
-4. **Add environment variables** (see "Required Secrets" above)
+4. **Add environment variables** (see "Required Secrets" above):
+   - `DATABASE_URL` (required)
+   - `AUTH_PASSWORD` (required)
+   - `AUTH_USER` (optional)
+   - `ALPACA_API_KEY` (optional, for live paper trading refresh)
+   - `ALPACA_SECRET_KEY` (optional, for live paper trading refresh)
 5. **Save and Deploy**
 
 ### Option B: Wrangler CLI
@@ -108,6 +119,8 @@ npx wrangler pages deploy dist-cf --project-name=seek-track
 # Set secrets (see "Required Secrets" section)
 npx wrangler pages secret put DATABASE_URL --project-name=seek-track
 npx wrangler pages secret put AUTH_PASSWORD --project-name=seek-track
+npx wrangler pages secret put ALPACA_API_KEY --project-name=seek-track  # optional
+npx wrangler pages secret put ALPACA_SECRET_KEY --project-name=seek-track  # optional
 ```
 
 ## Health Check

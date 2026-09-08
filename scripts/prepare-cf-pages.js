@@ -68,6 +68,8 @@ export default {
         if (env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL;
         if (env.AUTH_PASSWORD) process.env.AUTH_PASSWORD = env.AUTH_PASSWORD;
         if (env.AUTH_USER) process.env.AUTH_USER = env.AUTH_USER;
+        if (env.ALPACA_API_KEY) process.env.ALPACA_API_KEY = env.ALPACA_API_KEY;
+        if (env.ALPACA_SECRET_KEY) process.env.ALPACA_SECRET_KEY = env.ALPACA_SECRET_KEY;
         
         // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();

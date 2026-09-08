@@ -2,7 +2,6 @@ import './App.css';
 import { Charges } from './components/Charges';
 import { Charts } from './components/Charts';
 import { Research } from './components/Research';
-import { ResearchPro } from './components/ResearchPro';
 import { Journal } from './components/Journal';
 import { Overview } from './components/Overview';
 import { Positions } from './components/Positions';
@@ -20,7 +19,6 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'charges', label: 'Charges' },
   { id: 'charts', label: 'Charts' },
   { id: 'research', label: 'Research' },
-  { id: 'research-pro', label: 'Research Pro' },
 ];
 
 export default function App() {
@@ -75,7 +73,6 @@ export default function App() {
         {store.view === 'charges' && <Charges store={store} />}
         {store.view === 'charts' && <Charts store={store} />}
         {store.view === 'research' && <Research />}
-        {store.view === 'research-pro' && <ResearchPro store={store} />}
       </main>
     </div>
   );

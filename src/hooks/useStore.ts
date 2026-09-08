@@ -32,7 +32,6 @@ const VALID_VIEWS: ViewId[] = [
   'charges',
   'charts',
   'research',
-  'research-pro',
 ];
 
 function viewFromLocation(): ViewId {

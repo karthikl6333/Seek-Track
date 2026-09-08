@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { loadPaperSummary } from '../lib/db';
 import type { PaperSummary } from '../types';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
@@ -6,19 +6,49 @@ import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 export function Paper() {
   const [summary, setSummary] = useState<PaperSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const data = await loadPaperSummary();
+      setSummary(data);
+      setLastRefreshAt(new Date().toISOString());
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, []);
+
+  const refreshData = useCallback(async () => {
+    setBusy(true);
+    try {
+      await fetchData();
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchData]);
 
   useEffect(() => {
-    loadPaperSummary()
-      .then((data) => {
-        setSummary(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(String(err));
-        setLoading(false);
-      });
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      try {
+        await fetchData();
+        if (!cancelled) {
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(String(err));
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchData]);
 
   if (loading) {
     return (
@@ -69,6 +99,10 @@ export function Paper() {
     });
   };
 
+  const lastRefreshLabel = lastRefreshAt
+    ? new Date(lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
+    : null;
+
   return (
     <div className="stack">
       <div className="card">
@@ -81,8 +115,24 @@ export function Paper() {
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
               {state.strategyNote}
             </p>
+            {lastRefreshLabel && (
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                Last refreshed: {lastRefreshLabel}
+              </p>
+            )}
           </div>
-          <span className={statusBadgeClass}>{state.status}</span>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <button
+              type="button"
+              className="btn small"
+              disabled={busy}
+              onClick={() => void refreshData()}
+              title="Refresh paper trading data"
+            >
+              {busy ? '…' : 'Refresh'}
+            </button>
+            <span className={statusBadgeClass}>{state.status}</span>
+          </div>
         </div>
         <div className="row-actions" style={{ gap: 12, justifyContent: 'flex-start' }}>
           <div>

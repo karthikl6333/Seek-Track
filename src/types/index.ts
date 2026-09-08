@@ -107,7 +107,7 @@ export interface ImportResult {
   overrideManual?: boolean;
 }
 
-export type ViewId = 'overview' | 'pairs' | 'positions' | 'trades' | 'journal' | 'charges' | 'charts' | 'research';
+export type ViewId = 'overview' | 'pairs' | 'positions' | 'trades' | 'journal' | 'charges' | 'charts' | 'research' | 'paper';
 
 export interface CalculatorState {
   symbol: string;
@@ -131,4 +131,58 @@ export interface PairResolveResult {
   pair: PairDef | null;
   as: 'etf' | 'underlying' | 'unknown';
   message?: string;
+}
+
+export interface PaperState {
+  equity: number;
+  cash: number;
+  buyingPower: number;
+  dayPnl: number;
+  weekPnl: number;
+  status: 'idle' | 'active' | 'review';
+  mandateStart: string;
+  mandateEnd: string;
+  strategyNote: string;
+  updatedAt: string;
+}
+
+export interface PaperPosition {
+  symbol: string;
+  quantity: number;
+  avgPrice: number;
+  marketValue: number | null;
+  unrealizedPnl: number | null;
+  theme: string;
+  updatedAt: string;
+}
+
+export interface PaperOrder {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  filledQty: number;
+  avgFillPrice: number | null;
+  status: string;
+  createdAt: string;
+  filledAt: string | null;
+}
+
+export interface PaperJournalEntry {
+  id: string;
+  symbol: string | null;
+  note: string;
+  createdAt: string;
+}
+
+export interface PaperSummary {
+  state: PaperState;
+  positions: PaperPosition[];
+  recentOrders: PaperOrder[];
+  journalEntries: PaperJournalEntry[];
+  scoreboard: {
+    totalPnl: number;
+    tradeCount: number;
+    winRate: number | null;
+  };
 }

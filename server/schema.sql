@@ -111,3 +111,55 @@ CREATE TABLE IF NOT EXISTS watchlist_quotes (
 
 ALTER TABLE watchlist_quotes ADD COLUMN IF NOT EXISTS week52_high DOUBLE PRECISION;
 ALTER TABLE watchlist_quotes ADD COLUMN IF NOT EXISTS week52_low DOUBLE PRECISION;
+
+-- Paper trading experiment (Alpaca PAPER account tracking)
+CREATE TABLE IF NOT EXISTS paper_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  equity DOUBLE PRECISION NOT NULL DEFAULT 0,
+  cash DOUBLE PRECISION NOT NULL DEFAULT 0,
+  buying_power DOUBLE PRECISION NOT NULL DEFAULT 0,
+  day_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+  week_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'idle',
+  mandate_start DATE NOT NULL DEFAULT CURRENT_DATE,
+  mandate_end DATE NOT NULL DEFAULT CURRENT_DATE,
+  strategy_note TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note)
+VALUES (1, 0, 0, 0, 0, 0, 'idle', '2026-09-08', '2026-09-12', 'Levered semis / mega-cap swing')
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+  symbol TEXT PRIMARY KEY,
+  quantity DOUBLE PRECISION NOT NULL,
+  avg_price DOUBLE PRECISION NOT NULL,
+  market_value DOUBLE PRECISION,
+  unrealized_pnl DOUBLE PRECISION,
+  theme TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS paper_orders (
+  id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  quantity DOUBLE PRECISION NOT NULL,
+  filled_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+  avg_fill_price DOUBLE PRECISION,
+  status TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  filled_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS paper_orders_created_idx ON paper_orders (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS paper_journal (
+  id TEXT PRIMARY KEY,
+  symbol TEXT,
+  note TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS paper_journal_created_idx ON paper_journal (created_at DESC);

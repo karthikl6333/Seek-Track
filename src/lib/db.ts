@@ -147,3 +147,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     body: JSON.stringify(settings),
   });
 }
+
+export async function loadPaperSummary(): Promise<import('../types').PaperSummary> {
+  return api<import('../types').PaperSummary>('/api/paper');
+}

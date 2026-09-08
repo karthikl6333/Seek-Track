@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS watchlist_quotes (
 
 ALTER TABLE watchlist_quotes ADD COLUMN IF NOT EXISTS week52_high DOUBLE PRECISION;
 ALTER TABLE watchlist_quotes ADD COLUMN IF NOT EXISTS week52_low DOUBLE PRECISION;
+ALTER TABLE watchlist_quotes ADD COLUMN IF NOT EXISTS session_open DOUBLE PRECISION;
 
 -- Paper trading experiment (Alpaca PAPER account tracking)
 CREATE TABLE IF NOT EXISTS paper_state (

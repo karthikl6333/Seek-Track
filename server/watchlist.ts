@@ -142,6 +142,7 @@ async function upsertWatchlistQuote(q: {
   last: number | null;
   pctChange: number | null;
   valChange: number | null;
+  sessionOpen: number | null;
   bid: number | null;
   ask: number | null;
   marketCap: number | null;
@@ -152,13 +153,14 @@ async function upsertWatchlistQuote(q: {
   const now = new Date().toISOString();
   await query(
     `INSERT INTO watchlist_quotes
-       (symbol, last, pct_change, val_change, bid, ask, market_cap, volume,
+       (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
         week52_high, week52_low, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (symbol) DO UPDATE SET
        last = EXCLUDED.last,
        pct_change = EXCLUDED.pct_change,
        val_change = EXCLUDED.val_change,
+       session_open = EXCLUDED.session_open,
        bid = EXCLUDED.bid,
        ask = EXCLUDED.ask,
        market_cap = EXCLUDED.market_cap,
@@ -171,6 +173,7 @@ async function upsertWatchlistQuote(q: {
       q.last,
       q.pctChange,
       q.valChange,
+      q.sessionOpen,
       q.bid,
       q.ask,
       q.marketCap,
@@ -235,6 +238,7 @@ export async function refreshWatchlistQuotes(): Promise<{
           last: q.last,
           pctChange: q.pctChange,
           valChange: q.valChange,
+          sessionOpen: q.sessionOpen,
           bid: q.bid,
           ask: q.ask,
           marketCap: q.marketCap,
@@ -289,6 +293,7 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
       last: q.last,
       pctChange: q.pctChange,
       valChange: q.valChange,
+      sessionOpen: q.sessionOpen,
       bid: q.bid,
       ask: q.ask,
       marketCap: q.marketCap,

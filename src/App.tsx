@@ -5,6 +5,7 @@ import { Research } from './components/Research';
 import { Journal } from './components/Journal';
 import { Overview } from './components/Overview';
 import { Paper } from './components/Paper';
+import { CryptoPaper } from './components/CryptoPaper';
 import { Positions } from './components/Positions';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Trades } from './components/Trades';
@@ -21,6 +22,7 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'charts', label: 'Charts' },
   { id: 'research', label: 'Research' },
   { id: 'paper', label: 'Paper' },
+  { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
 export default function App() {
@@ -76,6 +78,7 @@ export default function App() {
         {store.view === 'charts' && <Charts store={store} />}
         {store.view === 'research' && <Research />}
         {store.view === 'paper' && <Paper />}
+        {store.view === 'cryptoPaper' && <CryptoPaper />}
       </main>
     </div>
   );

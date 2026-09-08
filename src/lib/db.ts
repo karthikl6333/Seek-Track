@@ -157,3 +157,20 @@ export async function refreshPaperData(): Promise<{ ok: boolean; error?: string;
     method: 'POST',
   });
 }
+
+export async function loadCryptoPaperSummary(): Promise<import('../types').CryptoPaperSummary> {
+  return api<import('../types').CryptoPaperSummary>('/api/crypto-paper');
+}
+
+export async function refreshCryptoPaperLivePnl(): Promise<{
+  ok: boolean;
+  refreshedAt?: string;
+  equity?: number;
+  cash?: number;
+  positions?: number;
+  error?: string;
+}> {
+  return api('/api/crypto-paper/refresh', {
+    method: 'POST',
+  });
+}

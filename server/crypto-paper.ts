@@ -333,9 +333,9 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
 
     const positions = await positionsRes.json();
 
-    const equity = parseFloat(account.equity || '0');
-    const cash = parseFloat(account.cash || '0');
-    const buyingPower = parseFloat(account.buying_power || '0');
+    const equity = parseFloat(String((account as any).equity || '0'));
+    const cash = parseFloat(String((account as any).cash || '0'));
+    const buyingPower = parseFloat(String((account as any).buying_power || '0'));
 
     const existingStateRes = await query<{
       day_pnl: number;
@@ -347,7 +347,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
     }>(`SELECT day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note FROM crypto_paper_state WHERE id = 1`);
 
     const existingState = existingStateRes.rows[0];
-    const dayPnl = parseFloat(account.equity) - parseFloat(account.last_equity || account.equity);
+    const dayPnl = parseFloat(String((account as any).equity)) - parseFloat(String((account as any).last_equity || (account as any).equity));
     const weekPnl = existingState?.week_pnl || 0;
 
     await query(
@@ -374,7 +374,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
 
     await query(`DELETE FROM crypto_paper_positions`);
 
-    for (const pos of positions) {
+    for (const pos of positions as any[]) {
       await query(
         `INSERT INTO crypto_paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -394,7 +394,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
       refreshedAt: new Date().toISOString(),
       equity,
       cash,
-      positions: positions.length,
+      positions: (positions as any[]).length,
     });
   } catch (err) {
     return c.json(

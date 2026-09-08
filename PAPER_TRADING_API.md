@@ -6,6 +6,31 @@ This document describes the API endpoints for the Alpaca paper trading experimen
 
 The Paper Trading tab displays data from a separate autonomous trading agent (PaperTrade) that manages an Alpaca PAPER account. The agent should POST updates to Seek&Track via these authenticated endpoints.
 
+**NEW: Live Refresh Feature**
+
+The Paper tab now includes a "Refresh Live P&L" button that pulls real-time account data directly from Alpaca's paper trading API. This requires the following environment variables to be configured:
+
+- `ALPACA_API_KEY` - Your Alpaca API key (paper account)
+- `ALPACA_SECRET_KEY` - Your Alpaca secret key (paper account)
+
+⚠️ **Important**: These credentials must be for Alpaca's **PAPER** trading account only. The refresh endpoint is hardcoded to use `https://paper-api.alpaca.markets` and will never access live trading accounts.
+
+### Setting Environment Variables
+
+For Cloudflare Pages/Workers deployment, set these secrets via:
+
+```bash
+wrangler pages secret put ALPACA_API_KEY --project-name=seek-track
+wrangler pages secret put ALPACA_SECRET_KEY --project-name=seek-track
+```
+
+For local development, add them to your `.env` file:
+
+```bash
+ALPACA_API_KEY=your_paper_api_key_here
+ALPACA_SECRET_KEY=your_paper_secret_key_here
+```
+
 ## Authentication
 
 All endpoints require HTTP Basic authentication using the same credentials configured for the Seek&Track application.
@@ -16,6 +41,53 @@ All endpoints require HTTP Basic authentication using the same credentials confi
 - **Local Dev**: `http://localhost:3000`
 
 ## Endpoints
+
+### 0. Refresh Live Data from Alpaca (NEW)
+
+**Endpoint**: `POST /api/paper/refresh`
+
+Fetches live account data directly from Alpaca's paper trading API and updates the database. This endpoint:
+- Retrieves current account equity, cash, and buying power
+- Fetches all open positions with live market values and unrealized P&L
+- Preserves existing mandate fields (status, mandateStart, mandateEnd, strategyNote)
+- Preserves position themes when updating positions
+
+**Authentication**: Requires HTTP Basic auth (same as other endpoints)
+
+**Request Body**: None (empty POST)
+
+**Response (Success)**:
+```json
+{
+  "ok": true,
+  "refreshedAt": "2026-09-08T14:30:00.000Z"
+}
+```
+
+**Response (Missing Credentials)**:
+```json
+{
+  "ok": false,
+  "error": "Alpaca API credentials not configured. Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables."
+}
+```
+**Status**: `503 Service Unavailable`
+
+**Response (Alpaca API Error)**:
+```json
+{
+  "ok": false,
+  "error": "Alpaca API error (401): Invalid API credentials"
+}
+```
+**Status**: `502 Bad Gateway`
+
+**Notes**:
+- Always uses `https://paper-api.alpaca.markets` (never live trading)
+- Requires `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` environment variables
+- UI will display a clear error message if credentials are not configured
+
+---
 
 ### 1. Update Account State
 

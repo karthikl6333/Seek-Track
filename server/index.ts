@@ -39,6 +39,13 @@ import {
   patchTrade,
   postTrades,
 } from './trades.js';
+import {
+  getPaperSummary,
+  postPaperJournal,
+  upsertPaperOrders,
+  upsertPaperPositions,
+  upsertPaperState,
+} from './paper.js';
 
 const app = new Hono();
 
@@ -98,6 +105,12 @@ app.get('/api/watchlist', getWatchlistHandler);
 app.post('/api/watchlist', postWatchlistHandler);
 app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
 app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
+
+app.get('/api/paper', getPaperSummary);
+app.post('/api/paper/state', upsertPaperState);
+app.post('/api/paper/positions', upsertPaperPositions);
+app.post('/api/paper/orders', upsertPaperOrders);
+app.post('/api/paper/journal', postPaperJournal);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations

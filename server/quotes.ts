@@ -25,7 +25,7 @@ export interface RefreshResult {
 }
 
 async function fetchYahooQuote(symbol: string): Promise<number | null> {
-  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': USER_AGENT,
@@ -40,8 +40,16 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
       result?: Array<{
         meta?: {
           regularMarketPrice?: number;
+          fulldayPrice?: number;
+          hasPrePostMarketData?: boolean;
           previousClose?: number;
           chartPreviousClose?: number;
+          currentTradingPeriod?: {
+            pre?: { start?: number; end?: number };
+            regular?: { start?: number; end?: number };
+            post?: { start?: number; end?: number };
+          };
+          regularMarketTime?: number;
         };
       }>;
       error?: { description?: string } | null;
@@ -51,8 +59,37 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
   if (!meta) {
     throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
   }
-  const price =
-    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
+
+  // Determine the most current tradeable price Yahoo would show:
+  // - During regular hours: use regularMarketPrice
+  // - Outside regular hours (pre/post market): prefer fulldayPrice when hasPrePostMarketData is true
+  // - Fallback chain: fulldayPrice → regularMarketPrice → previousClose → chartPreviousClose
+  let price: number | null = null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const regularStart = meta.currentTradingPeriod?.regular?.start;
+  const regularEnd = meta.currentTradingPeriod?.regular?.end;
+  const isRegularHours =
+    regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
+
+  if (isRegularHours) {
+    // During regular trading hours, use regularMarketPrice
+    price = meta.regularMarketPrice ?? null;
+  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
+    // Outside regular hours with extended data available, use fulldayPrice
+    price = meta.fulldayPrice;
+  }
+
+  // Fallback chain for all scenarios
+  if (price === null || !Number.isFinite(price)) {
+    price =
+      meta.fulldayPrice ??
+      meta.regularMarketPrice ??
+      meta.previousClose ??
+      meta.chartPreviousClose ??
+      null;
+  }
+
   if (price === null || !Number.isFinite(price)) return null;
   return Number(price);
 }
@@ -75,7 +112,7 @@ export interface YahooChartQuote {
 
 /** Richer Yahoo chart v8 quote (auth-free). Bid/ask/marketCap typically unavailable. */
 export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQuote> {
-  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': USER_AGENT,
@@ -90,6 +127,8 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
       result?: Array<{
         meta?: {
           regularMarketPrice?: number;
+          fulldayPrice?: number;
+          hasPrePostMarketData?: boolean;
           previousClose?: number;
           chartPreviousClose?: number;
           regularMarketChangePercent?: number;
@@ -100,8 +139,17 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
           fiftyTwoWeekHigh?: number;
           fiftyTwoWeekLow?: number;
           symbol?: string;
+          regularMarketTime?: number;
           currentTradingPeriod?: {
+            pre?: {
+              start?: number;
+              end?: number;
+            };
             regular?: {
+              start?: number;
+              end?: number;
+            };
+            post?: {
               start?: number;
               end?: number;
             };
@@ -124,8 +172,36 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
   }
 
-  const lastRaw =
-    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
+  // Determine the most current tradeable price Yahoo would show:
+  // - During regular hours: use regularMarketPrice
+  // - Outside regular hours (pre/post market): prefer fulldayPrice when hasPrePostMarketData is true
+  // - Fallback chain: fulldayPrice → regularMarketPrice → previousClose → chartPreviousClose
+  let lastRaw: number | null = null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const regularStart = meta.currentTradingPeriod?.regular?.start;
+  const regularEnd = meta.currentTradingPeriod?.regular?.end;
+  const isRegularHours =
+    regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
+
+  if (isRegularHours) {
+    // During regular trading hours, use regularMarketPrice
+    lastRaw = meta.regularMarketPrice ?? null;
+  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
+    // Outside regular hours with extended data available, use fulldayPrice
+    lastRaw = meta.fulldayPrice;
+  }
+
+  // Fallback chain for all scenarios
+  if (lastRaw === null || !Number.isFinite(lastRaw)) {
+    lastRaw =
+      meta.fulldayPrice ??
+      meta.regularMarketPrice ??
+      meta.previousClose ??
+      meta.chartPreviousClose ??
+      null;
+  }
+
   const last = lastRaw !== null && Number.isFinite(lastRaw) ? Number(lastRaw) : null;
   const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
   const previousClose =
@@ -426,7 +502,7 @@ export async function fetchYahooMeta(symbol: string): Promise<{
   longName: string | null;
   symbol: string;
 }> {
-  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
@@ -436,18 +512,44 @@ export async function fetchYahooMeta(symbol: string): Promise<{
       result?: Array<{
         meta?: {
           regularMarketPrice?: number;
+          fulldayPrice?: number;
+          hasPrePostMarketData?: boolean;
           previousClose?: number;
           shortName?: string;
           longName?: string;
           symbol?: string;
+          currentTradingPeriod?: {
+            pre?: { start?: number; end?: number };
+            regular?: { start?: number; end?: number };
+            post?: { start?: number; end?: number };
+          };
         };
       }>;
     };
   };
   const meta = data.chart?.result?.[0]?.meta;
   if (!meta) throw new Error(`No meta for ${symbol}`);
+
+  // Use the same extended-hours logic as fetchYahooQuote
+  let price: number | null = null;
+  const now = Math.floor(Date.now() / 1000);
+  const regularStart = meta.currentTradingPeriod?.regular?.start;
+  const regularEnd = meta.currentTradingPeriod?.regular?.end;
+  const isRegularHours =
+    regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
+
+  if (isRegularHours) {
+    price = meta.regularMarketPrice ?? null;
+  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
+    price = meta.fulldayPrice;
+  }
+
+  if (price === null || !Number.isFinite(price)) {
+    price = meta.fulldayPrice ?? meta.regularMarketPrice ?? meta.previousClose ?? null;
+  }
+
   return {
-    price: meta.regularMarketPrice ?? meta.previousClose ?? null,
+    price,
     shortName: meta.shortName ?? null,
     longName: meta.longName ?? null,
     symbol: meta.symbol ?? symbol,

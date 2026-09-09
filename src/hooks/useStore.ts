@@ -33,6 +33,7 @@ const VALID_VIEWS: ViewId[] = [
   'charts',
   'research',
   'paper',
+  'cryptoPaper',
 ];
 
 function viewFromLocation(): ViewId {

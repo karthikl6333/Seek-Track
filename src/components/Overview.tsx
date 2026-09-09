@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
+import { loadPaperSummary, loadCryptoPaperSummary } from '../lib/db';
+import type { PaperSummary, CryptoPaperSummary } from '../types';
 import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
@@ -9,6 +11,25 @@ import { CsvImport } from './CsvImport';
 export function Overview({ store }: { store: Store }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
+  const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
+  const [cryptoSummary, setCryptoSummary] = useState<CryptoPaperSummary | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const paper = await loadPaperSummary();
+        setPaperSummary(paper);
+      } catch {
+        setPaperSummary(null);
+      }
+      try {
+        const crypto = await loadCryptoPaperSummary();
+        setCryptoSummary(crypto);
+      } catch {
+        setCryptoSummary(null);
+      }
+    })();
+  }, []);
 
   const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
@@ -44,14 +65,12 @@ export function Overview({ store }: { store: Store }) {
 
   const charges = summarizeCharges(store.trades);
 
+  const paperPnl = paperSummary?.state.weekPnl ?? paperSummary?.state.dayPnl ?? 0;
+  const cryptoPnl = cryptoSummary?.state.weekPnl ?? cryptoSummary?.state.dayPnl ?? 0;
+
   return (
     <div className="stack">
-      <div className="grid-5">
-        <div className="card">
-          <h3>Trades</h3>
-          <div className="stat-value mono">{store.trades.length}</div>
-          <div className="stat-label">Imported rows (deduped)</div>
-        </div>
+      <div className="grid-6">
         <div className="card">
           <h3>Open symbols</h3>
           <div className="stat-value mono">{totalsPositions.length}</div>
@@ -92,6 +111,34 @@ export function Overview({ store }: { store: Store }) {
               Credit {fmtMoney(charges.creditInterest)}
             </div>
           )}
+        </button>
+        <button
+          type="button"
+          className="card stat-card-link"
+          onClick={() => store.setView('paper')}
+          title="Open Paper tab"
+        >
+          <h3>Paper P&amp;L</h3>
+          <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
+            {paperSummary ? fmtMoney(paperPnl) : '—'}
+          </div>
+          <div className="stat-label">
+            {paperSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+          </div>
+        </button>
+        <button
+          type="button"
+          className="card stat-card-link"
+          onClick={() => store.setView('cryptoPaper')}
+          title="Open Crypto Paper tab"
+        >
+          <h3>Crypto P&amp;L</h3>
+          <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
+            {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}
+          </div>
+          <div className="stat-label">
+            {cryptoSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+          </div>
         </button>
       </div>
 

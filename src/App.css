@@ -131,7 +131,7 @@
 @media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } }
 
 .watchlist-side {
-  padding: 12px 12px;
+  padding: 10px 10px;
 }
 
 .watchlist-side .table-wrap,
@@ -147,7 +147,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .watchlist-toolbar-controls {
@@ -181,15 +181,16 @@
 }
 
 .watchlist-side table.data {
-  font-size: 12px;
+  font-size: 11px;
   table-layout: auto;
   width: 100%;
 }
 
 .watchlist-side th,
 .watchlist-side td {
-  padding: 6px 8px;
+  padding: 4px 6px;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 @media (max-width: 900px) {

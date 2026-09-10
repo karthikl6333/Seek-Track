@@ -40,7 +40,7 @@ export function Overview({ store }: { store: Store }) {
     setRefreshing(true);
     try {
       // Refresh all data sources in parallel where safe
-      const results = await Promise.allSettled([
+      await Promise.allSettled([
         // Refresh Schwab holdings marks / quotes
         store.refreshLiveQuotes(),
         // Refresh store (trades, marks, settings)

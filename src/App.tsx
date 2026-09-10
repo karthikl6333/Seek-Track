@@ -1,4 +1,5 @@
 import './App.css';
+import { useCallback, useState } from 'react';
 import { Charges } from './components/Charges';
 import { Charts } from './components/Charts';
 import { Research } from './components/Research';
@@ -11,6 +12,9 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
+import { refreshPaperData, refreshCryptoPaperLivePnl } from './lib/db';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -27,6 +31,24 @@ const NAV: { id: ViewId; label: string }[] = [
 
 export default function App() {
   const store = useStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.allSettled([
+        store.refreshLiveQuotes(),
+        store.refresh(),
+        fetch(`${API_BASE}/api/watchlist/refresh`, { method: 'POST' }).catch(() => null),
+        refreshPaperData().catch(() => null),
+        refreshCryptoPaperLivePnl().catch(() => null),
+      ]);
+    } catch (error) {
+      console.error('Global refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [store]);
 
   if (!store.ready || !store.settings) {
     return (
@@ -60,7 +82,28 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
-          <span className="badge">{store.trades.length} trades persisted</span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void refreshAll()}
+            disabled={refreshing}
+            title="Refresh all data (quotes, marks, paper, crypto, watchlist)"
+            style={{
+              minWidth: 40,
+              minHeight: 40,
+              width: 40,
+              height: 40,
+              padding: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+              borderRadius: '50%',
+              animation: refreshing ? 'spin 1s linear infinite' : 'none',
+            }}
+          >
+            {refreshing ? '⟳' : '↻'}
+          </button>
         </div>
         {store.error && (
           <div className="caveat" role="alert">

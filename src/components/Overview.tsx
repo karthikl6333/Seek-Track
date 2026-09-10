@@ -1,35 +1,66 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
-import { loadPaperSummary, loadCryptoPaperSummary } from '../lib/db';
+import { loadPaperSummary, loadCryptoPaperSummary, refreshPaperData, refreshCryptoPaperLivePnl } from '../lib/db';
 import type { PaperSummary, CryptoPaperSummary } from '../types';
 import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 export function Overview({ store }: { store: Store }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
   const [cryptoSummary, setCryptoSummary] = useState<CryptoPaperSummary | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadPaperAndCrypto = useCallback(async () => {
+    try {
+      const paper = await loadPaperSummary();
+      setPaperSummary(paper);
+    } catch {
+      setPaperSummary(null);
+    }
+    try {
+      const crypto = await loadCryptoPaperSummary();
+      setCryptoSummary(crypto);
+    } catch {
+      setCryptoSummary(null);
+    }
+  }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const paper = await loadPaperSummary();
-        setPaperSummary(paper);
-      } catch {
-        setPaperSummary(null);
-      }
-      try {
-        const crypto = await loadCryptoPaperSummary();
-        setCryptoSummary(crypto);
-      } catch {
-        setCryptoSummary(null);
-      }
-    })();
-  }, []);
+    void loadPaperAndCrypto();
+  }, [loadPaperAndCrypto]);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Refresh all data sources in parallel where safe
+      await Promise.allSettled([
+        // Refresh Schwab holdings marks / quotes
+        store.refreshLiveQuotes(),
+        // Refresh store (trades, marks, settings)
+        store.refresh(),
+        // Refresh watchlist quotes
+        fetch(`${API_BASE}/api/watchlist/refresh`, { method: 'POST' }).catch(() => null),
+        // Refresh paper summary
+        refreshPaperData().catch(() => null),
+        // Refresh crypto paper
+        refreshCryptoPaperLivePnl().catch(() => null),
+      ]);
+
+      // Re-fetch paper and crypto summaries after their refresh completes
+      await loadPaperAndCrypto();
+    } catch (error) {
+      console.error('Global refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [store, loadPaperAndCrypto]);
 
   const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
@@ -70,75 +101,81 @@ export function Overview({ store }: { store: Store }) {
 
   return (
     <div className="stack">
-      <div className="grid-6">
-        <div className="card">
-          <h3>Open symbols</h3>
-          <div className="stat-value mono">{totalsPositions.length}</div>
-          <div className="stat-label">
-            Non-zero positions
-            {hiddenOpen.length > 0 ? ` · ${hiddenOpen.length} hidden` : ''}
+      <div className="overview-stats-row">
+        <div className="overview-stats-grid">
+          <div className="card">
+            <h3>Realized P&amp;L</h3>
+            <div className={`stat-value ${pnlClass(realized)} ${moneyTone("stat")}`}>{fmtMoney(realized)}</div>
+            <div className="stat-label">Closed lots (FIFO){hiddenOpen.length ? ' · excl. hidden' : ''}</div>
           </div>
-        </div>
-        <div className="card">
-          <h3>Realized P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(realized)} ${moneyTone("stat")}`}>{fmtMoney(realized)}</div>
-          <div className="stat-label">Closed lots (FIFO){hiddenOpen.length ? ' · excl. hidden' : ''}</div>
-        </div>
-        <div className="card">
-          <h3>Unrealized P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)} ${moneyTone("stat")}`}>
-            {hasAllMarks || totalsPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
-          </div>
-          <div className="stat-label">
-            Live marks when available
-            {hiddenOpen.length ? ' · excl. hidden' : ''}
-            {lastUpdatedLabel ? ` · ${lastUpdatedLabel}` : ''}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="card stat-card-link"
-          onClick={() => store.setView('charges')}
-          title="Open Charges tab"
-        >
-          <h3>Charges</h3>
-          <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
-          <div className="stat-label">
-            Fees {fmtMoney(charges.fees)} · Margin {fmtMoney(charges.marginInterest)}
-          </div>
-          {charges.creditInterest !== 0 && (
-            <div className="stat-label" style={{ marginTop: 2 }}>
-              Credit {fmtMoney(charges.creditInterest)}
+          <div className="card">
+            <h3>Unrealized P&amp;L</h3>
+            <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)} ${moneyTone("stat")}`}>
+              {hasAllMarks || totalsPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
             </div>
-          )}
-        </button>
+            <div className="stat-label">
+              Live marks when available
+              {hiddenOpen.length ? ' · excl. hidden' : ''}
+              {lastUpdatedLabel ? ` · ${lastUpdatedLabel}` : ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="card stat-card-link"
+            onClick={() => store.setView('charges')}
+            title="Open Charges tab"
+          >
+            <h3>Charges</h3>
+            <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
+            <div className="stat-label">
+              Fees {fmtMoney(charges.fees)} · Margin {fmtMoney(charges.marginInterest)}
+            </div>
+            {charges.creditInterest !== 0 && (
+              <div className="stat-label" style={{ marginTop: 2 }}>
+                Credit {fmtMoney(charges.creditInterest)}
+              </div>
+            )}
+          </button>
+          <button
+            type="button"
+            className="card stat-card-link"
+            onClick={() => store.setView('paper')}
+            title="Open Paper tab"
+          >
+            <h3>Paper P&amp;L</h3>
+            <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
+              {paperSummary ? fmtMoney(paperPnl) : '—'}
+            </div>
+            <div className="stat-label">
+              {paperSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+            </div>
+          </button>
+          <button
+            type="button"
+            className="card stat-card-link"
+            onClick={() => store.setView('cryptoPaper')}
+            title="Open Crypto Paper tab"
+          >
+            <h3>Crypto P&amp;L</h3>
+            <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
+              {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}
+            </div>
+            <div className="stat-label">
+              {cryptoSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+            </div>
+          </button>
+        </div>
         <button
           type="button"
-          className="card stat-card-link"
-          onClick={() => store.setView('paper')}
-          title="Open Paper tab"
+          className="btn overview-refresh-btn"
+          onClick={() => void refreshAll()}
+          disabled={refreshing}
+          title="Refresh all data (quotes, marks, paper, crypto, watchlist)"
+          style={{
+            animation: refreshing ? 'spin 1s linear infinite' : 'none',
+          }}
         >
-          <h3>Paper P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
-            {paperSummary ? fmtMoney(paperPnl) : '—'}
-          </div>
-          <div className="stat-label">
-            {paperSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
-          </div>
-        </button>
-        <button
-          type="button"
-          className="card stat-card-link"
-          onClick={() => store.setView('cryptoPaper')}
-          title="Open Crypto Paper tab"
-        >
-          <h3>Crypto P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
-            {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}
-          </div>
-          <div className="stat-label">
-            {cryptoSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
-          </div>
+          {refreshing ? '⟳' : '↻'}
         </button>
       </div>
 

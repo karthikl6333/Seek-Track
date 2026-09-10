@@ -110,7 +110,7 @@ export default function App() {
             {store.error}
           </div>
         )}
-        {store.view === 'overview' && <Overview store={store} onRefreshAll={refreshAll} />}
+        {store.view === 'overview' && <Overview store={store} />}
         {store.view === 'pairs' && (
           <SettingsPanel settings={store.settings} onSave={store.updateSettings} />
         )}

@@ -8,7 +8,7 @@ import { Watchlist } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 
-export function Overview({ store, onRefreshAll }: { store: Store; onRefreshAll: () => Promise<void> }) {
+export function Overview({ store }: { store: Store }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
@@ -32,11 +32,6 @@ export function Overview({ store, onRefreshAll }: { store: Store; onRefreshAll: 
   useEffect(() => {
     void loadPaperAndCrypto();
   }, [loadPaperAndCrypto]);
-
-  const handleRefresh = useCallback(async () => {
-    await onRefreshAll();
-    await loadPaperAndCrypto();
-  }, [onRefreshAll, loadPaperAndCrypto]);
 
   const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));

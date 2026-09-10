@@ -331,7 +331,13 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
                   <button
                     type="button"
                     className="btn small ghost"
-                    style={{ minHeight: 32, minWidth: 32, fontSize: 18, lineHeight: 1 }}
+                    style={{
+                      minHeight: compact ? 28 : 32,
+                      minWidth: compact ? 28 : 32,
+                      fontSize: compact ? 16 : 18,
+                      lineHeight: 1,
+                      padding: compact ? '2px 4px' : undefined
+                    }}
                     title={`Remove ${r.symbol}`}
                     aria-label={`Remove ${r.symbol}`}
                     disabled={busy}

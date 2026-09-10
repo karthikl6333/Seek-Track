@@ -1,0 +1,47 @@
+Global Refresh Button - What It Refreshes
+==========================================
+
+When you click the circular refresh button (↻) at the end of the Overview stats row,
+it triggers the following refreshes in parallel:
+
+1. SCHWAB HOLDINGS MARKS/QUOTES
+   - Method: store.refreshLiveQuotes()
+   - Fetches Yahoo quotes for:
+     * All open positions
+     * Calculator symbol
+     * Pair symbols (ETF + underlying)
+
+2. STORE DATA RELOAD
+   - Method: store.refresh()
+   - Reloads from database:
+     * Trades
+     * Marks
+     * Settings
+     * Journal entries
+     * Pair cache
+
+3. WATCHLIST QUOTES
+   - Endpoint: POST /api/watchlist/refresh
+   - Refreshes Yahoo quotes for all watchlist tickers
+   - Updates the Watchlist component on the right side
+
+4. PAPER TRADING SUMMARY
+   - Endpoint: POST /api/paper/refresh
+   - Then fetches: loadPaperSummary()
+   - Updates the "Paper P&L" tile in Overview stats
+
+5. CRYPTO PAPER TRADING SUMMARY
+   - Endpoint: POST /api/crypto-paper/refresh
+   - Then fetches: loadCryptoPaperSummary()
+   - Updates the "Crypto P&L" tile in Overview stats
+
+ERROR HANDLING
+--------------
+Uses Promise.allSettled() so if any one refresh fails, the others still complete.
+No crashes, just console warnings for failures.
+
+VISUAL FEEDBACK
+---------------
+- Button shows spinning animation (⟳) while refreshing
+- Button is disabled during refresh to prevent concurrent calls
+- Tooltip explains what gets refreshed

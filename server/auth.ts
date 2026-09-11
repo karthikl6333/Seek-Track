@@ -15,14 +15,24 @@ export function createAuthMiddleware() {
       return next();
     }
 
-    // Logout endpoint: always return 401 to clear cached credentials
+    // Logout flow: clear credentials and redirect to root
+    // Step 1: Accept the logout request (with invalid creds from URL) and redirect to /
+    // This causes browser to cache wrong credentials, then redirect clears them
     if (c.req.path === '/api/logout') {
+      // Redirect to root - browser will be forced to re-authenticate
+      return c.redirect('/', 302);
+    }
+
+    // Logout-clear endpoint: return 401 with different realm
+    // Used as intermediate step to ensure credential cache is cleared
+    if (c.req.path === '/api/logout-clear') {
       throw new HTTPException(401, {
-        message: 'Logged out',
-        res: new Response('Logged out', {
+        message: 'Session cleared',
+        res: new Response('Session cleared. Redirecting...', {
           status: 401,
           headers: {
-            'WWW-Authenticate': 'Basic realm="Seek&Track", charset="UTF-8"',
+            'WWW-Authenticate': 'Basic realm="Seek&Track-Logout", charset="UTF-8"',
+            'Content-Type': 'text/html',
           },
         }),
       });

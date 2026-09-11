@@ -181,16 +181,16 @@
 }
 
 .watchlist-side table.data {
-  font-size: 10px;
+  font-size: 11px;
   table-layout: auto;
   width: 100%;
 }
 
 .watchlist-side th,
 .watchlist-side td {
-  padding: 2px 4px;
+  padding: 1px 4px;
   white-space: nowrap;
-  line-height: 1.1;
+  line-height: 1.05;
 }
 
 @media (max-width: 900px) {

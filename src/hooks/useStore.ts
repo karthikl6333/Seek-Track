@@ -25,10 +25,8 @@ const POLL_MS = 15 * 60 * 1000;
 
 const VALID_VIEWS: ViewId[] = [
   'overview',
-  'pairs',
   'positions',
   'trades',
-  'journal',
   'charges',
   'charts',
   'research',

@@ -9,7 +9,9 @@ export function fmtMoney(n: number | null | undefined, digits = 2): string {
 
 export function fmtPct(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return `${n.toFixed(digits)}%`;
+  // If value is between 0 and 1 (e.g., 0.52 meaning 52%), multiply by 100
+  const val = n > 0 && n < 1 ? n * 100 : n;
+  return `${val.toFixed(digits)}%`;
 }
 
 export function fmtQty(n: number): string {

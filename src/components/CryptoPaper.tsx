@@ -293,46 +293,6 @@ export function CryptoPaper() {
       </div>
 
       <div className="card">
-        <h3>Decision Journal</h3>
-        {journalEntries.length === 0 ? (
-          <p className="muted">
-            No journal entries yet. Trading agent will post trade rationale here.
-          </p>
-        ) : (
-          <div className="stack" style={{ gap: 10 }}>
-            {journalEntries.map((entry) => (
-              <div
-                key={entry.id}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'rgba(255, 255, 255, 0.02)',
-                }}
-              >
-                <div
-                  className="row-actions"
-                  style={{ justifyContent: 'space-between', marginBottom: 6 }}
-                >
-                  <div>
-                    {entry.symbol && (
-                      <span className="mono" style={{ fontWeight: 600 }}>
-                        {entry.symbol}
-                      </span>
-                    )}
-                  </div>
-                  <span className="muted" style={{ fontSize: 11 }}>
-                    {formatTime(entry.createdAt)}
-                  </span>
-                </div>
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.4 }}>{entry.note}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card">
         <h3>Week Scoreboard</h3>
         <div className="grid-3">
           <div>
@@ -358,50 +318,6 @@ export function CryptoPaper() {
             <div className="mono" style={{ fontSize: 18 }}>
               {scoreboard.winRate !== null ? fmtPct(scoreboard.winRate) : '—'}
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="card"
-        style={{
-          background: 'rgba(61, 139, 253, 0.08)',
-          border: '1px solid rgba(61, 139, 253, 0.3)',
-        }}
-      >
-        <h3 style={{ marginBottom: 8 }}>API Contract for Trading Agent</h3>
-        <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
-          The CryptoTrade agent should POST updates to the following endpoints (HTTP Basic auth
-          required):
-        </p>
-        <div style={{ fontSize: 12, fontFamily: 'monospace', lineHeight: 1.6 }}>
-          <div style={{ marginBottom: 8 }}>
-            <strong>POST /api/crypto-paper/state</strong>
-            <br />
-            Body:{' '}
-            {`{ equity, cash, buyingPower, dayPnl, weekPnl, status, mandateStart, mandateEnd, strategyNote }`}
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>POST /api/crypto-paper/positions</strong>
-            <br />
-            Body:{' '}
-            {`{ positions: [{ symbol, quantity, avgPrice, marketValue?, unrealizedPnl?, theme? }] }`}
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>POST /api/crypto-paper/orders</strong>
-            <br />
-            Body:{' '}
-            {`{ orders: [{ id, symbol, side, quantity, filledQty?, avgFillPrice?, status, createdAt, filledAt? }] }`}
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>POST /api/crypto-paper/journal</strong>
-            <br />
-            Body: {`{ id, symbol?, note }`}
-          </div>
-          <div>
-            <strong>POST /api/crypto-paper/refresh</strong>
-            <br />
-            Pulls live P&amp;L from Alpaca using ALPACA_CRYPTO_API_KEY / ALPACA_CRYPTO_SECRET_KEY
           </div>
         </div>
       </div>

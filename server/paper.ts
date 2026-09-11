@@ -401,12 +401,29 @@ export async function refreshPaperFromAlpaca(c: Context) {
 
     await query(`DELETE FROM paper_positions`);
 
+    // Fetch app settings to derive themes from symbol mappings
+    const settingsRes = await query<{ data: any }>(
+      `SELECT data FROM settings WHERE id = 1`
+    );
+    const settings = settingsRes.rows[0]?.data;
+    const themes = settings?.themes || [];
+    
+    // Helper to derive theme from symbol
+    const getTheme = (symbol: string): string => {
+      const upper = symbol.toUpperCase();
+      const found = themes.find((t: any) => 
+        t.symbols && t.symbols.map((s: string) => s.toUpperCase()).includes(upper)
+      );
+      return found?.name || '';
+    };
+
     for (const pos of positions) {
       const existingPosRes = await query<{ theme: string }>(
         `SELECT theme FROM paper_positions WHERE symbol = $1`,
         [pos.symbol],
       );
-      const theme = existingPosRes.rows[0]?.theme ?? '';
+      // Prefer existing theme, fallback to derived theme from settings
+      const theme = existingPosRes.rows[0]?.theme || getTheme(pos.symbol);
 
       await query(
         `INSERT INTO paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)

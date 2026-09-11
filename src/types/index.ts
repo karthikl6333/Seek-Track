@@ -107,7 +107,7 @@ export interface ImportResult {
   overrideManual?: boolean;
 }
 
-export type ViewId = 'overview' | 'pairs' | 'positions' | 'trades' | 'journal' | 'charges' | 'charts' | 'research' | 'paper' | 'cryptoPaper';
+export type ViewId = 'overview' | 'positions' | 'trades' | 'charges' | 'charts' | 'research' | 'paper' | 'cryptoPaper';
 
 export interface CalculatorState {
   symbol: string;

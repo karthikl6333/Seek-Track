@@ -10,9 +10,13 @@ export function Trades({ store }: { store: Store }) {
       const db = Date.parse(b.date) || 0;
       return db - da;
     });
+    // Filter out junk: TEST symbol and empty/whitespace-only symbols (wire/interest rows)
+    const filtered = sorted.filter(
+      (t) => t.symbol.trim() !== '' && t.symbol.toUpperCase() !== 'TEST'
+    );
     const needle = q.trim().toUpperCase();
-    if (!needle) return sorted;
-    return sorted.filter(
+    if (!needle) return filtered;
+    return filtered.filter(
       (t) =>
         t.symbol.includes(needle) ||
         t.action.toUpperCase().includes(needle) ||

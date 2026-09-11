@@ -208,6 +208,8 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    // Add timeout to prevent hanging
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`Yahoo HTTP ${res.status} for ${symbol}`);
   const data = (await res.json()) as {
@@ -1010,9 +1012,12 @@ export async function fetchNewsForSymbol(
         'User-Agent': USER_AGENT,
         Accept: 'application/rss+xml, application/xml, text/xml, */*',
       },
+      // Add timeout to prevent hanging
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
-      return { items: [], error: `News fetch HTTP ${res.status}` };
+      // Return empty items with error message instead of throwing
+      return { items: [], error: `News API returned ${res.status}` };
     }
     const xml = await res.text();
     const items: NewsItem[] = [];
@@ -1058,7 +1063,12 @@ export async function fetchNewsForSymbol(
     }
     return { items };
   } catch (e) {
-    return { items: [], error: String(e) };
+    // Return friendly error message for common cases
+    const errMsg = String(e);
+    if (errMsg.includes('aborted') || errMsg.includes('timeout')) {
+      return { items: [], error: 'News API timeout' };
+    }
+    return { items: [], error: 'News unavailable' };
   }
 }
 

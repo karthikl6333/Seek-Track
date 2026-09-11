@@ -111,36 +111,67 @@ export default function App() {
   }, []);
 
   const handleLogout = useCallback(() => {
-    // Robust Basic Auth logout for Chromium/Safari/Firefox:
+    // Robust Basic Auth logout for Chromium/Safari/Firefox
     // 
-    // The challenge: Browsers aggressively cache Basic Auth credentials per origin.
-    // Simple fetch+reload often reuses cached creds without re-prompting.
+    // The challenge: Browsers aggressively cache Basic Auth credentials per origin
+    // and modern browsers ignore/strip embedded user:pass@ in URLs for security.
     // 
-    // Solution: Navigate with wrong credentials in URL, server redirects to /
-    // 1. Navigate to /api/logout-clear with invalid creds (logout:logout@host)
-    //    → Browsers cache these wrong credentials for the origin
-    // 2. Server responds 401 with different realm (Seek&Track-Logout)
-    //    → Browser realizes cached creds failed, clears the association
-    // 3. Use setTimeout to navigate to root with wrong creds after brief delay
-    //    → Forces browser to try the wrong cached credentials
-    // 4. Server responds 401 with normal realm (Seek&Track)
-    //    → Browser prompts for new credentials
-    // 5. After successful login → normal page load, all data refreshes
-    // 
-    // Alternative simpler approach that works well:
-    // Navigate directly to /api/logout with wrong creds in URL
-    // Server accepts and redirects to /, which triggers auth with cached wrong creds
-    // Root path rejects wrong creds with 401, browser prompts for real credentials
+    // Solution: Use XMLHttpRequest with bogus credentials, then navigate to logout endpoint
+    // 1. Send XHR with explicit wrong credentials (logout:logout) to any auth-protected endpoint
+    //    → This overwrites the browser's cached Basic Auth credentials
+    // 2. Navigate to /api/logout endpoint
+    //    → Server returns 401 + WWW-Authenticate header
+    //    → Browser realizes cached (wrong) credentials failed
+    //    → Browser prompts user for new valid credentials
+    // 3. After successful login → full page reload with fresh data
     
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    
-    // Navigate with explicit wrong credentials to overwrite cache
-    // Server will redirect to / which will fail auth and prompt
-    window.location.href = `${protocol}//logout:logout@${host}/api/logout`;
+    try {
+      const xhr = new XMLHttpRequest();
+      const protocol = window.location.protocol;
+      const host = window.location.host;
+      
+      // Send synchronous XHR with bogus credentials to overwrite cache
+      // Using /api/logout which will return 401
+      xhr.open('GET', `${protocol}//${host}/api/logout`, false, 'logout', 'logout');
+      try {
+        xhr.send();
+      } catch {
+        // Expected to fail with 401 - that's what we want
+      }
+      
+      // Now navigate to root - browser will use the wrong cached credentials
+      // and get 401, prompting for new login
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback: just navigate to root and hope for the best
+      window.location.href = '/';
+    }
   }, []);
 
   if (!store.ready || !store.settings) {
+    if (store.authError) {
+      return (
+        <div className="main" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <p className="muted">Session expired. Please log in again.</p>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => window.location.reload()}
+            style={{
+              minWidth: 120,
+              minHeight: 40,
+              height: 40,
+              paddingLeft: 16,
+              paddingRight: 16,
+              fontSize: 14,
+            }}
+          >
+            Log In
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="main">
         <p className="muted">Loading data…</p>

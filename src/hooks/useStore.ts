@@ -60,6 +60,7 @@ export function useStore() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [calc, setCalc] = useState<CalculatorState>(defaultCalc);
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState(false);
   const [resolvedPair, setResolvedPair] = useState<PairResolveResult | null>(null);
   const [pairBusy, setPairBusy] = useState(false);
 
@@ -91,26 +92,42 @@ export function useStore() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [t, s, j, pairCache] = await Promise.all([
-      db.loadAllTrades(),
-      db.loadSettings(),
-      db.loadJournal(),
-      db.listPairCache().catch(() => ({ pairs: [] as import('../types').PairDef[] })),
-    ]);
-    setTrades(t);
-    // Merge pair_cache into settings.pairs so CrossCheck is not limited to seeds
-    const byEtf = new Map(s.pairs.map((p) => [p.etf.toUpperCase(), p]));
-    for (const p of pairCache.pairs ?? []) {
-      if (!byEtf.has(p.etf.toUpperCase())) byEtf.set(p.etf.toUpperCase(), p);
+    try {
+      const [t, s, j, pairCache] = await Promise.all([
+        db.loadAllTrades(),
+        db.loadSettings(),
+        db.loadJournal(),
+        db.listPairCache().catch(() => ({ pairs: [] as import('../types').PairDef[] })),
+      ]);
+      setTrades(t);
+      // Merge pair_cache into settings.pairs so CrossCheck is not limited to seeds
+      const byEtf = new Map(s.pairs.map((p) => [p.etf.toUpperCase(), p]));
+      for (const p of pairCache.pairs ?? []) {
+        if (!byEtf.has(p.etf.toUpperCase())) byEtf.set(p.etf.toUpperCase(), p);
+      }
+      setSettings({ ...s, pairs: Array.from(byEtf.values()) });
+      setJournal(j);
+      await refreshMarks();
+      setReady(true);
+      setAuthError(false);
+    } catch (e) {
+      if (e instanceof db.AuthError) {
+        setAuthError(true);
+        setError('Authentication required. Please log in again.');
+      } else {
+        throw e;
+      }
     }
-    setSettings({ ...s, pairs: Array.from(byEtf.values()) });
-    setJournal(j);
-    await refreshMarks();
-    setReady(true);
   }, [refreshMarks]);
 
   useEffect(() => {
-    refresh().catch((e) => setError(String(e)));
+    refresh().catch((e) => {
+      if (e instanceof db.AuthError) {
+        // Auth error already handled in refresh()
+        return;
+      }
+      setError(String(e));
+    });
   }, [refresh]);
 
   // Client poll every 15 minutes (server also refreshes on cron)
@@ -320,6 +337,7 @@ export function useStore() {
   return {
     ready,
     error,
+    authError,
     trades,
     marks,
     markDetails,

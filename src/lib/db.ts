@@ -12,6 +12,13 @@ import { DEFAULT_SETTINGS } from './pairs';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -22,6 +29,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    if (res.status === 401) {
+      throw new AuthError('Authentication required. Please log in again.');
+    }
     throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ''}`);
   }
   if (res.status === 204) return undefined as T;

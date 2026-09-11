@@ -4,11 +4,11 @@ import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
 import { loadPaperSummary, loadCryptoPaperSummary } from '../lib/db';
 import type { PaperSummary, CryptoPaperSummary } from '../types';
-import { Watchlist } from './Watchlist';
+import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 
-export function Overview({ store }: { store: Store }) {
+export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
@@ -301,7 +301,7 @@ export function Overview({ store }: { store: Store }) {
         </div>
 
         <div className="calc-side">
-          <Watchlist compact />
+          <Watchlist compact watchlistRef={watchlistRef} />
           <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
         </div>
       </div>

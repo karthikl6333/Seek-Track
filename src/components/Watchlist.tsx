@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
 import { TickerLink } from '../lib/yahoo';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const POLL_MS = 5 * 60 * 1000;
+
+export interface WatchlistRef {
+  refreshQuotes: () => Promise<void>;
+}
 
 interface WatchlistRow {
   symbol: string;
@@ -99,7 +103,9 @@ function compareNullable(
   return (Number(a) - Number(b)) * dir;
 }
 
-export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
+export function Watchlist(
+  { compact = false, watchlistRef }: { compact?: boolean; watchlistRef?: React.RefObject<WatchlistRef> } = {},
+) {
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +113,7 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
   const [symbol, setSymbol] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const refreshInProgressRef = useRef(false);
 
   const applyPayload = useCallback((data: WatchlistPayload) => {
     setRows(data.rows ?? []);
@@ -119,6 +126,8 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
   }, [applyPayload]);
 
   const refreshQuotes = useCallback(async () => {
+    if (refreshInProgressRef.current) return;
+    refreshInProgressRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -136,8 +145,13 @@ export function Watchlist({ compact = false }: { compact?: boolean } = {}) {
       }
     } finally {
       setBusy(false);
+      refreshInProgressRef.current = false;
     }
   }, [applyPayload, load]);
+
+  useImperativeHandle(watchlistRef, () => ({
+    refreshQuotes,
+  }), [refreshQuotes]);
 
   useEffect(() => {
     let cancelled = false;

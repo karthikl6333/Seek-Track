@@ -11,8 +11,7 @@ import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
 import { refreshPaperData, refreshCryptoPaperLivePnl } from './lib/db';
-
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
+import type { WatchlistRef } from './components/Watchlist';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -30,6 +29,7 @@ const WATCH_MODE_STORAGE_KEY = 'seektrack_watch_mode';
 
 export default function App() {
   const store = useStore();
+  const watchlistRef = useRef<WatchlistRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [watchModeEnabled, setWatchModeEnabled] = useState(() => {
     try {
@@ -48,7 +48,7 @@ export default function App() {
       await Promise.allSettled([
         store.refreshLiveQuotes(),
         store.refresh(),
-        fetch(`${API_BASE}/api/watchlist/refresh`, { method: 'POST' }).catch(() => null),
+        watchlistRef.current?.refreshQuotes(),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
       ]);
@@ -57,7 +57,7 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
-  }, [store]);
+  }, [store.refreshLiveQuotes, store.refresh]);
 
   const refreshWatchMode = useCallback(async () => {
     if (watchModeRefreshingRef.current) return;
@@ -65,20 +65,25 @@ export default function App() {
     try {
       await Promise.allSettled([
         store.refreshLiveQuotes(),
-        fetch(`${API_BASE}/api/watchlist/refresh`, { method: 'POST' }).catch(() => null),
+        watchlistRef.current?.refreshQuotes(),
       ]);
     } catch (error) {
       console.error('Watch mode refresh error:', error);
     } finally {
       watchModeRefreshingRef.current = false;
     }
-  }, [store]);
+  }, [store.refreshLiveQuotes]);
 
   useEffect(() => {
     if (watchModeEnabled) {
+      // Immediate refresh on enable
+      void refreshWatchMode();
+      
+      // Then set up interval for subsequent refreshes
       watchModeIntervalRef.current = window.setInterval(() => {
         void refreshWatchMode();
       }, WATCH_MODE_INTERVAL_MS);
+      
       return () => {
         if (watchModeIntervalRef.current !== null) {
           clearInterval(watchModeIntervalRef.current);
@@ -207,7 +212,7 @@ export default function App() {
             {store.error}
           </div>
         )}
-        {store.view === 'overview' && <Overview store={store} />}
+        {store.view === 'overview' && <Overview store={store} watchlistRef={watchlistRef} />}
         {store.view === 'positions' && <Positions store={store} />}
         {store.view === 'trades' && <Trades store={store} />}
         {store.view === 'charges' && <Charges store={store} />}

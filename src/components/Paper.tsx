@@ -95,7 +95,7 @@ export function Paper() {
     );
   }
 
-  const { state, positions, recentOrders, journalEntries, scoreboard } = summary;
+  const { state, positions, recentOrders, scoreboard } = summary;
   const statusBadgeClass =
     state.status === 'active'
       ? 'badge bull-badge'
@@ -301,46 +301,6 @@ export function Paper() {
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <h3>Decision Journal</h3>
-        {journalEntries.length === 0 ? (
-          <p className="muted">
-            No journal entries yet. Trading agent will post trade rationale here.
-          </p>
-        ) : (
-          <div className="stack" style={{ gap: 10 }}>
-            {journalEntries.map((entry) => (
-              <div
-                key={entry.id}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'rgba(255, 255, 255, 0.02)',
-                }}
-              >
-                <div
-                  className="row-actions"
-                  style={{ justifyContent: 'space-between', marginBottom: 6 }}
-                >
-                  <div>
-                    {entry.symbol && (
-                      <span className="mono" style={{ fontWeight: 600 }}>
-                        {entry.symbol}
-                      </span>
-                    )}
-                  </div>
-                  <span className="muted" style={{ fontSize: 11 }}>
-                    {formatTime(entry.createdAt)}
-                  </span>
-                </div>
-                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.4 }}>{entry.note}</p>
-              </div>
-            ))}
           </div>
         )}
       </div>

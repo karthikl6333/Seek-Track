@@ -110,6 +110,36 @@ export default function App() {
     });
   }, []);
 
+  const handleLogout = useCallback(() => {
+    // Robust Basic Auth logout for Chromium/Safari/Firefox:
+    // 
+    // The challenge: Browsers aggressively cache Basic Auth credentials per origin.
+    // Simple fetch+reload often reuses cached creds without re-prompting.
+    // 
+    // Solution: Navigate with wrong credentials in URL, server redirects to /
+    // 1. Navigate to /api/logout-clear with invalid creds (logout:logout@host)
+    //    → Browsers cache these wrong credentials for the origin
+    // 2. Server responds 401 with different realm (Seek&Track-Logout)
+    //    → Browser realizes cached creds failed, clears the association
+    // 3. Use setTimeout to navigate to root with wrong creds after brief delay
+    //    → Forces browser to try the wrong cached credentials
+    // 4. Server responds 401 with normal realm (Seek&Track)
+    //    → Browser prompts for new credentials
+    // 5. After successful login → normal page load, all data refreshes
+    // 
+    // Alternative simpler approach that works well:
+    // Navigate directly to /api/logout with wrong creds in URL
+    // Server accepts and redirects to /, which triggers auth with cached wrong creds
+    // Root path rejects wrong creds with 401, browser prompts for real credentials
+    
+    const protocol = window.location.protocol;
+    const host = window.location.host;
+    
+    // Navigate with explicit wrong credentials to overwrite cache
+    // Server will redirect to / which will fail auth and prompt
+    window.location.href = `${protocol}//logout:logout@${host}/api/logout`;
+  }, []);
+
   if (!store.ready || !store.settings) {
     return (
       <div className="main">
@@ -183,6 +213,22 @@ export default function App() {
                 Watch{watchModeEnabled ? ' · 30s' : ''}
               </span>
             </label>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void handleLogout()}
+              title="Log out and re-authenticate"
+              style={{
+                minWidth: 70,
+                minHeight: 40,
+                height: 40,
+                paddingLeft: 12,
+                paddingRight: 12,
+                fontSize: 13,
+              }}
+            >
+              Logout
+            </button>
             <button
               type="button"
               className="btn"

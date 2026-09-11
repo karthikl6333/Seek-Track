@@ -15,6 +15,19 @@ export function createAuthMiddleware() {
       return next();
     }
 
+    // Logout endpoint: always return 401 to clear cached credentials
+    if (c.req.path === '/api/logout') {
+      throw new HTTPException(401, {
+        message: 'Logged out',
+        res: new Response('Logged out', {
+          status: 401,
+          headers: {
+            'WWW-Authenticate': 'Basic realm="Seek&Track", charset="UTF-8"',
+          },
+        }),
+      });
+    }
+
     // Skip auth if not configured (dev mode)
     const authPassword = getEnvVar(c, 'AUTH_PASSWORD');
     if (!authPassword) {

@@ -27,6 +27,8 @@ const NAV: { id: ViewId; label: string }[] = [
 const WATCH_MODE_INTERVAL_MS = 30_000; // 30 seconds
 const WATCH_MODE_STORAGE_KEY = 'seektrack_watch_mode';
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
+
 export default function App() {
   const store = useStore();
   const watchlistRef = useRef<WatchlistRef>(null);
@@ -110,6 +112,20 @@ export default function App() {
     });
   }, []);
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/logout`, {
+        method: 'GET',
+        headers: {
+          Authorization: 'Basic ' + btoa('logout:logout'),
+        },
+      });
+    } catch {
+      // Expected to fail with 401
+    }
+    window.location.reload();
+  }, []);
+
   if (!store.ready || !store.settings) {
     return (
       <div className="main">
@@ -183,6 +199,22 @@ export default function App() {
                 Watch{watchModeEnabled ? ' · 30s' : ''}
               </span>
             </label>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void handleLogout()}
+              title="Log out and re-authenticate"
+              style={{
+                minWidth: 70,
+                minHeight: 40,
+                height: 40,
+                paddingLeft: 12,
+                paddingRight: 12,
+                fontSize: 13,
+              }}
+            >
+              Logout
+            </button>
             <button
               type="button"
               className="btn"

@@ -95,7 +95,7 @@ export function Paper() {
     );
   }
 
-  const { state, positions, recentOrders, journalEntries, scoreboard } = summary;
+  const { state, positions, recentOrders, scoreboard } = summary;
   const statusBadgeClass =
     state.status === 'active'
       ? 'badge bull-badge'

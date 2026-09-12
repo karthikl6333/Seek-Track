@@ -7,6 +7,7 @@ import type { PaperSummary, CryptoPaperSummary } from '../types';
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
+import { TickerLink } from '../lib/yahoo';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
@@ -32,6 +33,13 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   useEffect(() => {
     void loadPaperAndCrypto();
   }, [loadPaperAndCrypto]);
+
+  // Reload paper/crypto summaries when marks are refreshed (e.g., global refresh button)
+  useEffect(() => {
+    if (store.lastRefreshAt) {
+      void loadPaperAndCrypto();
+    }
+  }, [store.lastRefreshAt, loadPaperAndCrypto]);
 
   const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
@@ -187,8 +195,8 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                     const isHidden = hiddenSet.has(p.symbol.toUpperCase());
                     return (
                       <tr key={p.symbol} style={isHidden ? { opacity: 0.55 } : undefined}>
-                        <td className="left mono">
-                          {p.symbol}
+                        <td className="left">
+                          <TickerLink symbol={p.symbol} />
                           {isHidden && (
                             <span className="badge" style={{ marginLeft: 6 }}>
                               hidden

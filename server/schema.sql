@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS research_universe_excluded (
 );
 
 ALTER TABLE marks ADD COLUMN IF NOT EXISTS day_pct DOUBLE PRECISION;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS last_price DOUBLE PRECISION;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS last_day_pct DOUBLE PRECISION;
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS live_day_pct DOUBLE PRECISION;
 
 -- User watchlist (Overview). Seed-once from research_universe when empty + flag unset.
 CREATE TABLE IF NOT EXISTS watchlist (

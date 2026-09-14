@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../lib/format';
+import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
 import { TickerLink, yahooQuoteUrl } from '../lib/yahoo';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
@@ -35,6 +35,8 @@ interface QuoteSnap {
   symbol: string;
   price: number | null;
   dayPct: number | null;
+  livePrice: number | null;
+  liveDayPct: number | null;
   updatedAt: string | null;
   source?: string;
 }
@@ -52,9 +54,15 @@ interface TableRow {
   underlyingLast: number | null;
   bullLast: number | null;
   bearLast: number | null;
+  underlyingLive: number | null;
+  bullLive: number | null;
+  bearLive: number | null;
   underlyingDayPct: number | null;
   bullDayPct: number | null;
   bearDayPct: number | null;
+  underlyingLiveDayPct: number | null;
+  bullLiveDayPct: number | null;
+  bearLiveDayPct: number | null;
   updated: string | null;
 }
 
@@ -365,9 +373,13 @@ export function Research() {
       return {
         ...m,
         underlyingLast: underQ?.price ?? selectedRow?.underlyingLast ?? null,
+        underlyingLive: underQ?.livePrice ?? selectedRow?.underlyingLive ?? null,
         underlyingDayPct: underQ?.dayPct ?? selectedRow?.underlyingDayPct ?? null,
+        underlyingLiveDayPct: underQ?.liveDayPct ?? selectedRow?.underlyingLiveDayPct ?? null,
         etfLast: etfQ?.price ?? null,
+        etfLive: etfQ?.livePrice ?? null,
         etfDayPct: etfQ?.dayPct ?? null,
+        etfLiveDayPct: etfQ?.liveDayPct ?? null,
         quoteUpdated: etfQ?.updatedAt ?? underQ?.updatedAt ?? m.updatedAt ?? null,
       };
     });
@@ -406,7 +418,9 @@ export function Research() {
       factor,
       underlying: mapHit ? mapHit.underlying : isUnderlying ? null : underSym,
       price: q?.price ?? (sym === selected ? selectedRow?.underlyingLast ?? null : null),
+      livePrice: q?.livePrice ?? (sym === selected ? selectedRow?.underlyingLive ?? null : null),
       dayPct: q?.dayPct ?? (sym === selected ? selectedRow?.underlyingDayPct ?? null : null),
+      liveDayPct: q?.liveDayPct ?? (sym === selected ? selectedRow?.underlyingLiveDayPct ?? null : null),
       source: q?.source ?? mapHit?.source ?? null,
       updated: q?.updatedAt ?? mapHit?.updatedAt ?? (sym === selected ? selectedRow?.updated ?? null : null),
       sectorNote: uni?.sectorNote ?? null,
@@ -572,30 +586,72 @@ export function Research() {
                 </div>
                 <div className="grid-3">
                   <div>
-                    <div className="stat-label">Underlying last</div>
-                    <div className="stat-value" style={{ fontSize: 18 }}>
-                      {fmtMoney(selectedRow.underlyingLast)}
-                    </div>
-                    <div className={pnlClass(selectedRow.underlyingDayPct)}>
-                      {fmtPct(selectedRow.underlyingDayPct)}
+                    <div className="stat-label">Underlying</div>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Last</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.underlyingLast)}
+                        </div>
+                        <div className={pnlClass(selectedRow.underlyingDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.underlyingDayPct)}
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Live</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.underlyingLive)}
+                        </div>
+                        <div className={pnlClass(selectedRow.underlyingLiveDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.underlyingLiveDayPct)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div>
-                    <div className="stat-label">Bull last</div>
-                    <div className="stat-value" style={{ fontSize: 18 }}>
-                      {fmtMoney(selectedRow.bullLast)}
-                    </div>
-                    <div className={pnlClass(selectedRow.bullDayPct)}>
-                      {fmtPct(selectedRow.bullDayPct)}
+                    <div className="stat-label">Bull ETF</div>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Last</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.bullLast)}
+                        </div>
+                        <div className={pnlClass(selectedRow.bullDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.bullDayPct)}
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Live</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.bullLive)}
+                        </div>
+                        <div className={pnlClass(selectedRow.bullLiveDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.bullLiveDayPct)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div>
-                    <div className="stat-label">Bear last</div>
-                    <div className="stat-value" style={{ fontSize: 18 }}>
-                      {fmtMoney(selectedRow.bearLast)}
-                    </div>
-                    <div className={pnlClass(selectedRow.bearDayPct)}>
-                      {fmtPct(selectedRow.bearDayPct)}
+                    <div className="stat-label">Bear ETF</div>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Last</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.bearLast)}
+                        </div>
+                        <div className={pnlClass(selectedRow.bearDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.bearDayPct)}
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Live</div>
+                        <div className="stat-value" style={{ fontSize: 16 }}>
+                          {fmtMoney(selectedRow.bearLive)}
+                        </div>
+                        <div className={pnlClass(selectedRow.bearLiveDayPct)} style={{ fontSize: 13 }}>
+                          {fmtPct(selectedRow.bearLiveDayPct)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -624,10 +680,12 @@ export function Research() {
                     <th className="left">Direction</th>
                     <th className="left">ETF</th>
                     <th>Factor</th>
-                    <th>ETF last</th>
-                    <th>ETF day %</th>
-                    <th>Underlying last</th>
-                    <th>Underlying day %</th>
+                    <th>ETF Last</th>
+                    <th>ETF Live</th>
+                    <th>ETF Day %</th>
+                    <th>Under. Last</th>
+                    <th>Under. Live</th>
+                    <th>Under. Day %</th>
                     <th className="left">Source</th>
                     <th>Updated</th>
                   </tr>
@@ -650,16 +708,18 @@ export function Research() {
                       </td>
                       <td className="mono">{fmtFactor(r.factor)}</td>
                       <td className="mono">{fmtMoney(r.etfLast)}</td>
-                      <td className={pnlClass(r.etfDayPct)}>{fmtPct(r.etfDayPct)}</td>
+                      <td className="mono">{fmtMoney(r.etfLive)}</td>
+                      <td className={pnlClass(r.etfLiveDayPct)}>{fmtPct(r.etfLiveDayPct)}</td>
                       <td className="mono">{fmtMoney(r.underlyingLast)}</td>
-                      <td className={pnlClass(r.underlyingDayPct)}>{fmtPct(r.underlyingDayPct)}</td>
+                      <td className="mono">{fmtMoney(r.underlyingLive)}</td>
+                      <td className={pnlClass(r.underlyingLiveDayPct)}>{fmtPct(r.underlyingLiveDayPct)}</td>
                       <td className="left muted">{r.source || '—'}</td>
                       <td className="muted">{fmtTime(r.quoteUpdated)}</td>
                     </tr>
                   ))}
                   {!selectedEtfTableRows.length && (
                     <tr>
-                      <td colSpan={9} className="left muted">
+                      <td colSpan={11} className="left muted">
                         No bull/bear ETFs mapped for <span className="mono">{selected}</span> yet. Click Refresh.
                       </td>
                     </tr>
@@ -754,17 +814,25 @@ export function Research() {
                   {focusInfo.sectorNote && (
                     <div className="muted" style={{ fontSize: 12 }}>{focusInfo.sectorNote}</div>
                   )}
-                  <div className="grid-2" style={{ gap: 8, marginTop: 4 }}>
-                    <div>
-                      <div className="stat-label">Last</div>
-                      <div className="stat-value" style={{ fontSize: 18 }}>
-                        {fmtMoney(focusInfo.price)}
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <div style={{ flex: 1 }}>
+                        <div className="stat-label">Last</div>
+                        <div className="stat-value" style={{ fontSize: 18 }}>
+                          {fmtMoney(focusInfo.price)}
+                        </div>
+                        <div className={pnlClass(focusInfo.dayPct)} style={{ fontSize: 14 }}>
+                          {fmtPct(focusInfo.dayPct)}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <div className="stat-label">Day %</div>
-                      <div className={`stat-value ${pnlClass(focusInfo.dayPct)} ${moneyTone("stat")}`} style={{ fontSize: 18 }}>
-                        {fmtPct(focusInfo.dayPct)}
+                      <div style={{ flex: 1 }}>
+                        <div className="stat-label">Live</div>
+                        <div className="stat-value" style={{ fontSize: 18 }}>
+                          {fmtMoney(focusInfo.livePrice)}
+                        </div>
+                        <div className={pnlClass(focusInfo.liveDayPct)} style={{ fontSize: 14 }}>
+                          {fmtPct(focusInfo.liveDayPct)}
+                        </div>
                       </div>
                     </div>
                   </div>

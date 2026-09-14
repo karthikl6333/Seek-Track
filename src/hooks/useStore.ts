@@ -21,6 +21,8 @@ const defaultCalc: CalculatorState = {
   targetPrice: 0,
 };
 
+type CalcSlot = 'A' | 'B';
+
 const POLL_MS = 15 * 60 * 1000;
 
 const VALID_VIEWS: ViewId[] = [
@@ -58,11 +60,14 @@ export function useStore() {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [view, setViewState] = useState<ViewId>(() => viewFromLocation());
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [calc, setCalc] = useState<CalculatorState>(defaultCalc);
+  const [calcA, setCalcA] = useState<CalculatorState>(defaultCalc);
+  const [calcB, setCalcB] = useState<CalculatorState>(defaultCalc);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState(false);
-  const [resolvedPair, setResolvedPair] = useState<PairResolveResult | null>(null);
-  const [pairBusy, setPairBusy] = useState(false);
+  const [resolvedPairA, setResolvedPairA] = useState<PairResolveResult | null>(null);
+  const [resolvedPairB, setResolvedPairB] = useState<PairResolveResult | null>(null);
+  const [pairBusyA, setPairBusyA] = useState(false);
+  const [pairBusyB, setPairBusyB] = useState(false);
 
   const setView = useCallback((next: ViewId) => {
     setViewState(next);
@@ -136,9 +141,13 @@ export function useStore() {
       void (async () => {
         try {
           const pollSyms: string[] = [];
-          if (calc.symbol) pollSyms.push(calc.symbol);
-          if (resolvedPair?.pair) {
-            pollSyms.push(resolvedPair.pair.etf, resolvedPair.pair.underlying);
+          if (calcA.symbol) pollSyms.push(calcA.symbol);
+          if (calcB.symbol) pollSyms.push(calcB.symbol);
+          if (resolvedPairA?.pair) {
+            pollSyms.push(resolvedPairA.pair.etf, resolvedPairA.pair.underlying);
+          }
+          if (resolvedPairB?.pair) {
+            pollSyms.push(resolvedPairB.pair.etf, resolvedPairB.pair.underlying);
           }
           await db.refreshQuotes(pollSyms.length ? pollSyms : undefined);
           await refreshMarks();
@@ -148,14 +157,15 @@ export function useStore() {
       })();
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [calc.symbol, refreshMarks, resolvedPair]);
+  }, [calcA.symbol, calcB.symbol, refreshMarks, resolvedPairA, resolvedPairB]);
 
   const analysis: LotEngineResult | null = useMemo(() => {
     if (!settings) return null;
     return computePositions(trades, settings.themes, marks);
   }, [trades, settings, marks]);
 
-  const whatIf = useMemo(() => calcWhatIf(calc), [calc]);
+  const whatIfA = useMemo(() => calcWhatIf(calcA), [calcA]);
+  const whatIfB = useMemo(() => calcWhatIf(calcB), [calcB]);
 
   const importCsvText = useCallback(
     async (text: string, overrideManual = true) => {
@@ -190,17 +200,28 @@ export function useStore() {
     async (extra?: string[]) => {
       setError(null);
       const symbols = [...(extra ?? [])];
-      if (calc.symbol) symbols.push(calc.symbol);
+      if (calcA.symbol) symbols.push(calcA.symbol);
+      if (calcB.symbol) symbols.push(calcB.symbol);
       // When a pair is known, always refresh BOTH etf and underlying (e.g. SNDQ + SNDK)
-      const pair = resolvedPair?.pair;
-      if (pair) {
-        symbols.push(pair.etf, pair.underlying);
+      const pairA = resolvedPairA?.pair;
+      const pairB = resolvedPairB?.pair;
+      if (pairA) {
+        symbols.push(pairA.etf, pairA.underlying);
       } else if (settings) {
-        const sym = calc.symbol.trim().toUpperCase();
-        const found = settings.pairs.find(
-          (p) => p.etf.toUpperCase() === sym || p.underlying.toUpperCase() === sym,
+        const symA = calcA.symbol.trim().toUpperCase();
+        const foundA = settings.pairs.find(
+          (p) => p.etf.toUpperCase() === symA || p.underlying.toUpperCase() === symA,
         );
-        if (found) symbols.push(found.etf, found.underlying);
+        if (foundA) symbols.push(foundA.etf, foundA.underlying);
+      }
+      if (pairB) {
+        symbols.push(pairB.etf, pairB.underlying);
+      } else if (settings) {
+        const symB = calcB.symbol.trim().toUpperCase();
+        const foundB = settings.pairs.find(
+          (p) => p.etf.toUpperCase() === symB || p.underlying.toUpperCase() === symB,
+        );
+        if (foundB) symbols.push(foundB.etf, foundB.underlying);
       }
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
@@ -209,25 +230,34 @@ export function useStore() {
       await refreshMarks();
       return result;
     },
-    [analysis, calc.symbol, refreshMarks, resolvedPair, settings],
+    [analysis, calcA.symbol, calcB.symbol, refreshMarks, resolvedPairA, resolvedPairB, settings],
   );
 
   const loadPositionIntoCalc = useCallback(
-    (symbol: string) => {
+    (symbol: string, slot: CalcSlot = 'A') => {
       const pos = analysis?.positions.find((p) => p.symbol === symbol);
       if (!pos) return;
-      setCalc({
+      const newCalc = {
         symbol: pos.symbol,
         quantity: pos.quantity,
         entryPrice: Number(pos.avgCost.toFixed(4)),
         fees: 0,
         targetPrice: pos.markPrice ?? Number(pos.avgCost.toFixed(4)),
-      });
+      };
+      if (slot === 'A') {
+        setCalcA(newCalc);
+      } else {
+        setCalcB(newCalc);
+      }
     },
     [analysis],
   );
 
-  const resolveCalcPair = useCallback(async (symbol?: string) => {
+  const resolveCalcPair = useCallback(async (slot: CalcSlot, symbol?: string) => {
+    const calc = slot === 'A' ? calcA : calcB;
+    const setResolvedPair = slot === 'A' ? setResolvedPairA : setResolvedPairB;
+    const setPairBusy = slot === 'A' ? setPairBusyA : setPairBusyB;
+    
     const sym = (symbol ?? calc.symbol).trim().toUpperCase();
     if (!sym) {
       setResolvedPair(null);
@@ -267,20 +297,32 @@ export function useStore() {
     } finally {
       setPairBusy(false);
     }
-  }, [calc.symbol, settings, refreshMarks]);
+  }, [calcA, calcB, settings, refreshMarks]);
 
   // Auto-resolve when calculator symbol changes
   useEffect(() => {
-    const sym = calc.symbol.trim().toUpperCase();
-    if (!sym) {
-      setResolvedPair(null);
+    const symA = calcA.symbol.trim().toUpperCase();
+    if (!symA) {
+      setResolvedPairA(null);
       return;
     }
     const t = setTimeout(() => {
-      void resolveCalcPair(sym);
+      void resolveCalcPair('A', symA);
     }, 400);
     return () => clearTimeout(t);
-  }, [calc.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [calcA.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const symB = calcB.symbol.trim().toUpperCase();
+    if (!symB) {
+      setResolvedPairB(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      void resolveCalcPair('B', symB);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [calcB.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveJournal = useCallback(
     async (entry: JournalEntry) => {
@@ -350,9 +392,12 @@ export function useStore() {
     importResult,
     setImportResult,
     analysis,
-    calc,
-    setCalc,
-    whatIf,
+    calcA,
+    setCalcA,
+    whatIfA,
+    calcB,
+    setCalcB,
+    whatIfB,
     importCsvText,
     addManualTrade,
     setMarkPrice,
@@ -363,9 +408,11 @@ export function useStore() {
     updateSettings,
     updateNote,
     refresh,
-    resolvedPair,
+    resolvedPairA,
+    resolvedPairB,
     resolveCalcPair,
-    pairBusy,
+    pairBusyA,
+    pairBusyB,
     toggleHiddenSymbol,
     hiddenSet,
   };

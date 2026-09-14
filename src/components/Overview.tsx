@@ -219,9 +219,18 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                             <button
                               type="button"
                               className="btn small"
-                              onClick={() => store.loadPositionIntoCalc(p.symbol)}
+                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'A')}
+                              title="Load into Calculator A"
                             >
-                              → Calc
+                              → A
+                            </button>
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'B')}
+                              title="Load into Calculator B"
+                            >
+                              → B
                             </button>
                             <button
                               type="button"
@@ -259,18 +268,36 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             )}
           </div>
 
-          <Calculator
-            calc={store.calc}
-            setCalc={store.setCalc}
-            whatIf={store.whatIf}
-            resolvedPair={store.resolvedPair}
-            pairBusy={store.pairBusy}
-            onResolvePair={() => void store.resolveCalcPair()}
-            markDetails={store.markDetails}
-            marks={store.marks}
-            settingsPairs={settings?.pairs ?? []}
-            onRefreshQuotes={() => void store.refreshLiveQuotes()}
-          />
+          <div className="dual-calculator-container">
+            <Calculator
+              calc={store.calcA}
+              setCalc={store.setCalcA}
+              whatIf={store.whatIfA}
+              resolvedPair={store.resolvedPairA}
+              pairBusy={store.pairBusyA}
+              onResolvePair={() => void store.resolveCalcPair('A')}
+              markDetails={store.markDetails}
+              marks={store.marks}
+              settingsPairs={settings?.pairs ?? []}
+              onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              compact
+              slot="A"
+            />
+            <Calculator
+              calc={store.calcB}
+              setCalc={store.setCalcB}
+              whatIf={store.whatIfB}
+              resolvedPair={store.resolvedPairB}
+              pairBusy={store.pairBusyB}
+              onResolvePair={() => void store.resolveCalcPair('B')}
+              markDetails={store.markDetails}
+              marks={store.marks}
+              settingsPairs={settings?.pairs ?? []}
+              onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              compact
+              slot="B"
+            />
+          </div>
 
           <div className="card">
             <h3>P&amp;L by Theme</h3>

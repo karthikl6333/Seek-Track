@@ -128,7 +128,13 @@
   align-items: start;
 }
 .overview-layout .calc-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
-@media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } }
+.dual-calculator-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } .dual-calculator-container { grid-template-columns: 1fr; } }
 
 .watchlist-side {
   padding: 8px 8px;

@@ -14,6 +14,8 @@ interface Props {
   marks: Record<string, number>;
   settingsPairs: PairDef[];
   onRefreshQuotes?: () => void;
+  compact?: boolean;
+  slot?: 'A' | 'B';
 }
 
 function findPair(
@@ -54,6 +56,8 @@ export function Calculator({
   marks,
   settingsPairs,
   onRefreshQuotes,
+  compact = false,
+  slot = 'A',
 }: Props) {
   const set = (patch: Partial<CalculatorState>) => setCalc({ ...calc, ...patch });
 
@@ -131,11 +135,13 @@ export function Calculator({
 
   return (
     <div className="card">
-      <h3>What-if Calculator</h3>
-      <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
-        Live P&amp;L vs cost basis. Negative qty = short. Load an open position from Positions with one
-        click.
-      </p>
+      <h3>What-if Calculator {slot}</h3>
+      {!compact && (
+        <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+          Live P&amp;L vs cost basis. Negative qty = short. Load an open position from Positions with one
+          click.
+        </p>
+      )}
       <div className="grid-2">
         <div className="field">
           <label>Symbol</label>
@@ -238,10 +244,10 @@ export function Calculator({
 
       {/* Prominent underlying / ETF implied move */}
       <div className="leverage-panel">
-        <div className="stat-label">Underlying / ETF fluctuation (daily factor)</div>
+        {!compact && <div className="stat-label">Underlying / ETF fluctuation (daily factor)</div>}
         {leverage ? (
           <>
-            <div className="leverage-headline mono">
+            <div className="leverage-headline mono" style={{ fontSize: compact ? 12 : undefined }}>
               {move ? (
                 <>
                   If {move.selectedLabel} moves {fmtPct(move.primaryPct)} ({move.basis}) →{' '}
@@ -336,15 +342,19 @@ export function Calculator({
                 </div>
               </div>
             )}
-            <div className="caveat" style={{ marginTop: 8 }}>
-              Approx daily-target check — multi-day compounding diverges from simple factor × move.
-              Discovery is best-effort; override in Pair Map if wrong.
-            </div>
+            {!compact && (
+              <div className="caveat" style={{ marginTop: 8 }}>
+                Approx daily-target check — multi-day compounding diverges from simple factor × move.
+                Discovery is best-effort; override in Pair Map if wrong.
+              </div>
+            )}
           </>
         ) : (
           <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>
             {resolvedPair?.message ||
-              'Not a known leveraged/inverse pair yet. Enter a single-stock ETF ticker and click Resolve pair.'}
+              (compact
+                ? 'Not a known leveraged/inverse pair.'
+                : 'Not a known leveraged/inverse pair yet. Enter a single-stock ETF ticker and click Resolve pair.')}
           </p>
         )}
       </div>

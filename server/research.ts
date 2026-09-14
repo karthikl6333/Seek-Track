@@ -324,24 +324,30 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
 
 export async function upsertMarkWithDayPct(
   symbol: string,
-  price: number,
-  dayPct: number | null,
+  lastPrice: number,
+  lastDayPct: number | null,
   source: string,
   livePrice?: number | null,
   liveDayPct?: number | null,
 ): Promise<void> {
   const now = new Date().toISOString();
+  // CRITICAL: marks.price must be LIVE (fullday/current tradeable) to preserve Overview holdings behavior
+  // marks.last_price stores regular market last
+  const currentPrice = livePrice ?? lastPrice;
+  const currentDayPct = liveDayPct ?? lastDayPct;
+  
   await query(
-    `INSERT INTO marks (symbol, price, updated_at, source, day_pct, live_price, live_day_pct)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO marks (symbol, price, updated_at, source, day_pct, last_price, last_day_pct, live_day_pct)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (symbol) DO UPDATE SET
        price = EXCLUDED.price,
        updated_at = EXCLUDED.updated_at,
        source = EXCLUDED.source,
        day_pct = EXCLUDED.day_pct,
-       live_price = EXCLUDED.live_price,
+       last_price = EXCLUDED.last_price,
+       last_day_pct = EXCLUDED.last_day_pct,
        live_day_pct = EXCLUDED.live_day_pct`,
-    [symbol.toUpperCase(), price, now, source, dayPct, livePrice ?? null, liveDayPct ?? null],
+    [symbol.toUpperCase(), currentPrice, now, source, currentDayPct, lastPrice, lastDayPct, liveDayPct ?? null],
   );
 }
 
@@ -502,20 +508,23 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
     updated_at: Date | string;
     source: string | null;
     day_pct: number | null;
-    live_price: number | null;
+    last_price: number | null;
+    last_day_pct: number | null;
     live_day_pct: number | null;
   }>(
-    `SELECT symbol, price, updated_at, source, day_pct, live_price, live_day_pct FROM marks WHERE symbol = ANY($1)`,
+    `SELECT symbol, price, updated_at, source, day_pct, last_price, last_day_pct, live_day_pct FROM marks WHERE symbol = ANY($1)`,
     [symbols.map((s) => s.toUpperCase())],
   );
   const out: Record<string, QuoteSnap> = {};
   for (const r of res.rows) {
+    // QuoteSnap.price = last (regular market last) from marks.last_price
+    // QuoteSnap.livePrice = live (current tradeable) from marks.price (keeping Overview semantics)
     out[r.symbol] = {
       symbol: r.symbol,
-      price: Number(r.price),
-      dayPct: r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null,
-      livePrice: r.live_price !== null && r.live_price !== undefined ? Number(r.live_price) : null,
-      liveDayPct: r.live_day_pct !== null && r.live_day_pct !== undefined ? Number(r.live_day_pct) : null,
+      price: r.last_price !== null && r.last_price !== undefined ? Number(r.last_price) : Number(r.price),
+      dayPct: r.last_day_pct !== null && r.last_day_pct !== undefined ? Number(r.last_day_pct) : (r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null),
+      livePrice: Number(r.price),
+      liveDayPct: r.live_day_pct !== null && r.live_day_pct !== undefined ? Number(r.live_day_pct) : (r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null),
       updatedAt:
         typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
       source: r.source ?? 'manual',

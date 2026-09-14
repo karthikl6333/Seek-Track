@@ -27,6 +27,8 @@ export interface QuoteSnap {
   symbol: string;
   price: number | null;
   dayPct: number | null;
+  livePrice: number | null;
+  liveDayPct: number | null;
   updatedAt: string | null;
   source?: string;
 }
@@ -200,12 +202,14 @@ let researchRefreshInFlight: Promise<unknown> | null = null;
 let lastResearchRefreshAt: string | null = null;
 
 async function fetchYahooQuoteFull(symbol: string): Promise<{
-  price: number;
-  dayPct: number | null;
+  lastPrice: number;
+  lastDayPct: number | null;
+  livePrice: number;
+  liveDayPct: number | null;
   shortName: string | null;
   longName: string | null;
 }> {
-  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
     // Add timeout to prevent hanging
@@ -217,14 +221,27 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
       result?: Array<{
         meta?: {
           regularMarketPrice?: number;
+          fulldayPrice?: number;
+          hasPrePostMarketData?: boolean;
           previousClose?: number;
           chartPreviousClose?: number;
           regularMarketChangePercent?: number;
           shortName?: string;
           longName?: string;
+          currentTradingPeriod?: {
+            pre?: { start?: number; end?: number };
+            regular?: { start?: number; end?: number };
+            post?: { start?: number; end?: number };
+          };
+          regularMarketTime?: number;
         };
         timestamp?: number[];
-        indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+        indicators?: { 
+          quote?: Array<{ 
+            close?: Array<number | null>;
+            open?: Array<number | null>;
+          }> 
+        };
       }>;
       error?: { description?: string } | null;
     };
@@ -232,30 +249,74 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
   const result = data.chart?.result?.[0];
   const meta = result?.meta;
   if (!meta) throw new Error(data.chart?.error?.description || `No quote for ${symbol}`);
-  const price =
-    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
-  if (price === null || !Number.isFinite(price)) throw new Error(`No price for ${symbol}`);
 
-  let dayPct =
+  // Last price: regular market last (session close if market is closed)
+  const lastPrice =
+    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
+  if (lastPrice === null || !Number.isFinite(lastPrice)) throw new Error(`No price for ${symbol}`);
+
+  // Live price: includes pre/post market when available
+  const now = Math.floor(Date.now() / 1000);
+  const regularStart = meta.currentTradingPeriod?.regular?.start;
+  const regularEnd = meta.currentTradingPeriod?.regular?.end;
+  const isRegularHours =
+    regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
+
+  let livePrice: number | null = null;
+  if (isRegularHours) {
+    // During regular hours, live = regular market price
+    livePrice = meta.regularMarketPrice ?? null;
+  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
+    // Outside regular hours with extended data, use fulldayPrice
+    livePrice = meta.fulldayPrice;
+  }
+
+  // Fallback chain for live price
+  if (livePrice === null || !Number.isFinite(livePrice)) {
+    livePrice =
+      meta.fulldayPrice ??
+      meta.regularMarketPrice ??
+      meta.previousClose ??
+      meta.chartPreviousClose ??
+      null;
+  }
+  if (livePrice === null || !Number.isFinite(livePrice)) throw new Error(`No live price for ${symbol}`);
+
+  // Day % for last (regular market)
+  let lastDayPct =
     typeof meta.regularMarketChangePercent === 'number'
       ? meta.regularMarketChangePercent
       : null;
 
-  if (dayPct === null) {
+  if (lastDayPct === null) {
     const closes = result?.indicators?.quote?.[0]?.close ?? [];
     const valid = closes.filter((c): c is number => c != null && Number.isFinite(c));
     if (valid.length >= 2) {
       const prev = valid[valid.length - 2];
       const last = valid[valid.length - 1];
-      if (prev) dayPct = ((last - prev) / prev) * 100;
+      if (prev) lastDayPct = ((last - prev) / prev) * 100;
     } else if (meta.chartPreviousClose && meta.chartPreviousClose !== 0) {
-      dayPct = ((Number(price) - meta.chartPreviousClose) / meta.chartPreviousClose) * 100;
+      lastDayPct = ((Number(lastPrice) - meta.chartPreviousClose) / meta.chartPreviousClose) * 100;
     }
   }
 
+  // Day % for live (vs previous close)
+  let liveDayPct: number | null = null;
+  const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
+  const previousClose = prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
+  
+  if (livePrice !== null && previousClose !== null && previousClose !== 0) {
+    liveDayPct = ((livePrice - previousClose) / previousClose) * 100;
+  } else if (lastDayPct !== null && isRegularHours) {
+    // During regular hours, live % = last %
+    liveDayPct = lastDayPct;
+  }
+
   return {
-    price: Number(price),
-    dayPct: dayPct !== null && Number.isFinite(dayPct) ? dayPct : null,
+    lastPrice: Number(lastPrice),
+    lastDayPct: lastDayPct !== null && Number.isFinite(lastDayPct) ? lastDayPct : null,
+    livePrice: Number(livePrice),
+    liveDayPct: liveDayPct !== null && Number.isFinite(liveDayPct) ? liveDayPct : null,
     shortName: meta.shortName ?? null,
     longName: meta.longName ?? null,
   };
@@ -266,17 +327,21 @@ export async function upsertMarkWithDayPct(
   price: number,
   dayPct: number | null,
   source: string,
+  livePrice?: number | null,
+  liveDayPct?: number | null,
 ): Promise<void> {
   const now = new Date().toISOString();
   await query(
-    `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO marks (symbol, price, updated_at, source, day_pct, live_price, live_day_pct)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (symbol) DO UPDATE SET
        price = EXCLUDED.price,
        updated_at = EXCLUDED.updated_at,
        source = EXCLUDED.source,
-       day_pct = EXCLUDED.day_pct`,
-    [symbol.toUpperCase(), price, now, source, dayPct],
+       day_pct = EXCLUDED.day_pct,
+       live_price = EXCLUDED.live_price,
+       live_day_pct = EXCLUDED.live_day_pct`,
+    [symbol.toUpperCase(), price, now, source, dayPct, livePrice ?? null, liveDayPct ?? null],
   );
 }
 
@@ -437,8 +502,10 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
     updated_at: Date | string;
     source: string | null;
     day_pct: number | null;
+    live_price: number | null;
+    live_day_pct: number | null;
   }>(
-    `SELECT symbol, price, updated_at, source, day_pct FROM marks WHERE symbol = ANY($1)`,
+    `SELECT symbol, price, updated_at, source, day_pct, live_price, live_day_pct FROM marks WHERE symbol = ANY($1)`,
     [symbols.map((s) => s.toUpperCase())],
   );
   const out: Record<string, QuoteSnap> = {};
@@ -447,6 +514,8 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
       symbol: r.symbol,
       price: Number(r.price),
       dayPct: r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null,
+      livePrice: r.live_price !== null && r.live_price !== undefined ? Number(r.live_price) : null,
+      liveDayPct: r.live_day_pct !== null && r.live_day_pct !== undefined ? Number(r.live_day_pct) : null,
       updatedAt:
         typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
       source: r.source ?? 'manual',
@@ -887,7 +956,7 @@ export async function refreshResearchQuotes(): Promise<{
     for (const symbol of symbols) {
       try {
         const q = await fetchYahooQuoteFull(symbol);
-        await upsertMarkWithDayPct(symbol, q.price, q.dayPct, 'yahoo');
+        await upsertMarkWithDayPct(symbol, q.lastPrice, q.lastDayPct, 'yahoo', q.livePrice, q.liveDayPct);
         updated.push(symbol);
         await new Promise((r) => setTimeout(r, 80));
       } catch {
@@ -927,7 +996,7 @@ export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
   for (const symbol of unique) {
     try {
       const q = await fetchYahooQuoteFull(symbol);
-      await upsertMarkWithDayPct(symbol, q.price, q.dayPct, 'yahoo');
+      await upsertMarkWithDayPct(symbol, q.lastPrice, q.lastDayPct, 'yahoo', q.livePrice, q.liveDayPct);
       updated.push(symbol);
       await new Promise((r) => setTimeout(r, 80));
     } catch {
@@ -1111,9 +1180,15 @@ function buildTableRows(
       underlyingLast: uq?.price ?? null,
       bullLast: bq?.price ?? null,
       bearLast: rq?.price ?? null,
+      underlyingLive: uq?.livePrice ?? null,
+      bullLive: bq?.livePrice ?? null,
+      bearLive: rq?.livePrice ?? null,
       underlyingDayPct: uq?.dayPct ?? null,
       bullDayPct: bq?.dayPct ?? null,
       bearDayPct: rq?.dayPct ?? null,
+      underlyingLiveDayPct: uq?.liveDayPct ?? null,
+      bullLiveDayPct: bq?.liveDayPct ?? null,
+      bearLiveDayPct: rq?.liveDayPct ?? null,
       updated: updatedCandidates.length ? updatedCandidates[updatedCandidates.length - 1] : null,
     };
   });

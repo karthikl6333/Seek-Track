@@ -185,10 +185,10 @@ CREATE TABLE IF NOT EXISTS crypto_paper_state (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE crypto_paper_state ADD COLUMN IF NOT EXISTS t0_equity DOUBLE PRECISION NOT NULL DEFAULT 100000;
+ALTER TABLE crypto_paper_state ADD COLUMN IF NOT EXISTS t0_equity DOUBLE PRECISION NOT NULL DEFAULT 149953;
 
 INSERT INTO crypto_paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity)
-VALUES (1, 0, 0, 0, 0, 0, 'idle', '2026-09-08', '2026-09-12', 'Crypto-only paper trading', 100000)
+VALUES (1, 0, 0, 0, 0, 0, 'idle', '2026-09-08', '2026-09-12', 'Crypto-only paper trading', 149953)
 ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS crypto_paper_positions (

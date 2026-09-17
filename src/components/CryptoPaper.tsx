@@ -124,7 +124,7 @@ export function CryptoPaper() {
             <h3 style={{ margin: 0, marginBottom: 4 }}>
               Alpaca Paper Trading Mandate{' '}
               <span className="badge" style={{ fontSize: 11 }}>
-                CRYPTO ONLY
+                C0 CTRL-SAT-V2
               </span>
             </h3>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>

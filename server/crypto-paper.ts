@@ -117,7 +117,7 @@ export async function getCryptoPaperSummary(c: Context) {
         buyingPower: 0,
         dayPnl: 0,
         weekPnl: 0,
-        t0Equity: 100000,
+        t0Equity: 149953,
         status: 'idle',
         mandateStart: '2026-09-08',
         mandateEnd: '2026-09-12',
@@ -355,7 +355,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
     const existingState = existingStateRes.rows[0];
     const dayPnl = parseFloat(String((account as any).equity)) - parseFloat(String((account as any).last_equity || (account as any).equity));
     const weekPnl = existingState?.week_pnl || 0;
-    const t0Equity = existingState?.t0_equity || 100000;
+    const t0Equity = existingState?.t0_equity || 149953;
 
     await query(
       `INSERT INTO crypto_paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity, updated_at)

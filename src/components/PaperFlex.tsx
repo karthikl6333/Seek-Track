@@ -133,7 +133,7 @@ export function PaperFlex() {
             <h3 style={{ margin: 0, marginBottom: 4 }}>
               Alpaca Paper Trading Mandate{' '}
               <span className="badge" style={{ fontSize: 11 }}>
-                FLEX-STK / A1
+                A1 FLEX ORB-DAY-ETF
               </span>
             </h3>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>

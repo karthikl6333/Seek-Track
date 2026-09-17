@@ -128,7 +128,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           onClick={() => store.setView('paper')}
           title="Open Paper tab"
         >
-          <h3>Paper (CTRL-LRS)</h3>
+          <h3>S0 CTRL-LRS</h3>
           <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
             {paperSummary ? fmtMoney(paperPnl) : '—'}
           </div>
@@ -142,7 +142,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           onClick={() => store.setView('paperFlex')}
           title="Open Paper Flex tab"
         >
-          <h3>FLEX-STK / A1</h3>
+          <h3>A1 FLEX ORB-DAY-ETF</h3>
           <div className={`stat-value ${pnlClass(paperFlexPnl)} ${moneyTone('stat')}`}>
             {paperFlexSummary ? fmtMoney(paperFlexPnl) : '—'}
           </div>
@@ -156,7 +156,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           onClick={() => store.setView('cryptoPaper')}
           title="Open Crypto Paper tab"
         >
-          <h3>Crypto Paper</h3>
+          <h3>C0 CTRL-SAT-V2</h3>
           <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
             {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}
           </div>

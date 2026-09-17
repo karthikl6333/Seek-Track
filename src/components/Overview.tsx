@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
-import { loadPaperSummary, loadCryptoPaperSummary } from '../lib/db';
-import type { PaperSummary, CryptoPaperSummary } from '../types';
+import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary } from '../lib/db';
+import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../types';
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
@@ -14,6 +14,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   const [showHidden, setShowHidden] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
   const [cryptoSummary, setCryptoSummary] = useState<CryptoPaperSummary | null>(null);
+  const [paperFlexSummary, setPaperFlexSummary] = useState<PaperFlexSummary | null>(null);
 
   const loadPaperAndCrypto = useCallback(async () => {
     try {
@@ -27,6 +28,12 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
       setCryptoSummary(crypto);
     } catch {
       setCryptoSummary(null);
+    }
+    try {
+      const paperFlex = await loadPaperFlexSummary();
+      setPaperFlexSummary(paperFlex);
+    } catch {
+      setPaperFlexSummary(null);
     }
   }, []);
 
@@ -75,8 +82,9 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
 
   const charges = summarizeCharges(store.trades);
 
-  const paperPnl = paperSummary?.state.weekPnl ?? paperSummary?.state.dayPnl ?? 0;
-  const cryptoPnl = cryptoSummary?.state.weekPnl ?? cryptoSummary?.state.dayPnl ?? 0;
+  const paperPnl = paperSummary?.scoreboard.totalPnl ?? 0;
+  const cryptoPnl = cryptoSummary?.scoreboard.totalPnl ?? 0;
+  const paperFlexPnl = paperFlexSummary?.scoreboard.totalPnl ?? 0;
 
   return (
     <div className="stack">
@@ -120,12 +128,26 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           onClick={() => store.setView('paper')}
           title="Open Paper tab"
         >
-          <h3>Paper P&amp;L</h3>
+          <h3>S0 CTRL-LRS</h3>
           <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
             {paperSummary ? fmtMoney(paperPnl) : '—'}
           </div>
           <div className="stat-label">
-            {paperSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+            Total P&L{paperSummary?.state.equity ? ` · $${fmtMoney(paperSummary.state.equity)}` : ''}
+          </div>
+        </button>
+        <button
+          type="button"
+          className="card stat-card-link"
+          onClick={() => store.setView('paperFlex')}
+          title="Open Paper Flex tab"
+        >
+          <h3>A1 FLEX ORB-DAY-ETF</h3>
+          <div className={`stat-value ${pnlClass(paperFlexPnl)} ${moneyTone('stat')}`}>
+            {paperFlexSummary ? fmtMoney(paperFlexPnl) : '—'}
+          </div>
+          <div className="stat-label">
+            Total P&L{paperFlexSummary?.state.equity ? ` · $${fmtMoney(paperFlexSummary.state.equity)}` : ''}
           </div>
         </button>
         <button
@@ -134,12 +156,12 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           onClick={() => store.setView('cryptoPaper')}
           title="Open Crypto Paper tab"
         >
-          <h3>Crypto P&amp;L</h3>
+          <h3>C0 CTRL-SAT-V2</h3>
           <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
             {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}
           </div>
           <div className="stat-label">
-            {cryptoSummary?.state.weekPnl !== undefined ? 'Week P&L' : 'Day P&L'}
+            Total P&L{cryptoSummary?.state.equity ? ` · $${fmtMoney(cryptoSummary.state.equity)}` : ''}
           </div>
         </button>
       </div>

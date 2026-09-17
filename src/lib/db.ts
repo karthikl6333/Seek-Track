@@ -184,3 +184,13 @@ export async function refreshCryptoPaperLivePnl(): Promise<{
     method: 'POST',
   });
 }
+
+export async function loadPaperFlexSummary(): Promise<import('../types').PaperFlexSummary> {
+  return api<import('../types').PaperFlexSummary>('/api/paper-flex');
+}
+
+export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {
+  return api<{ ok: boolean; error?: string; refreshedAt?: string }>('/api/paper-flex/refresh', {
+    method: 'POST',
+  });
+}

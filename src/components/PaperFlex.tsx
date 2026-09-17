@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { loadCryptoPaperSummary, refreshCryptoPaperLivePnl } from '../lib/db';
-import type { CryptoPaperSummary } from '../types';
+import { loadPaperFlexSummary, refreshPaperFlexData } from '../lib/db';
+import type { PaperFlexSummary } from '../types';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
-export function CryptoPaper() {
-  const [summary, setSummary] = useState<CryptoPaperSummary | null>(null);
+export function PaperFlex() {
+  const [summary, setSummary] = useState<PaperFlexSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +12,7 @@ export function CryptoPaper() {
 
   const fetchData = useCallback(async () => {
     try {
-      const data = await loadCryptoPaperSummary();
+      const data = await loadPaperFlexSummary();
       setSummary(data);
       setLastRefreshAt(new Date().toISOString());
       setError(null);
@@ -21,21 +21,33 @@ export function CryptoPaper() {
     }
   }, []);
 
-  const refreshLivePnl = useCallback(async () => {
+  const refreshData = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await refreshCryptoPaperLivePnl();
+      await fetchData();
+    } finally {
+      setBusy(false);
+    }
+  }, [fetchData]);
+
+  const refreshLiveData = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await refreshPaperFlexData();
       if (result.ok) {
-        await fetchData();
+        const data = await loadPaperFlexSummary();
+        setSummary(data);
+        setLastRefreshAt(result.refreshedAt || new Date().toISOString());
       } else {
-        setError(result.error || 'Failed to refresh from Alpaca');
+        setError(result.error || 'Refresh failed');
       }
     } catch (err) {
       setError(String(err));
     } finally {
       setBusy(false);
     }
-  }, [fetchData]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +72,7 @@ export function CryptoPaper() {
   if (loading) {
     return (
       <div className="stack">
-        <p className="muted">Loading crypto paper trading data…</p>
+        <p className="muted">Loading FLEX-STK paper trading data…</p>
       </div>
     );
   }
@@ -69,11 +81,8 @@ export function CryptoPaper() {
     return (
       <div className="stack">
         <div className="caveat" role="alert">
-          Failed to load crypto paper trading data: {error}
+          Failed to load FLEX-STK paper trading data: {error}
         </div>
-        <button type="button" className="btn small" onClick={() => void fetchData()}>
-          Retry
-        </button>
       </div>
     );
   }
@@ -81,7 +90,7 @@ export function CryptoPaper() {
   if (!summary) {
     return (
       <div className="stack">
-        <p className="muted">No crypto paper trading data available.</p>
+        <p className="muted">No FLEX-STK paper trading data available.</p>
       </div>
     );
   }
@@ -124,7 +133,7 @@ export function CryptoPaper() {
             <h3 style={{ margin: 0, marginBottom: 4 }}>
               Alpaca Paper Trading Mandate{' '}
               <span className="badge" style={{ fontSize: 11 }}>
-                C0 CTRL-SAT-V2
+                A1 FLEX ORB-DAY-ETF
               </span>
             </h3>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
@@ -141,10 +150,19 @@ export function CryptoPaper() {
               type="button"
               className="btn small"
               disabled={busy}
-              onClick={() => void refreshLivePnl()}
-              title="Refresh live P&L from Alpaca paper API"
+              onClick={() => void refreshData()}
+              title="Refresh FLEX-STK paper trading data from database"
             >
-              {busy ? '…' : 'Refresh Live P&L'}
+              {busy ? '…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              className="btn small"
+              disabled={busy}
+              onClick={() => void refreshLiveData()}
+              title="Refresh live P&L from Alpaca FLEX paper API"
+            >
+              {busy ? '…' : 'Live P&L'}
             </button>
             <span className={statusBadgeClass}>{state.status}</span>
           </div>
@@ -202,7 +220,7 @@ export function CryptoPaper() {
       </div>
 
       <div className="card">
-        <h3>Open Crypto Positions</h3>
+        <h3>Open FLEX-STK Positions</h3>
         {positions.length === 0 ? (
           <p className="muted">No open positions yet. Trading agent will post updates here.</p>
         ) : (
@@ -293,7 +311,7 @@ export function CryptoPaper() {
       </div>
 
       <div className="card">
-        <h3>Week Scoreboard</h3>
+        <h3>Account Scoreboard</h3>
         <div className="grid-3">
           <div>
             <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>

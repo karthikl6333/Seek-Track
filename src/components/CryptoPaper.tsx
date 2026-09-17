@@ -193,11 +193,11 @@ export function CryptoPaper() {
           <div className="stat-label">Today's change</div>
         </div>
         <div className="card">
-          <h3>Week P&amp;L</h3>
-          <div className={`stat-value ${pnlClass(state.weekPnl)} ${moneyTone('stat')}`}>
-            {fmtMoney(state.weekPnl)}
+          <h3>Total P&amp;L</h3>
+          <div className={`stat-value ${pnlClass(scoreboard.totalPnl)} ${moneyTone('stat')}`}>
+            {fmtMoney(scoreboard.totalPnl)}
           </div>
-          <div className="stat-label">Mandate total</div>
+          <div className="stat-label">Total return</div>
         </div>
       </div>
 

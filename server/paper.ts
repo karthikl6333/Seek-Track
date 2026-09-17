@@ -7,6 +7,7 @@ export interface PaperState {
   buyingPower: number;
   dayPnl: number;
   weekPnl: number;
+  t0Equity: number;
   status: 'idle' | 'active' | 'review';
   mandateStart: string;
   mandateEnd: string;
@@ -71,6 +72,7 @@ export async function getPaperSummary(c: Context) {
     buying_power: number;
     day_pnl: number;
     week_pnl: number;
+    t0_equity: number;
     status: string;
     mandate_start: string;
     mandate_end: string;
@@ -115,6 +117,7 @@ export async function getPaperSummary(c: Context) {
         buyingPower: 0,
         dayPnl: 0,
         weekPnl: 0,
+        t0Equity: 100000,
         status: 'idle',
         mandateStart: '2026-09-08',
         mandateEnd: '2026-09-12',
@@ -136,13 +139,15 @@ export async function getPaperSummary(c: Context) {
   }).length;
   const winRate = tradeCount > 0 ? winningTrades / tradeCount : null;
 
+  const totalPnl = state.equity - state.t0Equity;
+
   const summary: PaperSummary = {
     state,
     positions,
     recentOrders,
     journalEntries,
     scoreboard: {
-      totalPnl: state.weekPnl,
+      totalPnl,
       tradeCount,
       winRate,
     },
@@ -353,13 +358,15 @@ export async function refreshPaperFromAlpaca(c: Context) {
       mandate_start: string;
       mandate_end: string;
       strategy_note: string;
-    }>(`SELECT status, mandate_start, mandate_end, strategy_note FROM paper_state WHERE id = 1`);
+      t0_equity: number;
+    }>(`SELECT status, mandate_start, mandate_end, strategy_note, t0_equity FROM paper_state WHERE id = 1`);
 
     const existingState = existingStateRes.rows[0] || {
       status: 'active',
       mandate_start: '2026-09-08',
       mandate_end: '2026-09-12',
       strategy_note: 'Levered semis / mega-cap swing',
+      t0_equity: 100000,
     };
 
     const equity = parseFloat(account.equity);
@@ -378,8 +385,8 @@ export async function refreshPaperFromAlpaca(c: Context) {
     const weekPnl = weekPnlRes.rows[0]?.week_pnl ?? 0;
 
     await query(
-      `INSERT INTO paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, updated_at)
-       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      `INSERT INTO paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          equity = EXCLUDED.equity,
          cash = EXCLUDED.cash,
@@ -396,6 +403,7 @@ export async function refreshPaperFromAlpaca(c: Context) {
         existingState.mandate_start,
         existingState.mandate_end,
         existingState.strategy_note,
+        existingState.t0_equity,
       ],
     );
 

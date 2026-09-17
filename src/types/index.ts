@@ -107,7 +107,7 @@ export interface ImportResult {
   overrideManual?: boolean;
 }
 
-export type ViewId = 'overview' | 'positions' | 'trades' | 'charges' | 'charts' | 'research' | 'paper' | 'cryptoPaper';
+export type ViewId = 'overview' | 'positions' | 'trades' | 'charges' | 'charts' | 'research' | 'paper' | 'cryptoPaper' | 'paperFlex';
 
 export interface CalculatorState {
   symbol: string;
@@ -139,6 +139,7 @@ export interface PaperState {
   buyingPower: number;
   dayPnl: number;
   weekPnl: number;
+  t0Equity: number;
   status: 'idle' | 'active' | 'review';
   mandateStart: string;
   mandateEnd: string;
@@ -193,6 +194,7 @@ export interface CryptoPaperState {
   buyingPower: number;
   dayPnl: number;
   weekPnl: number;
+  t0Equity: number;
   status: 'idle' | 'active' | 'review';
   mandateStart: string;
   mandateEnd: string;
@@ -234,6 +236,61 @@ export interface CryptoPaperSummary {
   positions: CryptoPaperPosition[];
   recentOrders: CryptoPaperOrder[];
   journalEntries: CryptoPaperJournalEntry[];
+  scoreboard: {
+    totalPnl: number;
+    tradeCount: number;
+    winRate: number | null;
+  };
+}
+
+export interface PaperFlexState {
+  equity: number;
+  cash: number;
+  buyingPower: number;
+  dayPnl: number;
+  weekPnl: number;
+  t0Equity: number;
+  status: 'idle' | 'active' | 'review';
+  mandateStart: string;
+  mandateEnd: string;
+  strategyNote: string;
+  updatedAt: string;
+}
+
+export interface PaperFlexPosition {
+  symbol: string;
+  quantity: number;
+  avgPrice: number;
+  marketValue: number | null;
+  unrealizedPnl: number | null;
+  theme: string;
+  updatedAt: string;
+}
+
+export interface PaperFlexOrder {
+  id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  filledQty: number;
+  avgFillPrice: number | null;
+  status: string;
+  createdAt: string;
+  filledAt: string | null;
+}
+
+export interface PaperFlexJournalEntry {
+  id: string;
+  symbol: string | null;
+  note: string;
+  createdAt: string;
+}
+
+export interface PaperFlexSummary {
+  state: PaperFlexState;
+  positions: PaperFlexPosition[];
+  recentOrders: PaperFlexOrder[];
+  journalEntries: PaperFlexJournalEntry[];
   scoreboard: {
     totalPnl: number;
     tradeCount: number;

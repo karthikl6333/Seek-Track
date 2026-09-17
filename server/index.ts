@@ -55,6 +55,14 @@ import {
   upsertCryptoPaperPositions,
   upsertCryptoPaperState,
 } from './crypto-paper.js';
+import {
+  getPaperFlexSummary,
+  postPaperFlexJournal,
+  refreshPaperFlexFromAlpaca,
+  upsertPaperFlexOrders,
+  upsertPaperFlexPositions,
+  upsertPaperFlexState,
+} from './paper-flex.js';
 
 const app = new Hono();
 
@@ -128,6 +136,13 @@ app.post('/api/crypto-paper/positions', upsertCryptoPaperPositions);
 app.post('/api/crypto-paper/orders', upsertCryptoPaperOrders);
 app.post('/api/crypto-paper/journal', postCryptoPaperJournal);
 app.post('/api/crypto-paper/refresh', refreshCryptoPaperLivePnl);
+
+app.get('/api/paper-flex', getPaperFlexSummary);
+app.post('/api/paper-flex/refresh', refreshPaperFlexFromAlpaca);
+app.post('/api/paper-flex/state', upsertPaperFlexState);
+app.post('/api/paper-flex/positions', upsertPaperFlexPositions);
+app.post('/api/paper-flex/orders', upsertPaperFlexOrders);
+app.post('/api/paper-flex/journal', postPaperFlexJournal);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations

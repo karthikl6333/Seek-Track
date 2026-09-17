@@ -6,11 +6,12 @@ import { Research } from './components/Research';
 import { Overview } from './components/Overview';
 import { Paper } from './components/Paper';
 import { CryptoPaper } from './components/CryptoPaper';
+import { PaperFlex } from './components/PaperFlex';
 import { Positions } from './components/Positions';
 import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
-import { refreshPaperData, refreshCryptoPaperLivePnl } from './lib/db';
+import { refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
 
 const NAV: { id: ViewId; label: string }[] = [
@@ -21,6 +22,7 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'charts', label: 'Charts' },
   { id: 'research', label: 'Research' },
   { id: 'paper', label: 'Paper' },
+  { id: 'paperFlex', label: 'Paper Flex' },
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
@@ -51,6 +53,7 @@ export default function App() {
         watchlistRef.current?.refreshQuotes(),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
+        refreshPaperFlexData().catch(() => null),
       ]);
     } catch (error) {
       console.error('Global refresh error:', error);
@@ -296,6 +299,7 @@ export default function App() {
         {store.view === 'charts' && <Charts store={store} />}
         {store.view === 'research' && <Research />}
         {store.view === 'paper' && <Paper />}
+        {store.view === 'paperFlex' && <PaperFlex />}
         {store.view === 'cryptoPaper' && <CryptoPaper />}
       </main>
     </div>

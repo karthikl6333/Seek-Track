@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { loadPaperSummary, refreshPaperData } from '../lib/db';
-import type { PaperSummary } from '../types';
+import { loadPaperFlexSummary, refreshPaperFlexData } from '../lib/db';
+import type { PaperFlexSummary } from '../types';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
-export function Paper() {
-  const [summary, setSummary] = useState<PaperSummary | null>(null);
+export function PaperFlex() {
+  const [summary, setSummary] = useState<PaperFlexSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +12,7 @@ export function Paper() {
 
   const fetchData = useCallback(async () => {
     try {
-      const data = await loadPaperSummary();
+      const data = await loadPaperFlexSummary();
       setSummary(data);
       setLastRefreshAt(new Date().toISOString());
       setError(null);
@@ -34,9 +34,9 @@ export function Paper() {
     setBusy(true);
     setError(null);
     try {
-      const result = await refreshPaperData();
+      const result = await refreshPaperFlexData();
       if (result.ok) {
-        const data = await loadPaperSummary();
+        const data = await loadPaperFlexSummary();
         setSummary(data);
         setLastRefreshAt(result.refreshedAt || new Date().toISOString());
       } else {
@@ -72,7 +72,7 @@ export function Paper() {
   if (loading) {
     return (
       <div className="stack">
-        <p className="muted">Loading paper trading data…</p>
+        <p className="muted">Loading FLEX-STK paper trading data…</p>
       </div>
     );
   }
@@ -81,7 +81,7 @@ export function Paper() {
     return (
       <div className="stack">
         <div className="caveat" role="alert">
-          Failed to load paper trading data: {error}
+          Failed to load FLEX-STK paper trading data: {error}
         </div>
       </div>
     );
@@ -90,7 +90,7 @@ export function Paper() {
   if (!summary) {
     return (
       <div className="stack">
-        <p className="muted">No paper trading data available.</p>
+        <p className="muted">No FLEX-STK paper trading data available.</p>
       </div>
     );
   }
@@ -130,7 +130,12 @@ export function Paper() {
           style={{ justifyContent: 'space-between', marginBottom: 12 }}
         >
           <div>
-            <h3 style={{ margin: 0, marginBottom: 4 }}>Alpaca Paper Trading Mandate</h3>
+            <h3 style={{ margin: 0, marginBottom: 4 }}>
+              Alpaca Paper Trading Mandate{' '}
+              <span className="badge" style={{ fontSize: 11 }}>
+                FLEX-STK / A1
+              </span>
+            </h3>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
               {state.strategyNote}
             </p>
@@ -146,7 +151,7 @@ export function Paper() {
               className="btn small"
               disabled={busy}
               onClick={() => void refreshData()}
-              title="Refresh paper trading data from database"
+              title="Refresh FLEX-STK paper trading data from database"
             >
               {busy ? '…' : 'Refresh'}
             </button>
@@ -155,7 +160,7 @@ export function Paper() {
               className="btn small"
               disabled={busy}
               onClick={() => void refreshLiveData()}
-              title="Refresh live P&L from Alpaca paper API"
+              title="Refresh live P&L from Alpaca FLEX paper API"
             >
               {busy ? '…' : 'Live P&L'}
             </button>
@@ -215,7 +220,7 @@ export function Paper() {
       </div>
 
       <div className="card">
-        <h3>Open Paper Positions</h3>
+        <h3>Open FLEX-STK Positions</h3>
         {positions.length === 0 ? (
           <p className="muted">No open positions yet. Trading agent will post updates here.</p>
         ) : (
@@ -306,7 +311,7 @@ export function Paper() {
       </div>
 
       <div className="card">
-        <h3>Week Scoreboard</h3>
+        <h3>Account Scoreboard</h3>
         <div className="grid-3">
           <div>
             <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>

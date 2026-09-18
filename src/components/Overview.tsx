@@ -89,12 +89,14 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   return (
     <div className="stack">
       <div className="overview-stats-grid">
-        <div className="card">
+        <div className="card real-money">
+          <span className="trading-mode-badge live">Live</span>
           <h3>Realized P&amp;L</h3>
           <div className={`stat-value ${pnlClass(realized)} ${moneyTone("stat")}`}>{fmtMoney(realized)}</div>
           <div className="stat-label">Closed lots (FIFO){hiddenOpen.length ? ' · excl. hidden' : ''}</div>
         </div>
-        <div className="card">
+        <div className="card real-money">
+          <span className="trading-mode-badge live">Live</span>
           <h3>Unrealized P&amp;L</h3>
           <div className={`stat-value ${pnlClass(hasAllMarks ? unrealized : null)} ${moneyTone("stat")}`}>
             {hasAllMarks || totalsPositions.length === 0 ? fmtMoney(unrealized) : 'Set marks'}
@@ -107,10 +109,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         </div>
         <button
           type="button"
-          className="card stat-card-link"
+          className="card stat-card-link real-money"
           onClick={() => store.setView('charges')}
           title="Open Charges tab"
         >
+          <span className="trading-mode-badge live">Live</span>
           <h3>Charges</h3>
           <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
           <div className="stat-label">
@@ -124,10 +127,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         </button>
         <button
           type="button"
-          className="card stat-card-link"
+          className="card stat-card-link paper-trading"
           onClick={() => store.setView('paper')}
           title="Open Paper tab"
         >
+          <span className="trading-mode-badge paper">Paper</span>
           <h3>S0 CTRL-LRS</h3>
           <div className={`stat-value ${pnlClass(paperPnl)} ${moneyTone('stat')}`}>
             {paperSummary ? fmtMoney(paperPnl) : '—'}
@@ -138,10 +142,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         </button>
         <button
           type="button"
-          className="card stat-card-link"
+          className="card stat-card-link paper-trading"
           onClick={() => store.setView('paperFlex')}
           title="Open Paper Flex tab"
         >
+          <span className="trading-mode-badge paper">Paper</span>
           <h3>A1 FLEX ORB-DAY-ETF</h3>
           <div className={`stat-value ${pnlClass(paperFlexPnl)} ${moneyTone('stat')}`}>
             {paperFlexSummary ? fmtMoney(paperFlexPnl) : '—'}
@@ -152,10 +157,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         </button>
         <button
           type="button"
-          className="card stat-card-link"
+          className="card stat-card-link paper-trading"
           onClick={() => store.setView('cryptoPaper')}
           title="Open Crypto Paper tab"
         >
+          <span className="trading-mode-badge paper">Paper</span>
           <h3>C0 CTRL-SAT-V2</h3>
           <div className={`stat-value ${pnlClass(cryptoPnl)} ${moneyTone('stat')}`}>
             {cryptoSummary ? fmtMoney(cryptoPnl) : '—'}

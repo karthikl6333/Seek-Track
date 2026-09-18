@@ -364,7 +364,13 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         </div>
 
         <div className="calc-side">
-          <Watchlist compact watchlistRef={watchlistRef} />
+          <Watchlist
+            compact
+            watchlistRef={watchlistRef}
+            openSymbols={allOpen.map((p) => p.symbol)}
+            hiddenSymbols={settings?.hiddenSymbols ?? []}
+            pairs={settings?.pairs ?? []}
+          />
           <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
         </div>
       </div>

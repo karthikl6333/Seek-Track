@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
 import { TickerLink } from '../lib/yahoo';
+import type { PairDef } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const POLL_MS = 5 * 60 * 1000;
+const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
   refreshQuotes: () => Promise<void>;
@@ -27,6 +29,14 @@ interface WatchlistPayload {
   symbols: string[];
   rows: WatchlistRow[];
   lastRefreshAt: string | null;
+}
+
+export interface WatchlistProps {
+  compact?: boolean;
+  watchlistRef?: React.RefObject<WatchlistRef>;
+  openSymbols?: string[];
+  hiddenSymbols?: string[];
+  pairs?: PairDef[];
 }
 
 type SortKey =
@@ -103,9 +113,15 @@ function compareNullable(
   return (Number(a) - Number(b)) * dir;
 }
 
-export function Watchlist(
-  { compact = false, watchlistRef }: { compact?: boolean; watchlistRef?: React.RefObject<WatchlistRef> } = {},
-) {
+export function Watchlist(props: WatchlistProps = {}) {
+  const {
+    compact = false,
+    watchlistRef,
+    openSymbols = [],
+    hiddenSymbols = [],
+    pairs = [],
+  } = props;
+
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,6 +129,13 @@ export function Watchlist(
   const [symbol, setSymbol] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [filterOpen, setFilterOpen] = useState(() => {
+    try {
+      return localStorage.getItem(FILTER_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const refreshInProgressRef = useRef(false);
 
   const applyPayload = useCallback((data: WatchlistPayload) => {
@@ -220,15 +243,53 @@ export function Watchlist(
     }
   };
 
+  const toggleFilterOpen = () => {
+    setFilterOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FILTER_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const visibleRows = useMemo(() => {
+    if (!filterOpen) return rows;
+
+    const hiddenSet = new Set(hiddenSymbols.map((s) => s.toUpperCase()));
+    const openSet = new Set(
+      openSymbols
+        .filter((s) => !hiddenSet.has(s.toUpperCase()))
+        .map((s) => s.toUpperCase()),
+    );
+
+    for (const sym of openSymbols) {
+      const upper = sym.toUpperCase();
+      if (hiddenSet.has(upper)) continue;
+
+      const pair = pairs.find(
+        (p) => p.etf.toUpperCase() === upper || p.underlying.toUpperCase() === upper,
+      );
+      if (pair) {
+        openSet.add(pair.etf.toUpperCase());
+        openSet.add(pair.underlying.toUpperCase());
+      }
+    }
+
+    return rows.filter((r) => openSet.has(r.symbol.toUpperCase()));
+  }, [rows, filterOpen, openSymbols, hiddenSymbols, pairs]);
+
   const sorted = useMemo(() => {
-    const copy = [...rows];
+    const copy = [...visibleRows];
     copy.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
       return compareNullable(av, bv, sortDir);
     });
     return copy;
-  }, [rows, sortKey, sortDir]);
+  }, [visibleRows, sortKey, sortDir]);
 
   const arrow = (key: SortKey) => {
     if (sortKey !== key) return '';
@@ -277,7 +338,16 @@ export function Watchlist(
               if (e.key === 'Enter') void addSymbol();
             }}
             aria-label="Watchlist ticker"
+            style={{ maxWidth: '70px' }}
           />
+          <button
+            type="button"
+            className={`btn small${filterOpen ? ' primary' : ''}`}
+            onClick={toggleFilterOpen}
+            title={filterOpen ? 'Show all watchlist symbols' : 'Filter to open positions + underlyings'}
+          >
+            {filterOpen ? 'Open' : 'All'}
+          </button>
           <button
             type="button"
             className="btn primary small"

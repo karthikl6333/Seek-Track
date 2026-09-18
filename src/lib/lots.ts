@@ -51,12 +51,27 @@ function isSellShort(action: string): boolean {
   return action.toLowerCase().includes('short');
 }
 
-/** Sort trades chronologically for FIFO lot matching. */
+/** 
+ * Sort trades chronologically for FIFO lot matching.
+ * Same-day trades: process opens (Buy, Sell Short) before closes (Sell, Buy to Cover)
+ * to match broker FIFO when exact timestamps are unavailable.
+ */
 function sortTrades(trades: Trade[]): Trade[] {
+  const isOpening = (action: string): boolean => {
+    return isBuy(action) || isSellShort(action);
+  };
+
   return [...trades].sort((a, b) => {
     const da = Date.parse(a.date) || 0;
     const db = Date.parse(b.date) || 0;
     if (da !== db) return da - db;
+    
+    // Same day: opens before closes
+    const aOpens = isOpening(a.action);
+    const bOpens = isOpening(b.action);
+    if (aOpens !== bOpens) return aOpens ? -1 : 1;
+    
+    // Both open or both close: fall back to import time and id
     return a.importedAt.localeCompare(b.importedAt) || a.id.localeCompare(b.id);
   });
 }

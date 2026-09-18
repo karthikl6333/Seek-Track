@@ -12,6 +12,7 @@ import { TickerLink } from '../lib/yahoo';
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
+  const [refreshingQuotes, setRefreshingQuotes] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
   const [cryptoSummary, setCryptoSummary] = useState<CryptoPaperSummary | null>(null);
   const [paperFlexSummary, setPaperFlexSummary] = useState<PaperFlexSummary | null>(null);
@@ -191,14 +192,22 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                 <button
                   type="button"
                   className="btn small"
-                  onClick={() => void store.refreshLiveQuotes()}
+                  disabled={refreshingQuotes}
+                  onClick={async () => {
+                    setRefreshingQuotes(true);
+                    try {
+                      await store.refreshLiveQuotes();
+                    } finally {
+                      setRefreshingQuotes(false);
+                    }
+                  }}
                   title="Fetch Yahoo quotes for open symbols + calculator + pair"
                   style={{
-                    opacity: store.error ? 0.6 : 1,
+                    opacity: refreshingQuotes ? 0.6 : 1,
                     transition: 'opacity 0.15s',
                   }}
                 >
-                  Refresh quotes
+                  {refreshingQuotes ? '⟳' : 'Refresh quotes'}
                 </button>
               </div>
             </div>

@@ -26,74 +26,12 @@ export interface RefreshResult {
 }
 
 /**
- * Fetch latest price from Alpaca Market Data snapshots endpoint.
- * Uses existing paper trading keys (ALPACA_API_KEY / ALPACA_SECRET_KEY).
- * Returns null if unavailable, error, or no usable price.
- * 
- * IEX data on Basic plan: may have gaps for thin ETFs or after-hours.
- * Yahoo fallback handles missing data gracefully.
- */
-async function fetchAlpacaQuote(symbol: string): Promise<number | null> {
-  const apiKey = process.env.ALPACA_API_KEY;
-  const apiSecret = process.env.ALPACA_SECRET_KEY;
-
-  if (!apiKey || !apiSecret) return null;
-
-  const url = `${ALPACA_DATA_BASE}/v2/stocks/snapshots?symbols=${encodeURIComponent(symbol)}`;
-  
-  try {
-    const res = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': apiKey,
-        'APCA-API-SECRET-KEY': apiSecret,
-      },
-    });
-
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as {
-      [symbol: string]: {
-        latestTrade?: {
-          p?: number;
-        };
-        latestQuote?: {
-          ap?: number;
-          bp?: number;
-        };
-      };
-    };
-
-    const snap = data[symbol.toUpperCase()];
-    if (!snap) return null;
-
-    // Prefer latest trade price (most recent execution)
-    let price = snap.latestTrade?.p;
-    
-    // Fallback to mid of latest quote if no trade available
-    if (price == null || !Number.isFinite(price)) {
-      const ask = snap.latestQuote?.ap;
-      const bid = snap.latestQuote?.bp;
-      if (
-        ask != null &&
-        bid != null &&
-        Number.isFinite(ask) &&
-        Number.isFinite(bid)
-      ) {
-        price = (ask + bid) / 2;
-      }
-    }
-
-    if (price == null || !Number.isFinite(price)) return null;
-    return Number(price);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Fetch latest prices for multiple symbols from Alpaca Market Data.
  * Returns a map of symbol → price (null if unavailable).
  * Batches all symbols in one request (rate limit: 200/min is sufficient).
+ * 
+ * IEX data on Basic plan: may have gaps for thin ETFs or after-hours.
+ * Yahoo fallback handles missing data gracefully.
  */
 export async function fetchAlpacaQuotesBatch(
   symbols: string[],

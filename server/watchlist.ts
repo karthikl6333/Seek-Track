@@ -230,53 +230,36 @@ export async function refreshWatchlistQuotes(): Promise<{
     const updated: string[] = [];
     const failed: string[] = [];
 
-    // Hybrid refresh: batch Alpaca first, then Yahoo fallback per symbol
+    // Hybrid refresh: batch Alpaca first for latest prices
     const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
 
     for (const symbol of symbols) {
       try {
-        const alpacaPrice = alpacaPrices.get(symbol);
-        let q: YahooChartQuote;
+        // Always fetch Yahoo for enrichment fields (session %, volume, 52w high/low)
+        const yahooQuote = await fetchYahooChartQuote(symbol);
         
-        if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-          // Use Alpaca price; other fields remain null/empty (watchlist shows last price primarily)
-          q = {
-            symbol,
-            last: alpacaPrice,
-            pctChange: null,
-            valChange: null,
-            previousClose: null,
-            sessionOpen: null,
-            volume: null,
-            bid: null,
-            ask: null,
-            marketCap: null,
-            week52High: null,
-            week52Low: null,
-          };
-        } else {
-          // Alpaca unavailable → Yahoo fallback (includes volume, 52w high/low, etc.)
-          q = await fetchYahooChartQuote(symbol);
-        }
+        // Prefer Alpaca last price when available; otherwise use Yahoo last
+        const alpacaPrice = alpacaPrices.get(symbol);
+        const last =
+          alpacaPrice != null && Number.isFinite(alpacaPrice)
+            ? alpacaPrice
+            : yahooQuote.last;
 
         await upsertWatchlistQuote({
           symbol,
-          last: q.last,
-          pctChange: q.pctChange,
-          valChange: q.valChange,
-          sessionOpen: q.sessionOpen,
-          bid: q.bid,
-          ask: q.ask,
-          marketCap: q.marketCap,
-          volume: q.volume,
-          week52High: q.week52High,
-          week52Low: q.week52Low,
+          last,
+          pctChange: yahooQuote.pctChange,
+          valChange: yahooQuote.valChange,
+          sessionOpen: yahooQuote.sessionOpen,
+          bid: yahooQuote.bid,
+          ask: yahooQuote.ask,
+          marketCap: yahooQuote.marketCap,
+          volume: yahooQuote.volume,
+          week52High: yahooQuote.week52High,
+          week52Low: yahooQuote.week52Low,
         });
         updated.push(symbol);
-        // Brief delay only if Yahoo was used (Alpaca batch already done)
-        if (alpacaPrice == null) {
-          await new Promise((r) => setTimeout(r, 80));
-        }
+        await new Promise((r) => setTimeout(r, 80));
       } catch {
         failed.push(symbol);
       }

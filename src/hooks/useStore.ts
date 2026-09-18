@@ -363,10 +363,14 @@ export function useStore() {
       const current = new Set((settings.hiddenSymbols ?? []).map((s) => s.toUpperCase()));
       if (current.has(sym)) current.delete(sym);
       else current.add(sym);
-      await updateSettings({
+      const nextSettings = {
         ...settings,
         hiddenSymbols: Array.from(current).sort(),
-      });
+      };
+      // Update local state immediately for instant UI feedback
+      setSettings(nextSettings);
+      // Then persist to server
+      await updateSettings(nextSettings);
     },
     [settings, updateSettings],
   );

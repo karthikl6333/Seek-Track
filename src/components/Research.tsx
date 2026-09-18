@@ -220,8 +220,8 @@ export function Research() {
   }, []);
 
   const refreshAll = useCallback(async (forceServer = false) => {
-    setBusy(true);
     setError(null);
+    setBusy(true);
     try {
       if (forceServer) {
         await fetch(`${API_BASE}/api/research/refresh`, {
@@ -246,8 +246,8 @@ export function Research() {
       setError('Ticker: letters/digits only, 1–10 chars');
       return;
     }
-    setUniverseBusy(true);
     setError(null);
+    setUniverseBusy(true);
     try {
       const body: { symbol: string; name?: string } = { symbol: sym };
       const name = addName.trim();
@@ -269,8 +269,8 @@ export function Research() {
   const handleRemoveUniverse = useCallback(
     async (symbol: string) => {
       if (!window.confirm(`Remove ${symbol} from research universe?`)) return;
-      setUniverseBusy(true);
       setError(null);
+      setUniverseBusy(true);
       try {
         const result = await apiSend<{ universe: UniverseRow[] }>(
           `/api/research/universe/${encodeURIComponent(symbol)}`,
@@ -446,8 +446,12 @@ export function Research() {
             className="btn small"
             disabled={busy || universeBusy}
             onClick={() => void refreshAll(true)}
+            style={{
+              opacity: busy || universeBusy ? 0.6 : 1,
+              transition: 'opacity 0.15s',
+            }}
           >
-            {busy ? 'Refreshing…' : 'Refresh'}
+            {busy ? '⟳' : 'Refresh'}
           </button>
         </div>
         <div className="universe-controls">

@@ -661,3 +661,8 @@ button.linkish {
   text-decoration: underline;
 }
 button.linkish:hover { opacity: 0.85; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

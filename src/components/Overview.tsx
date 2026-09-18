@@ -193,6 +193,10 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                   className="btn small"
                   onClick={() => void store.refreshLiveQuotes()}
                   title="Fetch Yahoo quotes for open symbols + calculator + pair"
+                  style={{
+                    opacity: store.error ? 0.6 : 1,
+                    transition: 'opacity 0.15s',
+                  }}
                 >
                   Refresh quotes
                 </button>

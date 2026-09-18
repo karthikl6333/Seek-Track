@@ -14,8 +14,8 @@ export function CsvImport({ onImport, lastResult }: Props) {
 
   const handleText = useCallback(
     async (text: string) => {
-      setBusy(true);
       setMsg(null);
+      setBusy(true);
       try {
         const r = await onImport(text, overrideManual);
         setMsg(
@@ -72,7 +72,9 @@ export function CsvImport({ onImport, lastResult }: Props) {
           void onFile(e.dataTransfer.files?.[0] ?? null);
         }}
       >
-        <p style={{ margin: '0 0 10px' }}>{busy ? 'Importing…' : 'Drop CSV here or choose a file'}</p>
+        <p style={{ margin: '0 0 10px', opacity: busy ? 0.6 : 1, transition: 'opacity 0.15s' }}>
+          {busy ? '⟳ Importing…' : 'Drop CSV here or choose a file'}
+        </p>
         <input
           type="file"
           accept=".csv,text/csv"

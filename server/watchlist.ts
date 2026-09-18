@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { fetchYahooChartQuote } from './quotes.js';
+import { fetchYahooChartQuote, fetchAlpacaQuotesBatch, type YahooChartQuote } from './quotes.js';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -230,9 +230,35 @@ export async function refreshWatchlistQuotes(): Promise<{
     const updated: string[] = [];
     const failed: string[] = [];
 
+    // Hybrid refresh: batch Alpaca first, then Yahoo fallback per symbol
+    const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
+
     for (const symbol of symbols) {
       try {
-        const q = await fetchYahooChartQuote(symbol);
+        const alpacaPrice = alpacaPrices.get(symbol);
+        let q: YahooChartQuote;
+        
+        if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
+          // Use Alpaca price; other fields remain null/empty (watchlist shows last price primarily)
+          q = {
+            symbol,
+            last: alpacaPrice,
+            pctChange: null,
+            valChange: null,
+            previousClose: null,
+            sessionOpen: null,
+            volume: null,
+            bid: null,
+            ask: null,
+            marketCap: null,
+            week52High: null,
+            week52Low: null,
+          };
+        } else {
+          // Alpaca unavailable → Yahoo fallback (includes volume, 52w high/low, etc.)
+          q = await fetchYahooChartQuote(symbol);
+        }
+
         await upsertWatchlistQuote({
           symbol,
           last: q.last,
@@ -247,7 +273,10 @@ export async function refreshWatchlistQuotes(): Promise<{
           week52Low: q.week52Low,
         });
         updated.push(symbol);
-        await new Promise((r) => setTimeout(r, 80));
+        // Brief delay only if Yahoo was used (Alpaca batch already done)
+        if (alpacaPrice == null) {
+          await new Promise((r) => setTimeout(r, 80));
+        }
       } catch {
         failed.push(symbol);
       }

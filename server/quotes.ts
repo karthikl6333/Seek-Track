@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { query } from './db.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const ALPACA_DATA_BASE = 'https://data.alpaca.markets';
 const USER_AGENT =
   'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
 
@@ -22,6 +23,149 @@ export interface RefreshResult {
   failed: string[];
   error?: string;
   refreshedAt: string;
+}
+
+/**
+ * Fetch latest price from Alpaca Market Data snapshots endpoint.
+ * Uses existing paper trading keys (ALPACA_API_KEY / ALPACA_SECRET_KEY).
+ * Returns null if unavailable, error, or no usable price.
+ * 
+ * IEX data on Basic plan: may have gaps for thin ETFs or after-hours.
+ * Yahoo fallback handles missing data gracefully.
+ */
+async function fetchAlpacaQuote(symbol: string): Promise<number | null> {
+  const apiKey = process.env.ALPACA_API_KEY;
+  const apiSecret = process.env.ALPACA_SECRET_KEY;
+
+  if (!apiKey || !apiSecret) return null;
+
+  const url = `${ALPACA_DATA_BASE}/v2/stocks/snapshots?symbols=${encodeURIComponent(symbol)}`;
+  
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as {
+      [symbol: string]: {
+        latestTrade?: {
+          p?: number;
+        };
+        latestQuote?: {
+          ap?: number;
+          bp?: number;
+        };
+      };
+    };
+
+    const snap = data[symbol.toUpperCase()];
+    if (!snap) return null;
+
+    // Prefer latest trade price (most recent execution)
+    let price = snap.latestTrade?.p;
+    
+    // Fallback to mid of latest quote if no trade available
+    if (price == null || !Number.isFinite(price)) {
+      const ask = snap.latestQuote?.ap;
+      const bid = snap.latestQuote?.bp;
+      if (
+        ask != null &&
+        bid != null &&
+        Number.isFinite(ask) &&
+        Number.isFinite(bid)
+      ) {
+        price = (ask + bid) / 2;
+      }
+    }
+
+    if (price == null || !Number.isFinite(price)) return null;
+    return Number(price);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch latest prices for multiple symbols from Alpaca Market Data.
+ * Returns a map of symbol → price (null if unavailable).
+ * Batches all symbols in one request (rate limit: 200/min is sufficient).
+ */
+export async function fetchAlpacaQuotesBatch(
+  symbols: string[],
+): Promise<Map<string, number | null>> {
+  const result = new Map<string, number | null>();
+  if (symbols.length === 0) return result;
+
+  const apiKey = process.env.ALPACA_API_KEY;
+  const apiSecret = process.env.ALPACA_SECRET_KEY;
+
+  if (!apiKey || !apiSecret) {
+    for (const sym of symbols) result.set(sym, null);
+    return result;
+  }
+
+  const url = `${ALPACA_DATA_BASE}/v2/stocks/snapshots?symbols=${symbols.map((s) => encodeURIComponent(s)).join(',')}`;
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
+      },
+    });
+
+    if (!res.ok) {
+      for (const sym of symbols) result.set(sym, null);
+      return result;
+    }
+
+    const data = (await res.json()) as {
+      [symbol: string]: {
+        latestTrade?: {
+          p?: number;
+        };
+        latestQuote?: {
+          ap?: number;
+          bp?: number;
+        };
+      };
+    };
+
+    for (const sym of symbols) {
+      const snap = data[sym.toUpperCase()];
+      if (!snap) {
+        result.set(sym, null);
+        continue;
+      }
+
+      let price = snap.latestTrade?.p;
+
+      if (price == null || !Number.isFinite(price)) {
+        const ask = snap.latestQuote?.ap;
+        const bid = snap.latestQuote?.bp;
+        if (
+          ask != null &&
+          bid != null &&
+          Number.isFinite(ask) &&
+          Number.isFinite(bid)
+        ) {
+          price = (ask + bid) / 2;
+        }
+      }
+
+      result.set(sym, price != null && Number.isFinite(price) ? Number(price) : null);
+    }
+
+    return result;
+  } catch {
+    for (const sym of symbols) result.set(sym, null);
+    return result;
+  }
 }
 
 async function fetchYahooQuote(symbol: string): Promise<number | null> {
@@ -358,16 +502,36 @@ export async function refreshQuotes(extraSymbols: string[] = []): Promise<Refres
         ),
       );
 
+      // Hybrid quote refresh: Alpaca primary + Yahoo fallback
+      // 1. Try Alpaca batch (one request for all symbols)
+      const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
+
+      // 2. For each symbol, use Alpaca if available; otherwise fall back to Yahoo
       for (const symbol of symbols) {
         try {
-          const price = await fetchYahooQuote(symbol);
+          const alpacaPrice = alpacaPrices.get(symbol);
+          let price: number | null = null;
+          let source = 'yahoo';
+
+          if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
+            price = alpacaPrice;
+            source = 'alpaca';
+          } else {
+            // Alpaca failed, missing, or no usable price → Yahoo fallback
+            price = await fetchYahooQuote(symbol);
+          }
+
           if (price === null) {
             failed.push(symbol);
             continue;
           }
-          await upsertMark(symbol, price, 'yahoo');
+
+          await upsertMark(symbol, price, source);
           updated.push(symbol);
-          await new Promise((r) => setTimeout(r, 80));
+          // Brief delay to avoid hammering Yahoo (Alpaca batch already done)
+          if (source === 'yahoo') {
+            await new Promise((r) => setTimeout(r, 80));
+          }
         } catch (e) {
           failed.push(symbol);
           if (!error) error = String(e);

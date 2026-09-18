@@ -35,7 +35,6 @@ export interface WatchlistProps {
   compact?: boolean;
   watchlistRef?: React.RefObject<WatchlistRef>;
   openSymbols?: string[];
-  hiddenSymbols?: string[];
   pairs?: PairDef[];
 }
 
@@ -118,7 +117,6 @@ export function Watchlist(props: WatchlistProps = {}) {
     compact = false,
     watchlistRef,
     openSymbols = [],
-    hiddenSymbols = [],
     pairs = [],
   } = props;
 
@@ -258,28 +256,18 @@ export function Watchlist(props: WatchlistProps = {}) {
   const visibleRows = useMemo(() => {
     if (!filterOpen) return rows;
 
-    const hiddenSet = new Set(hiddenSymbols.map((s) => s.toUpperCase()));
-    const openSet = new Set(
-      openSymbols
-        .filter((s) => !hiddenSet.has(s.toUpperCase()))
-        .map((s) => s.toUpperCase()),
-    );
+    const allowedSet = new Set(openSymbols.map((s) => s.toUpperCase()));
 
     for (const sym of openSymbols) {
       const upper = sym.toUpperCase();
-      if (hiddenSet.has(upper)) continue;
-
-      const pair = pairs.find(
-        (p) => p.etf.toUpperCase() === upper || p.underlying.toUpperCase() === upper,
-      );
+      const pair = pairs.find((p) => p.etf.toUpperCase() === upper);
       if (pair) {
-        openSet.add(pair.etf.toUpperCase());
-        openSet.add(pair.underlying.toUpperCase());
+        allowedSet.add(pair.underlying.toUpperCase());
       }
     }
 
-    return rows.filter((r) => openSet.has(r.symbol.toUpperCase()));
-  }, [rows, filterOpen, openSymbols, hiddenSymbols, pairs]);
+    return rows.filter((r) => allowedSet.has(r.symbol.toUpperCase()));
+  }, [rows, filterOpen, openSymbols, pairs]);
 
   const sorted = useMemo(() => {
     const copy = [...visibleRows];

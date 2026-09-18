@@ -367,8 +367,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           <Watchlist
             compact
             watchlistRef={watchlistRef}
-            openSymbols={allOpen.map((p) => p.symbol)}
-            hiddenSymbols={settings?.hiddenSymbols ?? []}
+            openSymbols={visibleOpen.map((p) => p.symbol)}
             pairs={settings?.pairs ?? []}
           />
           <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />

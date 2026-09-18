@@ -22,6 +22,7 @@ export function CryptoPaper() {
   }, []);
 
   const refreshLivePnl = useCallback(async () => {
+    setError(null);
     setBusy(true);
     try {
       const result = await refreshCryptoPaperLivePnl();
@@ -143,8 +144,12 @@ export function CryptoPaper() {
               disabled={busy}
               onClick={() => void refreshLivePnl()}
               title="Refresh live P&L from Alpaca paper API"
+              style={{
+                opacity: busy ? 0.6 : 1,
+                transition: 'opacity 0.15s',
+              }}
             >
-              {busy ? '…' : 'Refresh Live P&L'}
+              {busy ? '⟳' : 'Refresh Live P&L'}
             </button>
             <span className={statusBadgeClass}>{state.status}</span>
           </div>

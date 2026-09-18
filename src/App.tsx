@@ -47,6 +47,7 @@ export default function App() {
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
     try {
+      // Run in parallel for faster updates
       await Promise.allSettled([
         store.refreshLiveQuotes(),
         store.refresh(),
@@ -225,7 +226,7 @@ export default function App() {
                   height: 20,
                   borderRadius: 10,
                   background: watchModeEnabled ? 'var(--accent, #3d8bfd)' : 'rgba(255,255,255,0.15)',
-                  transition: 'background 0.2s',
+                  transition: 'background 0.2s ease',
                   cursor: 'pointer',
                 }}
                 onClick={toggleWatchMode}
@@ -239,7 +240,8 @@ export default function App() {
                     height: 16,
                     borderRadius: '50%',
                     background: '#fff',
-                    transition: 'left 0.2s',
+                    transition: 'left 0.2s ease',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                   }}
                 />
               </div>
@@ -280,10 +282,12 @@ export default function App() {
                 justifyContent: 'center',
                 fontSize: 18,
                 borderRadius: '50%',
+                opacity: refreshing ? 0.6 : 1,
                 animation: refreshing ? 'spin 1s linear infinite' : 'none',
+                transition: 'opacity 0.15s',
               }}
             >
-              {refreshing ? '⟳' : '↻'}
+              ↻
             </button>
           </div>
         </div>

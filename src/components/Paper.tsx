@@ -22,6 +22,7 @@ export function Paper() {
   }, []);
 
   const refreshData = useCallback(async () => {
+    setError(null);
     setBusy(true);
     try {
       await fetchData();
@@ -31,8 +32,8 @@ export function Paper() {
   }, [fetchData]);
 
   const refreshLiveData = useCallback(async () => {
-    setBusy(true);
     setError(null);
+    setBusy(true);
     try {
       const result = await refreshPaperData();
       if (result.ok) {
@@ -152,8 +153,12 @@ export function Paper() {
               disabled={busy}
               onClick={() => void refreshData()}
               title="Refresh paper trading data from database"
+              style={{
+                opacity: busy ? 0.6 : 1,
+                transition: 'opacity 0.15s',
+              }}
             >
-              {busy ? '…' : 'Refresh'}
+              {busy ? '⟳' : 'Refresh'}
             </button>
             <button
               type="button"
@@ -161,8 +166,12 @@ export function Paper() {
               disabled={busy}
               onClick={() => void refreshLiveData()}
               title="Refresh live P&L from Alpaca paper API"
+              style={{
+                opacity: busy ? 0.6 : 1,
+                transition: 'opacity 0.15s',
+              }}
             >
-              {busy ? '…' : 'Live P&L'}
+              {busy ? '⟳' : 'Live P&L'}
             </button>
             <span className={statusBadgeClass}>{state.status}</span>
           </div>

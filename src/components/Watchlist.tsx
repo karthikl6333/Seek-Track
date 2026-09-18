@@ -148,9 +148,9 @@ export function Watchlist(props: WatchlistProps = {}) {
 
   const refreshQuotes = useCallback(async () => {
     if (refreshInProgressRef.current) return;
-    refreshInProgressRef.current = true;
-    setBusy(true);
     setError(null);
+    setBusy(true);
+    refreshInProgressRef.current = true;
     try {
       const data = await apiSend<WatchlistPayload & { error?: string }>(
         '/api/watchlist/refresh',
@@ -203,8 +203,8 @@ export function Watchlist(props: WatchlistProps = {}) {
   const addSymbol = async () => {
     const sym = symbol.trim().toUpperCase();
     if (!sym) return;
-    setBusy(true);
     setError(null);
+    setBusy(true);
     try {
       const data = await apiSend<WatchlistPayload>('/api/watchlist', 'POST', { symbol: sym });
       applyPayload(data);
@@ -217,8 +217,8 @@ export function Watchlist(props: WatchlistProps = {}) {
   };
 
   const removeSymbol = async (sym: string) => {
-    setBusy(true);
     setError(null);
+    setBusy(true);
     try {
       const data = await apiSend<WatchlistPayload>(
         `/api/watchlist/${encodeURIComponent(sym)}`,
@@ -350,8 +350,12 @@ export function Watchlist(props: WatchlistProps = {}) {
             disabled={busy}
             onClick={() => void refreshQuotes()}
             title="Refresh Yahoo quotes for watchlist now"
+            style={{
+              opacity: busy ? 0.6 : 1,
+              transition: 'opacity 0.15s',
+            }}
           >
-            {busy ? '…' : 'Refresh'}
+            {busy ? '⟳' : 'Refresh'}
           </button>
         </div>
       </div>

@@ -226,6 +226,7 @@ export function useStore() {
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
       const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
+      // Pass the full unique set to refreshQuotes so the server refreshes ALL relevant symbols
       const result = await db.refreshQuotes(unique, source);
       await refreshMarks();
       return result;

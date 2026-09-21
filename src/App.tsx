@@ -28,6 +28,9 @@ const NAV: { id: ViewId; label: string }[] = [
 
 const WATCH_MODE_INTERVAL_MS = 30_000; // 30 seconds
 const WATCH_MODE_STORAGE_KEY = 'seektrack_watch_mode';
+const QUOTE_SOURCE_STORAGE_KEY = 'seektrack_quote_source';
+
+type QuoteSource = 'alpaca' | 'yahoo';
 
 export default function App() {
   const store = useStore();
@@ -41,6 +44,14 @@ export default function App() {
       return false;
     }
   });
+  const [quoteSource, setQuoteSource] = useState<QuoteSource>(() => {
+    try {
+      const stored = localStorage.getItem(QUOTE_SOURCE_STORAGE_KEY);
+      return stored === 'yahoo' ? 'yahoo' : 'alpaca';
+    } catch {
+      return 'alpaca';
+    }
+  });
   const watchModeIntervalRef = useRef<number | null>(null);
   const watchModeRefreshingRef = useRef(false);
 
@@ -49,9 +60,9 @@ export default function App() {
     try {
       // Run in parallel for faster updates
       await Promise.allSettled([
-        store.refreshLiveQuotes(),
+        store.refreshLiveQuotes(undefined, quoteSource),
         store.refresh(),
-        watchlistRef.current?.refreshQuotes(),
+        watchlistRef.current?.refreshQuotes(quoteSource),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
@@ -61,22 +72,22 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
-  }, [store.refreshLiveQuotes, store.refresh]);
+  }, [store.refreshLiveQuotes, store.refresh, quoteSource]);
 
   const refreshWatchMode = useCallback(async () => {
     if (watchModeRefreshingRef.current) return;
     watchModeRefreshingRef.current = true;
     try {
       await Promise.allSettled([
-        store.refreshLiveQuotes(),
-        watchlistRef.current?.refreshQuotes(),
+        store.refreshLiveQuotes(undefined, quoteSource),
+        watchlistRef.current?.refreshQuotes(quoteSource),
       ]);
     } catch (error) {
       console.error('Watch mode refresh error:', error);
     } finally {
       watchModeRefreshingRef.current = false;
     }
-  }, [store.refreshLiveQuotes]);
+  }, [store.refreshLiveQuotes, quoteSource]);
 
   useEffect(() => {
     if (watchModeEnabled) {
@@ -109,6 +120,18 @@ export default function App() {
         localStorage.setItem(WATCH_MODE_STORAGE_KEY, String(next));
       } catch (error) {
         console.warn('Failed to persist watch mode preference:', error);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleQuoteSource = useCallback(() => {
+    setQuoteSource((prev) => {
+      const next = prev === 'alpaca' ? 'yahoo' : 'alpaca';
+      try {
+        localStorage.setItem(QUOTE_SOURCE_STORAGE_KEY, next);
+      } catch (error) {
+        console.warn('Failed to persist quote source preference:', error);
       }
       return next;
     });
@@ -208,6 +231,52 @@ export default function App() {
         <div className="topbar">
           <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(255,255,255,0.08)',
+                borderRadius: 6,
+                padding: '2px',
+              }}
+              title="Quote source for holdings marks, watchlist, and Watch mode"
+            >
+              <button
+                type="button"
+                onClick={toggleQuoteSource}
+                style={{
+                  background: quoteSource === 'alpaca' ? 'var(--accent, #3d8bfd)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s ease',
+                }}
+              >
+                Alpaca
+              </button>
+              <button
+                type="button"
+                onClick={toggleQuoteSource}
+                style={{
+                  background: quoteSource === 'yahoo' ? 'var(--accent, #3d8bfd)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s ease',
+                }}
+              >
+                Yahoo
+              </button>
+            </div>
             <label
               style={{
                 display: 'flex',
@@ -296,7 +365,7 @@ export default function App() {
             {store.error}
           </div>
         )}
-        {store.view === 'overview' && <Overview store={store} watchlistRef={watchlistRef} />}
+        {store.view === 'overview' && <Overview store={store} watchlistRef={watchlistRef} quoteSource={quoteSource} />}
         {store.view === 'positions' && <Positions store={store} />}
         {store.view === 'trades' && <Trades store={store} />}
         {store.view === 'charges' && <Charges store={store} />}

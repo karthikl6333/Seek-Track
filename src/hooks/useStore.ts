@@ -197,7 +197,7 @@ export function useStore() {
   );
 
   const refreshLiveQuotes = useCallback(
-    async (extra?: string[]) => {
+    async (extra?: string[], source?: 'alpaca' | 'yahoo') => {
       setError(null);
       const symbols = [...(extra ?? [])];
       if (calcA.symbol) symbols.push(calcA.symbol);
@@ -226,7 +226,7 @@ export function useStore() {
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
       const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
-      const result = await db.refreshQuotes(unique);
+      const result = await db.refreshQuotes(unique, source);
       await refreshMarks();
       return result;
     },

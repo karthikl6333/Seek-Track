@@ -216,7 +216,7 @@ export async function getWatchlistPayload(): Promise<WatchlistPayload> {
   return { symbols, rows, lastRefreshAt };
 }
 
-export async function refreshWatchlistQuotes(): Promise<{
+export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid'): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
@@ -230,38 +230,74 @@ export async function refreshWatchlistQuotes(): Promise<{
     const updated: string[] = [];
     const failed: string[] = [];
 
-    // Hybrid refresh: batch Alpaca first for latest prices
-    const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
+    if (source === 'yahoo') {
+      // Yahoo-only mode: fetch all data from Yahoo
+      for (const symbol of symbols) {
+        try {
+          const yahooQuote = await fetchYahooChartQuote(symbol);
+          await upsertWatchlistQuote({
+            symbol,
+            last: yahooQuote.last,
+            pctChange: yahooQuote.pctChange,
+            valChange: yahooQuote.valChange,
+            sessionOpen: yahooQuote.sessionOpen,
+            bid: yahooQuote.bid,
+            ask: yahooQuote.ask,
+            marketCap: yahooQuote.marketCap,
+            volume: yahooQuote.volume,
+            week52High: yahooQuote.week52High,
+            week52Low: yahooQuote.week52Low,
+          });
+          updated.push(symbol);
+          await new Promise((r) => setTimeout(r, 80));
+        } catch {
+          failed.push(symbol);
+        }
+      }
+    } else {
+      // Alpaca or hybrid mode
+      const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
 
-    for (const symbol of symbols) {
-      try {
-        // Always fetch Yahoo for enrichment fields (session %, volume, 52w high/low)
-        const yahooQuote = await fetchYahooChartQuote(symbol);
-        
-        // Prefer Alpaca last price when available; otherwise use Yahoo last
-        const alpacaPrice = alpacaPrices.get(symbol);
-        const last =
-          alpacaPrice != null && Number.isFinite(alpacaPrice)
-            ? alpacaPrice
-            : yahooQuote.last;
+      for (const symbol of symbols) {
+        try {
+          // Always fetch Yahoo for enrichment fields (session %, volume, 52w high/low)
+          const yahooQuote = await fetchYahooChartQuote(symbol);
+          
+          // Prefer Alpaca last price when available; otherwise use Yahoo last
+          const alpacaPrice = alpacaPrices.get(symbol);
+          let last: number | null = null;
+          
+          if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
+            last = alpacaPrice;
+          } else if (source === 'hybrid') {
+            // Hybrid mode: fall back to Yahoo price
+            last = yahooQuote.last;
+          } else {
+            // Alpaca-only mode but also need enrichment: use Yahoo for enrichment, skip if no Alpaca price
+            if (alpacaPrice == null) {
+              failed.push(symbol);
+              continue;
+            }
+          }
 
-        await upsertWatchlistQuote({
-          symbol,
-          last,
-          pctChange: yahooQuote.pctChange,
-          valChange: yahooQuote.valChange,
-          sessionOpen: yahooQuote.sessionOpen,
-          bid: yahooQuote.bid,
-          ask: yahooQuote.ask,
-          marketCap: yahooQuote.marketCap,
-          volume: yahooQuote.volume,
-          week52High: yahooQuote.week52High,
-          week52Low: yahooQuote.week52Low,
-        });
-        updated.push(symbol);
-        await new Promise((r) => setTimeout(r, 80));
-      } catch {
-        failed.push(symbol);
+          await upsertWatchlistQuote({
+            symbol,
+            last: last ?? yahooQuote.last,
+            pctChange: yahooQuote.pctChange,
+            valChange: yahooQuote.valChange,
+            sessionOpen: yahooQuote.sessionOpen,
+            bid: yahooQuote.bid,
+            ask: yahooQuote.ask,
+            marketCap: yahooQuote.marketCap,
+            volume: yahooQuote.volume,
+            week52High: yahooQuote.week52High,
+            week52Low: yahooQuote.week52Low,
+          });
+          updated.push(symbol);
+          await new Promise((r) => setTimeout(r, 80));
+        } catch {
+          failed.push(symbol);
+        }
       }
     }
 
@@ -375,7 +411,20 @@ export async function deleteWatchlistHandler(c: Context) {
 
 export async function postWatchlistRefreshHandler(c: Context) {
   try {
-    const result = await refreshWatchlistQuotes();
+    let source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid';
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (body?.source === 'alpaca' || body?.source === 'yahoo') {
+        source = body.source;
+      }
+    } catch {
+      // ignore
+    }
+    const qSource = c.req.query('source');
+    if (qSource === 'alpaca' || qSource === 'yahoo') {
+      source = qSource;
+    }
+    const result = await refreshWatchlistQuotes(source);
     const payload = await getWatchlistPayload();
     return c.json({ ...result, ...payload }, result.ok ? 200 : 502);
   } catch (e) {

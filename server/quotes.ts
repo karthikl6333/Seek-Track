@@ -11,6 +11,7 @@ export interface MarkInfo {
   price: number;
   updatedAt: string;
   source: string;
+  dayPct: number | null;
 }
 
 let lastRefreshAt: string | null = null;
@@ -25,22 +26,28 @@ export interface RefreshResult {
   refreshedAt: string;
 }
 
+export interface QuoteWithPct {
+  price: number;
+  dayPct: number | null;
+  source: string;
+}
+
 /**
  * Unified quote fetch: Alpaca OR Yahoo (no hybrid).
- * When source='alpaca', fetch from Alpaca batch API only.
- * When source='yahoo', fetch from Yahoo only.
- * No fallback mixing — clean separation per user toggle.
+ * When source='alpaca', fetch from Alpaca batch API; soft-fallback to Yahoo per-symbol if null.
+ * When source='yahoo', fetch from Yahoo only (no fallback).
+ * Returns price + dayPct when available.
  */
 export async function fetchQuotesBatch(
   symbols: string[],
   source: 'alpaca' | 'yahoo',
-): Promise<Map<string, number | null>> {
+): Promise<Map<string, QuoteWithPct | null>> {
   if (symbols.length === 0) return new Map();
 
   if (source === 'alpaca') {
-    return fetchAlpacaQuotesBatch(symbols);
+    return fetchAlpacaQuotesBatchWithFallback(symbols);
   } else {
-    return fetchYahooQuotesBatch(symbols);
+    return fetchYahooQuotesBatchFull(symbols);
   }
 }
 
@@ -117,15 +124,15 @@ async function fetchAlpacaQuotesBatch(
   }
 }
 
-async function fetchYahooQuotesBatch(
+async function fetchYahooQuotesBatchFull(
   symbols: string[],
-): Promise<Map<string, number | null>> {
-  const result = new Map<string, number | null>();
+): Promise<Map<string, QuoteWithPct | null>> {
+  const result = new Map<string, QuoteWithPct | null>();
   
   for (const symbol of symbols) {
     try {
-      const price = await fetchYahooQuote(symbol);
-      result.set(symbol, price);
+      const quote = await fetchYahooQuoteWithPct(symbol);
+      result.set(symbol, quote);
       // Rate limit: 80ms between Yahoo requests
       await new Promise((r) => setTimeout(r, 80));
     } catch {
@@ -136,7 +143,37 @@ async function fetchYahooQuotesBatch(
   return result;
 }
 
-async function fetchYahooQuote(symbol: string): Promise<number | null> {
+async function fetchAlpacaQuotesBatchWithFallback(
+  symbols: string[],
+): Promise<Map<string, QuoteWithPct | null>> {
+  const result = new Map<string, QuoteWithPct | null>();
+  
+  // First try Alpaca batch
+  const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
+  
+  // For each symbol, use Alpaca if available; otherwise soft-fallback to Yahoo
+  for (const symbol of symbols) {
+    const alpacaPrice = alpacaPrices.get(symbol);
+    
+    if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
+      // Alpaca success: price available, but no dayPct (Alpaca doesn't provide it)
+      result.set(symbol, { price: alpacaPrice, dayPct: null, source: 'alpaca' });
+    } else {
+      // Alpaca failed/null: soft-fallback to Yahoo for this symbol
+      try {
+        const yahooQuote = await fetchYahooQuoteWithPct(symbol);
+        result.set(symbol, yahooQuote);
+        await new Promise((r) => setTimeout(r, 80)); // Yahoo rate limit
+      } catch {
+        result.set(symbol, null);
+      }
+    }
+  }
+  
+  return result;
+}
+
+async function fetchYahooQuoteWithPct(symbol: string): Promise<QuoteWithPct> {
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: {
@@ -156,6 +193,7 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
           hasPrePostMarketData?: boolean;
           previousClose?: number;
           chartPreviousClose?: number;
+          regularMarketChangePercent?: number;
           currentTradingPeriod?: {
             pre?: { start?: number; end?: number };
             regular?: { start?: number; end?: number };
@@ -195,8 +233,29 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
       null;
   }
 
-  if (price === null || !Number.isFinite(price)) return null;
-  return Number(price);
+  if (price === null || !Number.isFinite(price)) {
+    throw new Error(`No price for ${symbol}`);
+  }
+
+  // Calculate day % vs previous close
+  let dayPct: number | null = null;
+  const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
+  const previousClose = prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
+  
+  if (price !== null && previousClose !== null && previousClose !== 0) {
+    dayPct = ((price - previousClose) / previousClose) * 100;
+  } else if (
+    typeof meta.regularMarketChangePercent === 'number' &&
+    Number.isFinite(meta.regularMarketChangePercent)
+  ) {
+    dayPct = meta.regularMarketChangePercent;
+  }
+
+  return {
+    price: Number(price),
+    dayPct: dayPct !== null && Number.isFinite(dayPct) ? dayPct : null,
+    source: 'yahoo',
+  };
 }
 
 export interface YahooChartQuote {
@@ -386,15 +445,17 @@ export async function upsertMark(
   symbol: string,
   price: number,
   source: string,
+  dayPct?: number | null,
 ): Promise<void> {
   const now = new Date().toISOString();
   await query(
-    `INSERT INTO marks (symbol, price, updated_at, source) VALUES ($1, $2, $3, $4)
+    `INSERT INTO marks (symbol, price, updated_at, source, day_pct) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (symbol) DO UPDATE SET
        price = EXCLUDED.price,
        updated_at = EXCLUDED.updated_at,
-       source = EXCLUDED.source`,
-    [symbol.toUpperCase(), price, now, source],
+       source = EXCLUDED.source,
+       day_pct = EXCLUDED.day_pct`,
+    [symbol.toUpperCase(), price, now, source, dayPct ?? null],
   );
 }
 
@@ -448,15 +509,15 @@ export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca
         ),
       );
 
-      const prices = await fetchQuotesBatch(symbols, source);
+      const quotes = await fetchQuotesBatch(symbols, source);
 
       for (const symbol of symbols) {
-        const price = prices.get(symbol);
-        if (price === null || price === undefined) {
+        const quote = quotes.get(symbol);
+        if (quote === null || quote === undefined) {
           failed.push(symbol);
           continue;
         }
-        await upsertMark(symbol, price, source);
+        await upsertMark(symbol, quote.price, quote.source, quote.dayPct);
         updated.push(symbol);
       }
 
@@ -499,7 +560,8 @@ export async function listMarksDetailed(): Promise<{
     price: number;
     updated_at: Date | string;
     source: string | null;
-  }>(`SELECT symbol, price, updated_at, source FROM marks ORDER BY symbol`);
+    day_pct: number | null;
+  }>(`SELECT symbol, price, updated_at, source, day_pct FROM marks ORDER BY symbol`);
 
   const marks: Record<string, MarkInfo> = {};
   for (const r of res.rows) {
@@ -510,6 +572,7 @@ export async function listMarksDetailed(): Promise<{
       price: Number(r.price),
       updatedAt,
       source: r.source ?? 'manual',
+      dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
     };
   }
   return { marks, lastRefreshAt, lastRefreshError };

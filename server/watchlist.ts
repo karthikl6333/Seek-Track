@@ -243,9 +243,9 @@ export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' = 'alpac
           // Single-symbol Alpaca fetch via the unified quotes module
           const { fetchQuotesBatch } = await import('./quotes.js');
           const alpacaPrices = await fetchQuotesBatch([symbol], 'alpaca');
-          const alpacaPrice = alpacaPrices.get(symbol);
-          if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-            last = alpacaPrice;
+          const alpacaQuote = alpacaPrices.get(symbol);
+          if (alpacaQuote != null && alpacaQuote.price != null && Number.isFinite(alpacaQuote.price)) {
+            last = alpacaQuote.price;
           }
           // If Alpaca fails, fall back to Yahoo price (already in yahooQuote.last)
         }

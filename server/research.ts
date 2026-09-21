@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { fetchYahooMeta } from './quotes.js';
+import { fetchYahooMeta, upsertMark } from './quotes.js';
 import { parseLeverageFromName, guessUnderlying } from './pairs.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
@@ -282,22 +282,8 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
   };
 }
 
-export async function upsertMark(
-  symbol: string,
-  price: number,
-  source: string,
-): Promise<void> {
-  const now = new Date().toISOString();
-  await query(
-    `INSERT INTO marks (symbol, price, updated_at, source)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (symbol) DO UPDATE SET
-       price = EXCLUDED.price,
-       updated_at = EXCLUDED.updated_at,
-       source = EXCLUDED.source`,
-    [symbol.toUpperCase(), price, now, source],
-  );
-}
+// upsertMark imported above and re-exported for external consumers
+export { upsertMark };
 
 async function listUniverse(): Promise<UniverseRow[]> {
   const res = await query<{
@@ -455,8 +441,9 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
     price: number;
     updated_at: Date | string;
     source: string | null;
+    day_pct: number | null;
   }>(
-    `SELECT symbol, price, updated_at, source FROM marks WHERE symbol = ANY($1)`,
+    `SELECT symbol, price, updated_at, source, day_pct FROM marks WHERE symbol = ANY($1)`,
     [symbols.map((s) => s.toUpperCase())],
   );
   const out: Record<string, QuoteSnap> = {};
@@ -464,7 +451,7 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
     out[r.symbol] = {
       symbol: r.symbol,
       price: Number(r.price),
-      dayPct: null, // Research no longer stores day % in marks; recalculated on-demand if needed
+      dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
       updatedAt:
         typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
       source: r.source ?? 'manual',
@@ -905,7 +892,7 @@ export async function refreshResearchQuotes(): Promise<{
     for (const symbol of symbols) {
       try {
         const q = await fetchYahooQuoteFull(symbol);
-        await upsertMark(symbol, q.price, 'yahoo');
+        await upsertMark(symbol, q.price, 'yahoo', q.dayPct);
         updated.push(symbol);
         await new Promise((r) => setTimeout(r, 80));
       } catch {
@@ -945,7 +932,7 @@ export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
   for (const symbol of unique) {
     try {
       const q = await fetchYahooQuoteFull(symbol);
-      await upsertMark(symbol, q.price, 'yahoo');
+      await upsertMark(symbol, q.price, 'yahoo', q.dayPct);
       updated.push(symbol);
       await new Promise((r) => setTimeout(r, 80));
     } catch {

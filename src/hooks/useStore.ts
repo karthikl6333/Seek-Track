@@ -23,7 +23,7 @@ const defaultCalc: CalculatorState = {
 
 type CalcSlot = 'A' | 'B';
 
-const POLL_MS = 30 * 1000; // 30 seconds
+const POLL_MS = 5 * 60 * 1000; // 5 minutes fallback when Watch mode is off
 
 const VALID_VIEWS: ViewId[] = [
   'overview',

@@ -36,6 +36,7 @@ export default function App() {
   const store = useStore();
   const watchlistRef = useRef<WatchlistRef>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshComplete, setRefreshComplete] = useState(false);
   const [watchModeEnabled, setWatchModeEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem(WATCH_MODE_STORAGE_KEY);
@@ -57,16 +58,41 @@ export default function App() {
 
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
+    setRefreshComplete(false);
     try {
-      // Run in parallel for faster updates
-      await Promise.allSettled([
-        store.refreshLiveQuotes(undefined, quoteSource),
+      // Sequence the refresh to avoid race conditions:
+      // 1. First, refresh quotes (writes to marks DB)
+      // 2. Then refresh other data sources in parallel
+      // 3. Watchlist refreshes its own separate quote cache in parallel
+
+      // Phase 1: Refresh live quotes for holdings, calculators, and pairs
+      // This writes to the marks table
+      await store.refreshLiveQuotes(undefined, quoteSource).catch((e) => {
+        console.warn('refreshLiveQuotes failed:', e);
+      });
+
+      // Phase 2: Refresh other data in parallel
+      // store.refresh() will re-read marks at the end, getting the fresh data from Phase 1
+      const results = await Promise.allSettled([
         store.refresh(),
         watchlistRef.current?.refreshQuotes(quoteSource),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
       ]);
+
+      // Log any failures for debugging
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const labels = ['refresh', 'watchlist', 'paper', 'crypto', 'paperFlex'];
+          console.warn(`${labels[index]} failed:`, result.reason);
+        }
+      });
+
+      // Show completion animation
+      setRefreshComplete(true);
+      // Clear completion animation after 1.5 seconds
+      setTimeout(() => setRefreshComplete(false), 1500);
     } catch (error) {
       console.error('Global refresh error:', error);
     } finally {
@@ -353,10 +379,12 @@ export default function App() {
                 borderRadius: '50%',
                 opacity: refreshing ? 0.6 : 1,
                 animation: refreshing ? 'spin 1s linear infinite' : 'none',
-                transition: 'opacity 0.15s',
+                transition: 'all 0.15s ease',
+                background: refreshComplete ? 'var(--accent, #3d8bfd)' : undefined,
+                boxShadow: refreshComplete ? '0 0 12px rgba(61, 139, 253, 0.5)' : undefined,
               }}
             >
-              ↻
+              {refreshComplete ? '✓' : '↻'}
             </button>
           </div>
         </div>

@@ -199,6 +199,7 @@ export function useStore() {
   const refreshLiveQuotes = useCallback(
     async (extra?: string[]) => {
       setError(null);
+      setLastRefreshError(null);
       const symbols = [...(extra ?? [])];
       if (calcA.symbol) symbols.push(calcA.symbol);
       if (calcB.symbol) symbols.push(calcB.symbol);
@@ -227,9 +228,14 @@ export function useStore() {
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
       const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
       // Pass the full unique set to refreshQuotes so the server refreshes ALL relevant symbols
-      const result = await db.refreshQuotes(unique);
-      await refreshMarks();
-      return result;
+      try {
+        const result = await db.refreshQuotes(unique);
+        await refreshMarks();
+        return result;
+      } catch (err) {
+        setLastRefreshError(String(err));
+        throw err;
+      }
     },
     [analysis, calcA.symbol, calcB.symbol, refreshMarks, resolvedPairA, resolvedPairB, settings],
   );

@@ -196,24 +196,28 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                   onClick={async () => {
                     setRefreshingQuotes(true);
                     try {
-                      await store.refreshLiveQuotes();
+                      const openSymbols = openPositions.map((p) => p.symbol);
+                      await store.refreshLiveQuotes(openSymbols);
+                    } catch (err) {
+                      console.error('Quote refresh failed:', err);
                     } finally {
                       setRefreshingQuotes(false);
                     }
                   }}
-                  title="Fetch Yahoo quotes for open symbols + calculator + pair"
+                  title="Refresh prices for all open positions, calculator, and pairs"
                   style={{
                     opacity: refreshingQuotes ? 0.6 : 1,
                     transition: 'opacity 0.15s',
+                    cursor: refreshingQuotes ? 'wait' : 'pointer',
                   }}
                 >
-                  {refreshingQuotes ? '⟳' : 'Refresh quotes'}
+                  {refreshingQuotes ? '⟳ Refreshing...' : '↻ Refresh prices'}
                 </button>
               </div>
             </div>
             {store.lastRefreshError && (
-              <p className="muted" style={{ fontSize: 12 }}>
-                Quote refresh note: {store.lastRefreshError}. Fallback: enter marks manually below.
+              <p className="muted" style={{ fontSize: 12, marginTop: 0, color: '#e67e22' }}>
+                ⚠ Refresh error: {store.lastRefreshError}. Some prices may be stale.
               </p>
             )}
             <div className="table-wrap">

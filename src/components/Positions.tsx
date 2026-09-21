@@ -6,11 +6,26 @@ import { AddTradeForm } from './AddTradeForm';
 export function Positions({ store }: { store: Store }) {
   const { hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const allRows = store.analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const hiddenCount = allRows.filter((p) => hiddenSet.has(p.symbol.toUpperCase())).length;
   const rows = showHidden
     ? allRows
     : allRows.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
+
+  const handleRefreshPrices = async () => {
+    setRefreshing(true);
+    try {
+      const openSymbols = allRows.map((p) => p.symbol);
+      await store.refreshLiveQuotes(openSymbols);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const lastUpdatedLabel = store.lastRefreshAt
+    ? new Date(store.lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
+    : null;
 
   return (
     <div className="stack">
@@ -19,16 +34,42 @@ export function Positions({ store }: { store: Store }) {
       <div className="card">
         <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <h3 style={{ margin: 0 }}>Open Positions &amp; Lots</h3>
-          {hiddenCount > 0 && (
+          <div className="row-actions" style={{ gap: 8 }}>
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => setShowHidden((v) => !v)}
+              >
+                {showHidden ? 'Hide hidden' : `Show hidden (${hiddenCount})`}
+              </button>
+            )}
             <button
               type="button"
               className="btn small"
-              onClick={() => setShowHidden((v) => !v)}
+              disabled={refreshing}
+              onClick={handleRefreshPrices}
+              title="Refresh prices for all open positions"
+              style={{
+                opacity: refreshing ? 0.6 : 1,
+                transition: 'opacity 0.15s',
+                cursor: refreshing ? 'wait' : 'pointer',
+              }}
             >
-              {showHidden ? 'Hide hidden' : `Show hidden (${hiddenCount})`}
+              {refreshing ? '⟳ Refreshing...' : '↻ Refresh prices'}
             </button>
-          )}
+          </div>
         </div>
+        {store.lastRefreshError && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 8, color: '#e67e22' }}>
+            ⚠ Refresh error: {store.lastRefreshError}. Some prices may be stale.
+          </p>
+        )}
+        {lastUpdatedLabel && (
+          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 8 }}>
+            Last updated: {lastUpdatedLabel}
+          </p>
+        )}
         <div className="table-wrap">
           <table className="data">
             <thead>

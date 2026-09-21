@@ -2,7 +2,6 @@ import type { Context } from 'hono';
 import { query } from './db.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
-const ALPACA_DATA_BASE = 'https://data.alpaca.markets';
 const USER_AGENT =
   'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
 
@@ -33,95 +32,14 @@ export interface QuoteWithPct {
 }
 
 /**
- * Unified quote fetch: Alpaca OR Yahoo (no hybrid).
- * When source='alpaca', fetch from Alpaca batch API; soft-fallback to Yahoo per-symbol if null.
- * When source='yahoo', fetch from Yahoo only (no fallback).
+ * Unified quote fetch: Yahoo only.
  * Returns price + dayPct when available.
  */
 export async function fetchQuotesBatch(
   symbols: string[],
-  source: 'alpaca' | 'yahoo',
 ): Promise<Map<string, QuoteWithPct | null>> {
   if (symbols.length === 0) return new Map();
-
-  if (source === 'alpaca') {
-    return fetchAlpacaQuotesBatchWithFallback(symbols);
-  } else {
-    return fetchYahooQuotesBatchFull(symbols);
-  }
-}
-
-async function fetchAlpacaQuotesBatch(
-  symbols: string[],
-): Promise<Map<string, number | null>> {
-  const result = new Map<string, number | null>();
-  if (symbols.length === 0) return result;
-
-  const apiKey = process.env.ALPACA_API_KEY;
-  const apiSecret = process.env.ALPACA_SECRET_KEY;
-
-  if (!apiKey || !apiSecret) {
-    for (const sym of symbols) result.set(sym, null);
-    return result;
-  }
-
-  const url = `${ALPACA_DATA_BASE}/v2/stocks/snapshots?symbols=${symbols.map((s) => encodeURIComponent(s)).join(',')}`;
-
-  try {
-    const res = await fetch(url, {
-      headers: {
-        'APCA-API-KEY-ID': apiKey,
-        'APCA-API-SECRET-KEY': apiSecret,
-      },
-    });
-
-    if (!res.ok) {
-      for (const sym of symbols) result.set(sym, null);
-      return result;
-    }
-
-    const data = (await res.json()) as {
-      [symbol: string]: {
-        latestTrade?: {
-          p?: number;
-        };
-        latestQuote?: {
-          ap?: number;
-          bp?: number;
-        };
-      };
-    };
-
-    for (const sym of symbols) {
-      const snap = data[sym.toUpperCase()];
-      if (!snap) {
-        result.set(sym, null);
-        continue;
-      }
-
-      let price = snap.latestTrade?.p;
-
-      if (price == null || !Number.isFinite(price)) {
-        const ask = snap.latestQuote?.ap;
-        const bid = snap.latestQuote?.bp;
-        if (
-          ask != null &&
-          bid != null &&
-          Number.isFinite(ask) &&
-          Number.isFinite(bid)
-        ) {
-          price = (ask + bid) / 2;
-        }
-      }
-
-      result.set(sym, price != null && Number.isFinite(price) ? Number(price) : null);
-    }
-
-    return result;
-  } catch {
-    for (const sym of symbols) result.set(sym, null);
-    return result;
-  }
+  return fetchYahooQuotesBatchFull(symbols);
 }
 
 async function fetchYahooQuotesBatchFull(
@@ -137,36 +55,6 @@ async function fetchYahooQuotesBatchFull(
       await new Promise((r) => setTimeout(r, 80));
     } catch {
       result.set(symbol, null);
-    }
-  }
-  
-  return result;
-}
-
-async function fetchAlpacaQuotesBatchWithFallback(
-  symbols: string[],
-): Promise<Map<string, QuoteWithPct | null>> {
-  const result = new Map<string, QuoteWithPct | null>();
-  
-  // First try Alpaca batch
-  const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
-  
-  // For each symbol, use Alpaca if available; otherwise soft-fallback to Yahoo
-  for (const symbol of symbols) {
-    const alpacaPrice = alpacaPrices.get(symbol);
-    
-    if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-      // Alpaca success: price available, but no dayPct (Alpaca doesn't provide it)
-      result.set(symbol, { price: alpacaPrice, dayPct: null, source: 'alpaca' });
-    } else {
-      // Alpaca failed/null: soft-fallback to Yahoo for this symbol
-      try {
-        const yahooQuote = await fetchYahooQuoteWithPct(symbol);
-        result.set(symbol, yahooQuote);
-        await new Promise((r) => setTimeout(r, 80)); // Yahoo rate limit
-      } catch {
-        result.set(symbol, null);
-      }
     }
   }
   
@@ -491,7 +379,7 @@ export async function openSymbolsFromTrades(): Promise<string[]> {
     .sort();
 }
 
-export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca' | 'yahoo' = 'alpaca'): Promise<RefreshResult> {
+export async function refreshQuotes(extraSymbols: string[] = []): Promise<RefreshResult> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
@@ -509,7 +397,7 @@ export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca
         ),
       );
 
-      const quotes = await fetchQuotesBatch(symbols, source);
+      const quotes = await fetchQuotesBatch(symbols);
 
       for (const symbol of symbols) {
         const quote = quotes.get(symbol);
@@ -609,7 +497,6 @@ export async function putMarksHandler(c: Context) {
 
 export async function refreshQuotesHandler(c: Context) {
   let extra: string[] = [];
-  let source: 'alpaca' | 'yahoo' = 'alpaca';
   try {
     if (c.req.method === 'POST') {
       const body = await c.req.json().catch(() => ({}));
@@ -618,20 +505,13 @@ export async function refreshQuotesHandler(c: Context) {
       } else if (typeof body?.symbol === 'string') {
         extra = [body.symbol];
       }
-      if (body?.source === 'alpaca' || body?.source === 'yahoo') {
-        source = body.source;
-      }
     }
   } catch {
     // ignore
   }
   const qSym = c.req.query('symbol');
   if (qSym) extra.push(qSym);
-  const qSource = c.req.query('source');
-  if (qSource === 'alpaca' || qSource === 'yahoo') {
-    source = qSource;
-  }
-  const result = await refreshQuotes(extra, source);
+  const result = await refreshQuotes(extra);
   return c.json(result, result.ok ? 200 : 502);
 }
 

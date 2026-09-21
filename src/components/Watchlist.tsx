@@ -8,7 +8,7 @@ const POLL_MS = 5 * 60 * 1000; // 5 minutes fallback when Watch mode is off
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
-  refreshQuotes: (source?: 'alpaca' | 'yahoo') => Promise<void>;
+  refreshQuotes: () => Promise<void>;
 }
 
 interface WatchlistRow {
@@ -146,7 +146,7 @@ export function Watchlist(props: WatchlistProps = {}) {
     applyPayload(data);
   }, [applyPayload]);
 
-  const refreshQuotes = useCallback(async (source?: 'alpaca' | 'yahoo') => {
+  const refreshQuotes = useCallback(async () => {
     if (refreshInProgressRef.current) return;
     setError(null);
     setBusy(true);
@@ -155,7 +155,6 @@ export function Watchlist(props: WatchlistProps = {}) {
       const data = await apiSend<WatchlistPayload & { error?: string }>(
         '/api/watchlist/refresh',
         'POST',
-        source ? { source } : undefined,
       );
       applyPayload(data);
     } catch (e) {

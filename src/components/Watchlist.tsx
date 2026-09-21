@@ -4,7 +4,7 @@ import { TickerLink } from '../lib/yahoo';
 import type { PairDef } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
-const POLL_MS = 5 * 60 * 1000;
+const POLL_MS = 5 * 60 * 1000; // 5 minutes fallback when Watch mode is off
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
@@ -440,7 +440,7 @@ export function Watchlist(props: WatchlistProps = {}) {
         {compact
           ? 'Bid / ask / market cap hidden until quote source provides them.'
           : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
-        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh ~5 min
+        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh via Watch mode (30s) or fallback poll (~5m)
       </p>
     </div>
   );

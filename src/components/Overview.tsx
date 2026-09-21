@@ -304,7 +304,7 @@ export function Overview({ store, watchlistRef, quoteSource }: { store: Store; w
             </div>
             {lastUpdatedLabel && (
               <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                Marks last updated: {lastUpdatedLabel} (auto-refresh ~15 min)
+                Marks last updated: {lastUpdatedLabel} (auto-refresh via Watch mode: 30s)
               </p>
             )}
           </div>

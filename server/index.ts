@@ -148,7 +148,7 @@ app.post('/api/paper-flex/journal', postPaperFlexJournal);
 // This ensures Workers have schema ready but skip expensive seeding/cron operations
 if (typeof process === 'undefined' || !process.versions?.node) {
   // Workers environment: just call these to register (they're no-ops or self-disable)
-  startQuoteRefreshCron(15 * 60 * 1000);
+  startQuoteRefreshCron(30 * 1000); // 30 seconds
   startResearchRefreshCron(15 * 60 * 1000);
 }
 
@@ -207,7 +207,7 @@ async function main() {
   await ensureResearchSeeded();
   await ensureWatchlistSeeded();
   
-  startQuoteRefreshCron(15 * 60 * 1000);
+  startQuoteRefreshCron(30 * 1000); // 30 seconds
   startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));
   

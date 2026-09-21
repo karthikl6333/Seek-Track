@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { fetchYahooChartQuote, fetchAlpacaQuotesBatch, type YahooChartQuote } from './quotes.js';
+import { fetchYahooChartQuote, type YahooChartQuote } from './quotes.js';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -216,7 +216,7 @@ export async function getWatchlistPayload(): Promise<WatchlistPayload> {
   return { symbols, rows, lastRefreshAt };
 }
 
-export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid'): Promise<{
+export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' = 'alpaca'): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
@@ -230,74 +230,43 @@ export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' | 'hybri
     const updated: string[] = [];
     const failed: string[] = [];
 
-    if (source === 'yahoo') {
-      // Yahoo-only mode: fetch all data from Yahoo
-      for (const symbol of symbols) {
-        try {
-          const yahooQuote = await fetchYahooChartQuote(symbol);
-          await upsertWatchlistQuote({
-            symbol,
-            last: yahooQuote.last,
-            pctChange: yahooQuote.pctChange,
-            valChange: yahooQuote.valChange,
-            sessionOpen: yahooQuote.sessionOpen,
-            bid: yahooQuote.bid,
-            ask: yahooQuote.ask,
-            marketCap: yahooQuote.marketCap,
-            volume: yahooQuote.volume,
-            week52High: yahooQuote.week52High,
-            week52Low: yahooQuote.week52Low,
-          });
-          updated.push(symbol);
-          await new Promise((r) => setTimeout(r, 80));
-        } catch {
-          failed.push(symbol);
-        }
-      }
-    } else {
-      // Alpaca or hybrid mode
-      const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
-
-      for (const symbol of symbols) {
-        try {
-          // Always fetch Yahoo for enrichment fields (session %, volume, 52w high/low)
-          const yahooQuote = await fetchYahooChartQuote(symbol);
-          
-          // Prefer Alpaca last price when available; otherwise use Yahoo last
-          const alpacaPrice = alpacaPrices.get(symbol);
-          let last: number | null = null;
-          
-          if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-            last = alpacaPrice;
-          } else if (source === 'hybrid') {
-            // Hybrid mode: fall back to Yahoo price
-            last = yahooQuote.last;
-          } else {
-            // Alpaca-only mode but also need enrichment: use Yahoo for enrichment, skip if no Alpaca price
-            if (alpacaPrice == null) {
-              failed.push(symbol);
-              continue;
-            }
+    // Always fetch Yahoo enrichment (volume, 52w high/low, session %, bid/ask, marketCap)
+    // The `last` price comes from the selected source (Alpaca or Yahoo)
+    for (const symbol of symbols) {
+      try {
+        const yahooQuote = await fetchYahooChartQuote(symbol);
+        
+        let last = yahooQuote.last;
+        
+        // Override with Alpaca price when source='alpaca' (Yahoo enrichment remains)
+        if (source === 'alpaca') {
+          // Single-symbol Alpaca fetch via the unified quotes module
+          const { fetchQuotesBatch } = await import('./quotes.js');
+          const alpacaPrices = await fetchQuotesBatch([symbol], 'alpaca');
+          const alpacaQuote = alpacaPrices.get(symbol);
+          if (alpacaQuote != null && alpacaQuote.price != null && Number.isFinite(alpacaQuote.price)) {
+            last = alpacaQuote.price;
           }
-
-          await upsertWatchlistQuote({
-            symbol,
-            last: last ?? yahooQuote.last,
-            pctChange: yahooQuote.pctChange,
-            valChange: yahooQuote.valChange,
-            sessionOpen: yahooQuote.sessionOpen,
-            bid: yahooQuote.bid,
-            ask: yahooQuote.ask,
-            marketCap: yahooQuote.marketCap,
-            volume: yahooQuote.volume,
-            week52High: yahooQuote.week52High,
-            week52Low: yahooQuote.week52Low,
-          });
-          updated.push(symbol);
-          await new Promise((r) => setTimeout(r, 80));
-        } catch {
-          failed.push(symbol);
+          // If Alpaca fails, fall back to Yahoo price (already in yahooQuote.last)
         }
+
+        await upsertWatchlistQuote({
+          symbol,
+          last,
+          pctChange: yahooQuote.pctChange,
+          valChange: yahooQuote.valChange,
+          sessionOpen: yahooQuote.sessionOpen,
+          bid: yahooQuote.bid,
+          ask: yahooQuote.ask,
+          marketCap: yahooQuote.marketCap,
+          volume: yahooQuote.volume,
+          week52High: yahooQuote.week52High,
+          week52Low: yahooQuote.week52Low,
+        });
+        updated.push(symbol);
+        await new Promise((r) => setTimeout(r, 80));
+      } catch {
+        failed.push(symbol);
       }
     }
 
@@ -411,7 +380,7 @@ export async function deleteWatchlistHandler(c: Context) {
 
 export async function postWatchlistRefreshHandler(c: Context) {
   try {
-    let source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid';
+    let source: 'alpaca' | 'yahoo' = 'alpaca';
     try {
       const body = await c.req.json().catch(() => ({}));
       if (body?.source === 'alpaca' || body?.source === 'yahoo') {

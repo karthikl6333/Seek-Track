@@ -23,10 +23,10 @@ CREATE INDEX IF NOT EXISTS trades_source_idx ON trades (source);
 CREATE TABLE IF NOT EXISTS marks (
   symbol TEXT PRIMARY KEY,
   price DOUBLE PRECISION NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
+  updated_at TIMESTAMPTZ NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  day_pct DOUBLE PRECISION
 );
-
-ALTER TABLE marks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 
 CREATE TABLE IF NOT EXISTS journal (
   id TEXT PRIMARY KEY,
@@ -84,11 +84,6 @@ CREATE TABLE IF NOT EXISTS research_universe_excluded (
   symbol TEXT PRIMARY KEY,
   removed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-ALTER TABLE marks ADD COLUMN IF NOT EXISTS day_pct DOUBLE PRECISION;
-ALTER TABLE marks ADD COLUMN IF NOT EXISTS last_price DOUBLE PRECISION;
-ALTER TABLE marks ADD COLUMN IF NOT EXISTS last_day_pct DOUBLE PRECISION;
-ALTER TABLE marks ADD COLUMN IF NOT EXISTS live_day_pct DOUBLE PRECISION;
 
 -- User watchlist (Overview). Seed-once from research_universe when empty + flag unset.
 CREATE TABLE IF NOT EXISTS watchlist (

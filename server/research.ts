@@ -27,8 +27,6 @@ export interface QuoteSnap {
   symbol: string;
   price: number | null;
   dayPct: number | null;
-  livePrice: number | null;
-  liveDayPct: number | null;
   updatedAt: string | null;
   source?: string;
 }
@@ -202,17 +200,14 @@ let researchRefreshInFlight: Promise<unknown> | null = null;
 let lastResearchRefreshAt: string | null = null;
 
 async function fetchYahooQuoteFull(symbol: string): Promise<{
-  lastPrice: number;
-  lastDayPct: number | null;
-  livePrice: number;
-  liveDayPct: number | null;
+  price: number;
+  dayPct: number | null;
   shortName: string | null;
   longName: string | null;
 }> {
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-    // Add timeout to prevent hanging
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`Yahoo HTTP ${res.status} for ${symbol}`);
@@ -235,13 +230,6 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
           };
           regularMarketTime?: number;
         };
-        timestamp?: number[];
-        indicators?: { 
-          quote?: Array<{ 
-            close?: Array<number | null>;
-            open?: Array<number | null>;
-          }> 
-        };
       }>;
       error?: { description?: string } | null;
     };
@@ -250,104 +238,64 @@ async function fetchYahooQuoteFull(symbol: string): Promise<{
   const meta = result?.meta;
   if (!meta) throw new Error(data.chart?.error?.description || `No quote for ${symbol}`);
 
-  // Last price: regular market last (session close if market is closed)
-  const lastPrice =
-    meta.regularMarketPrice ?? meta.previousClose ?? meta.chartPreviousClose ?? null;
-  if (lastPrice === null || !Number.isFinite(lastPrice)) throw new Error(`No price for ${symbol}`);
-
-  // Live price: includes pre/post market when available
   const now = Math.floor(Date.now() / 1000);
   const regularStart = meta.currentTradingPeriod?.regular?.start;
   const regularEnd = meta.currentTradingPeriod?.regular?.end;
   const isRegularHours =
     regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
 
-  let livePrice: number | null = null;
+  let price: number | null = null;
   if (isRegularHours) {
-    // During regular hours, live = regular market price
-    livePrice = meta.regularMarketPrice ?? null;
+    price = meta.regularMarketPrice ?? null;
   } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    // Outside regular hours with extended data, use fulldayPrice
-    livePrice = meta.fulldayPrice;
+    price = meta.fulldayPrice;
   }
 
-  // Fallback chain for live price
-  if (livePrice === null || !Number.isFinite(livePrice)) {
-    livePrice =
+  if (price === null || !Number.isFinite(price)) {
+    price =
       meta.fulldayPrice ??
       meta.regularMarketPrice ??
       meta.previousClose ??
       meta.chartPreviousClose ??
       null;
   }
-  if (livePrice === null || !Number.isFinite(livePrice)) throw new Error(`No live price for ${symbol}`);
+  if (price === null || !Number.isFinite(price)) throw new Error(`No price for ${symbol}`);
 
-  // Day % for last (regular market)
-  let lastDayPct =
-    typeof meta.regularMarketChangePercent === 'number'
-      ? meta.regularMarketChangePercent
-      : null;
-
-  if (lastDayPct === null) {
-    const closes = result?.indicators?.quote?.[0]?.close ?? [];
-    const valid = closes.filter((c): c is number => c != null && Number.isFinite(c));
-    if (valid.length >= 2) {
-      const prev = valid[valid.length - 2];
-      const last = valid[valid.length - 1];
-      if (prev) lastDayPct = ((last - prev) / prev) * 100;
-    } else if (meta.chartPreviousClose && meta.chartPreviousClose !== 0) {
-      lastDayPct = ((Number(lastPrice) - meta.chartPreviousClose) / meta.chartPreviousClose) * 100;
-    }
-  }
-
-  // Day % for live (vs previous close)
-  let liveDayPct: number | null = null;
+  let dayPct: number | null = null;
   const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
   const previousClose = prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
   
-  if (livePrice !== null && previousClose !== null && previousClose !== 0) {
-    liveDayPct = ((livePrice - previousClose) / previousClose) * 100;
-  } else if (lastDayPct !== null && isRegularHours) {
-    // During regular hours, live % = last %
-    liveDayPct = lastDayPct;
+  if (price !== null && previousClose !== null && previousClose !== 0) {
+    dayPct = ((price - previousClose) / previousClose) * 100;
+  } else if (
+    typeof meta.regularMarketChangePercent === 'number' &&
+    Number.isFinite(meta.regularMarketChangePercent)
+  ) {
+    dayPct = meta.regularMarketChangePercent;
   }
 
   return {
-    lastPrice: Number(lastPrice),
-    lastDayPct: lastDayPct !== null && Number.isFinite(lastDayPct) ? lastDayPct : null,
-    livePrice: Number(livePrice),
-    liveDayPct: liveDayPct !== null && Number.isFinite(liveDayPct) ? liveDayPct : null,
+    price: Number(price),
+    dayPct: dayPct !== null && Number.isFinite(dayPct) ? dayPct : null,
     shortName: meta.shortName ?? null,
     longName: meta.longName ?? null,
   };
 }
 
-export async function upsertMarkWithDayPct(
+export async function upsertMark(
   symbol: string,
-  lastPrice: number,
-  lastDayPct: number | null,
+  price: number,
   source: string,
-  livePrice?: number | null,
-  liveDayPct?: number | null,
 ): Promise<void> {
   const now = new Date().toISOString();
-  // CRITICAL: marks.price must be LIVE (fullday/current tradeable) to preserve Overview holdings behavior
-  // marks.last_price stores regular market last
-  const currentPrice = livePrice ?? lastPrice;
-  const currentDayPct = liveDayPct ?? lastDayPct;
-  
   await query(
-    `INSERT INTO marks (symbol, price, updated_at, source, day_pct, last_price, last_day_pct, live_day_pct)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO marks (symbol, price, updated_at, source)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (symbol) DO UPDATE SET
        price = EXCLUDED.price,
        updated_at = EXCLUDED.updated_at,
-       source = EXCLUDED.source,
-       day_pct = EXCLUDED.day_pct,
-       last_price = EXCLUDED.last_price,
-       last_day_pct = EXCLUDED.last_day_pct,
-       live_day_pct = EXCLUDED.live_day_pct`,
-    [symbol.toUpperCase(), currentPrice, now, source, currentDayPct, lastPrice, lastDayPct, liveDayPct ?? null],
+       source = EXCLUDED.source`,
+    [symbol.toUpperCase(), price, now, source],
   );
 }
 
@@ -507,24 +455,16 @@ async function getMarksMap(symbols: string[]): Promise<Record<string, QuoteSnap>
     price: number;
     updated_at: Date | string;
     source: string | null;
-    day_pct: number | null;
-    last_price: number | null;
-    last_day_pct: number | null;
-    live_day_pct: number | null;
   }>(
-    `SELECT symbol, price, updated_at, source, day_pct, last_price, last_day_pct, live_day_pct FROM marks WHERE symbol = ANY($1)`,
+    `SELECT symbol, price, updated_at, source FROM marks WHERE symbol = ANY($1)`,
     [symbols.map((s) => s.toUpperCase())],
   );
   const out: Record<string, QuoteSnap> = {};
   for (const r of res.rows) {
-    // QuoteSnap.price = last (regular market last) from marks.last_price
-    // QuoteSnap.livePrice = live (current tradeable) from marks.price (keeping Overview semantics)
     out[r.symbol] = {
       symbol: r.symbol,
-      price: r.last_price !== null && r.last_price !== undefined ? Number(r.last_price) : Number(r.price),
-      dayPct: r.last_day_pct !== null && r.last_day_pct !== undefined ? Number(r.last_day_pct) : (r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null),
-      livePrice: Number(r.price),
-      liveDayPct: r.live_day_pct !== null && r.live_day_pct !== undefined ? Number(r.live_day_pct) : (r.day_pct !== null && r.day_pct !== undefined ? Number(r.day_pct) : null),
+      price: Number(r.price),
+      dayPct: null, // Research no longer stores day % in marks; recalculated on-demand if needed
       updatedAt:
         typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString(),
       source: r.source ?? 'manual',
@@ -965,7 +905,7 @@ export async function refreshResearchQuotes(): Promise<{
     for (const symbol of symbols) {
       try {
         const q = await fetchYahooQuoteFull(symbol);
-        await upsertMarkWithDayPct(symbol, q.lastPrice, q.lastDayPct, 'yahoo', q.livePrice, q.liveDayPct);
+        await upsertMark(symbol, q.price, 'yahoo');
         updated.push(symbol);
         await new Promise((r) => setTimeout(r, 80));
       } catch {
@@ -1005,7 +945,7 @@ export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
   for (const symbol of unique) {
     try {
       const q = await fetchYahooQuoteFull(symbol);
-      await upsertMarkWithDayPct(symbol, q.lastPrice, q.lastDayPct, 'yahoo', q.livePrice, q.liveDayPct);
+      await upsertMark(symbol, q.price, 'yahoo');
       updated.push(symbol);
       await new Promise((r) => setTimeout(r, 80));
     } catch {
@@ -1186,18 +1126,12 @@ function buildTableRows(
       bearFactor: bear?.factor ?? null,
       bullEtfs: umaps.filter((m) => m.direction === 'bull'),
       bearEtfs: umaps.filter((m) => m.direction === 'bear'),
-      underlyingLast: uq?.price ?? null,
-      bullLast: bq?.price ?? null,
-      bearLast: rq?.price ?? null,
-      underlyingLive: uq?.livePrice ?? null,
-      bullLive: bq?.livePrice ?? null,
-      bearLive: rq?.livePrice ?? null,
+      underlyingPrice: uq?.price ?? null,
+      bullPrice: bq?.price ?? null,
+      bearPrice: rq?.price ?? null,
       underlyingDayPct: uq?.dayPct ?? null,
       bullDayPct: bq?.dayPct ?? null,
       bearDayPct: rq?.dayPct ?? null,
-      underlyingLiveDayPct: uq?.liveDayPct ?? null,
-      bullLiveDayPct: bq?.liveDayPct ?? null,
-      bearLiveDayPct: rq?.liveDayPct ?? null,
       updated: updatedCandidates.length ? updatedCandidates[updatedCandidates.length - 1] : null,
     };
   });

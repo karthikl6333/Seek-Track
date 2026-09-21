@@ -9,7 +9,7 @@ import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 import { TickerLink } from '../lib/yahoo';
 
-export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
+export function Overview({ store, watchlistRef, quoteSource }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef>; quoteSource?: 'alpaca' | 'yahoo' }) {
   const { analysis, settings, hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
   const [refreshingQuotes, setRefreshingQuotes] = useState(false);
@@ -196,12 +196,12 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                   onClick={async () => {
                     setRefreshingQuotes(true);
                     try {
-                      await store.refreshLiveQuotes();
+                      await store.refreshLiveQuotes(undefined, quoteSource);
                     } finally {
                       setRefreshingQuotes(false);
                     }
                   }}
-                  title="Fetch Yahoo quotes for open symbols + calculator + pair"
+                  title={`Fetch ${quoteSource === 'yahoo' ? 'Yahoo' : 'Alpaca'} quotes for open symbols + calculator + pair`}
                   style={{
                     opacity: refreshingQuotes ? 0.6 : 1,
                     transition: 'opacity 0.15s',
@@ -320,7 +320,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
               markDetails={store.markDetails}
               marks={store.marks}
               settingsPairs={settings?.pairs ?? []}
-              onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              onRefreshQuotes={() => void store.refreshLiveQuotes(undefined, quoteSource)}
               compact
               slot="A"
             />
@@ -334,7 +334,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
               markDetails={store.markDetails}
               marks={store.marks}
               settingsPairs={settings?.pairs ?? []}
-              onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              onRefreshQuotes={() => void store.refreshLiveQuotes(undefined, quoteSource)}
               compact
               slot="B"
             />

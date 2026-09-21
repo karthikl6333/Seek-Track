@@ -422,7 +422,7 @@ export async function openSymbolsFromTrades(): Promise<string[]> {
     .sort();
 }
 
-export async function refreshQuotes(extraSymbols: string[] = []): Promise<RefreshResult> {
+export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid'): Promise<RefreshResult> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
@@ -440,39 +440,59 @@ export async function refreshQuotes(extraSymbols: string[] = []): Promise<Refres
         ),
       );
 
-      // Hybrid quote refresh: Alpaca primary + Yahoo fallback
-      // 1. Try Alpaca batch (one request for all symbols)
-      const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
-
-      // 2. For each symbol, use Alpaca if available; otherwise fall back to Yahoo
-      for (const symbol of symbols) {
-        try {
-          const alpacaPrice = alpacaPrices.get(symbol);
-          let price: number | null = null;
-          let source = 'yahoo';
-
-          if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-            price = alpacaPrice;
-            source = 'alpaca';
-          } else {
-            // Alpaca failed, missing, or no usable price → Yahoo fallback
-            price = await fetchYahooQuote(symbol);
-          }
-
-          if (price === null) {
-            failed.push(symbol);
-            continue;
-          }
-
-          await upsertMark(symbol, price, source);
-          updated.push(symbol);
-          // Brief delay to avoid hammering Yahoo (Alpaca batch already done)
-          if (source === 'yahoo') {
+      if (source === 'yahoo') {
+        // Yahoo-only mode: fetch all symbols from Yahoo
+        for (const symbol of symbols) {
+          try {
+            const price = await fetchYahooQuote(symbol);
+            if (price === null) {
+              failed.push(symbol);
+              continue;
+            }
+            await upsertMark(symbol, price, 'yahoo');
+            updated.push(symbol);
             await new Promise((r) => setTimeout(r, 80));
+          } catch (e) {
+            failed.push(symbol);
+            if (!error) error = String(e);
           }
-        } catch (e) {
-          failed.push(symbol);
-          if (!error) error = String(e);
+        }
+      } else {
+        // Alpaca or hybrid mode: try Alpaca batch first
+        const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
+
+        for (const symbol of symbols) {
+          try {
+            const alpacaPrice = alpacaPrices.get(symbol);
+            let price: number | null = null;
+            let priceSource = 'yahoo';
+
+            if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
+              price = alpacaPrice;
+              priceSource = 'alpaca';
+            } else if (source === 'hybrid') {
+              // Hybrid mode: fall back to Yahoo if Alpaca fails
+              price = await fetchYahooQuote(symbol);
+            } else {
+              // Alpaca-only mode: no fallback
+              failed.push(symbol);
+              continue;
+            }
+
+            if (price === null) {
+              failed.push(symbol);
+              continue;
+            }
+
+            await upsertMark(symbol, price, priceSource);
+            updated.push(symbol);
+            if (priceSource === 'yahoo') {
+              await new Promise((r) => setTimeout(r, 80));
+            }
+          } catch (e) {
+            failed.push(symbol);
+            if (!error) error = String(e);
+          }
         }
       }
 
@@ -562,6 +582,7 @@ export async function putMarksHandler(c: Context) {
 
 export async function refreshQuotesHandler(c: Context) {
   let extra: string[] = [];
+  let source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid';
   try {
     if (c.req.method === 'POST') {
       const body = await c.req.json().catch(() => ({}));
@@ -570,13 +591,20 @@ export async function refreshQuotesHandler(c: Context) {
       } else if (typeof body?.symbol === 'string') {
         extra = [body.symbol];
       }
+      if (body?.source === 'alpaca' || body?.source === 'yahoo') {
+        source = body.source;
+      }
     }
   } catch {
     // ignore
   }
   const qSym = c.req.query('symbol');
   if (qSym) extra.push(qSym);
-  const result = await refreshQuotes(extra);
+  const qSource = c.req.query('source');
+  if (qSource === 'alpaca' || qSource === 'yahoo') {
+    source = qSource;
+  }
+  const result = await refreshQuotes(extra, source);
   return c.json(result, result.ok ? 200 : 502);
 }
 

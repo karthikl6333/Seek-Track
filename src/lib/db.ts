@@ -100,16 +100,19 @@ export async function setMark(symbol: string, price: number): Promise<void> {
   });
 }
 
-export async function refreshQuotes(symbols?: string[]): Promise<{
+export async function refreshQuotes(symbols?: string[], source?: 'alpaca' | 'yahoo'): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   error?: string;
   refreshedAt: string;
 }> {
+  const body: { symbols?: string[]; source?: string } = {};
+  if (symbols?.length) body.symbols = symbols;
+  if (source) body.source = source;
   return api('/api/quotes/refresh', {
     method: 'POST',
-    body: JSON.stringify(symbols?.length ? { symbols } : {}),
+    body: JSON.stringify(body),
   });
 }
 

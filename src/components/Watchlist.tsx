@@ -8,7 +8,7 @@ const POLL_MS = 5 * 60 * 1000;
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
-  refreshQuotes: () => Promise<void>;
+  refreshQuotes: (source?: 'alpaca' | 'yahoo') => Promise<void>;
 }
 
 interface WatchlistRow {
@@ -146,7 +146,7 @@ export function Watchlist(props: WatchlistProps = {}) {
     applyPayload(data);
   }, [applyPayload]);
 
-  const refreshQuotes = useCallback(async () => {
+  const refreshQuotes = useCallback(async (source?: 'alpaca' | 'yahoo') => {
     if (refreshInProgressRef.current) return;
     setError(null);
     setBusy(true);
@@ -155,6 +155,7 @@ export function Watchlist(props: WatchlistProps = {}) {
       const data = await apiSend<WatchlistPayload & { error?: string }>(
         '/api/watchlist/refresh',
         'POST',
+        source ? { source } : undefined,
       );
       applyPayload(data);
     } catch (e) {

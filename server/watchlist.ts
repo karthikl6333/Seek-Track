@@ -216,7 +216,7 @@ export async function getWatchlistPayload(): Promise<WatchlistPayload> {
   return { symbols, rows, lastRefreshAt };
 }
 
-export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' = 'alpaca'): Promise<{
+export async function refreshWatchlistQuotes(): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
@@ -230,29 +230,14 @@ export async function refreshWatchlistQuotes(source: 'alpaca' | 'yahoo' = 'alpac
     const updated: string[] = [];
     const failed: string[] = [];
 
-    // Always fetch Yahoo enrichment (volume, 52w high/low, session %, bid/ask, marketCap)
-    // The `last` price comes from the selected source (Alpaca or Yahoo)
+    // Fetch Yahoo enrichment for all watchlist symbols (volume, 52w high/low, session %, bid/ask, marketCap)
     for (const symbol of symbols) {
       try {
         const yahooQuote = await fetchYahooChartQuote(symbol);
-        
-        let last = yahooQuote.last;
-        
-        // Override with Alpaca price when source='alpaca' (Yahoo enrichment remains)
-        if (source === 'alpaca') {
-          // Single-symbol Alpaca fetch via the unified quotes module
-          const { fetchQuotesBatch } = await import('./quotes.js');
-          const alpacaPrices = await fetchQuotesBatch([symbol], 'alpaca');
-          const alpacaQuote = alpacaPrices.get(symbol);
-          if (alpacaQuote != null && alpacaQuote.price != null && Number.isFinite(alpacaQuote.price)) {
-            last = alpacaQuote.price;
-          }
-          // If Alpaca fails, fall back to Yahoo price (already in yahooQuote.last)
-        }
 
         await upsertWatchlistQuote({
           symbol,
-          last,
+          last: yahooQuote.last,
           pctChange: yahooQuote.pctChange,
           valChange: yahooQuote.valChange,
           sessionOpen: yahooQuote.sessionOpen,
@@ -380,20 +365,7 @@ export async function deleteWatchlistHandler(c: Context) {
 
 export async function postWatchlistRefreshHandler(c: Context) {
   try {
-    let source: 'alpaca' | 'yahoo' = 'alpaca';
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      if (body?.source === 'alpaca' || body?.source === 'yahoo') {
-        source = body.source;
-      }
-    } catch {
-      // ignore
-    }
-    const qSource = c.req.query('source');
-    if (qSource === 'alpaca' || qSource === 'yahoo') {
-      source = qSource;
-    }
-    const result = await refreshWatchlistQuotes(source);
+    const result = await refreshWatchlistQuotes();
     const payload = await getWatchlistPayload();
     return c.json({ ...result, ...payload }, result.ok ? 200 : 502);
   } catch (e) {

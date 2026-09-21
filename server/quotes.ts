@@ -26,14 +26,25 @@ export interface RefreshResult {
 }
 
 /**
- * Fetch latest prices for multiple symbols from Alpaca Market Data.
- * Returns a map of symbol → price (null if unavailable).
- * Batches all symbols in one request (rate limit: 200/min is sufficient).
- * 
- * IEX data on Basic plan: may have gaps for thin ETFs or after-hours.
- * Yahoo fallback handles missing data gracefully.
+ * Unified quote fetch: Alpaca OR Yahoo (no hybrid).
+ * When source='alpaca', fetch from Alpaca batch API only.
+ * When source='yahoo', fetch from Yahoo only.
+ * No fallback mixing — clean separation per user toggle.
  */
-export async function fetchAlpacaQuotesBatch(
+export async function fetchQuotesBatch(
+  symbols: string[],
+  source: 'alpaca' | 'yahoo',
+): Promise<Map<string, number | null>> {
+  if (symbols.length === 0) return new Map();
+
+  if (source === 'alpaca') {
+    return fetchAlpacaQuotesBatch(symbols);
+  } else {
+    return fetchYahooQuotesBatch(symbols);
+  }
+}
+
+async function fetchAlpacaQuotesBatch(
   symbols: string[],
 ): Promise<Map<string, number | null>> {
   const result = new Map<string, number | null>();
@@ -106,6 +117,25 @@ export async function fetchAlpacaQuotesBatch(
   }
 }
 
+async function fetchYahooQuotesBatch(
+  symbols: string[],
+): Promise<Map<string, number | null>> {
+  const result = new Map<string, number | null>();
+  
+  for (const symbol of symbols) {
+    try {
+      const price = await fetchYahooQuote(symbol);
+      result.set(symbol, price);
+      // Rate limit: 80ms between Yahoo requests
+      await new Promise((r) => setTimeout(r, 80));
+    } catch {
+      result.set(symbol, null);
+    }
+  }
+  
+  return result;
+}
+
 async function fetchYahooQuote(symbol: string): Promise<number | null> {
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
@@ -142,10 +172,6 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
     throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
   }
 
-  // Determine the most current tradeable price Yahoo would show:
-  // - During regular hours: use regularMarketPrice
-  // - Outside regular hours (pre/post market): prefer fulldayPrice when hasPrePostMarketData is true
-  // - Fallback chain: fulldayPrice → regularMarketPrice → previousClose → chartPreviousClose
   let price: number | null = null;
 
   const now = Math.floor(Date.now() / 1000);
@@ -155,14 +181,11 @@ async function fetchYahooQuote(symbol: string): Promise<number | null> {
     regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
 
   if (isRegularHours) {
-    // During regular trading hours, use regularMarketPrice
     price = meta.regularMarketPrice ?? null;
   } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    // Outside regular hours with extended data available, use fulldayPrice
     price = meta.fulldayPrice;
   }
 
-  // Fallback chain for all scenarios
   if (price === null || !Number.isFinite(price)) {
     price =
       meta.fulldayPrice ??
@@ -184,7 +207,6 @@ export interface YahooChartQuote {
   previousClose: number | null;
   sessionOpen: number | null;
   volume: number | null;
-  /** Chart v8 rarely includes these without crumb/auth — usually null. */
   bid: number | null;
   ask: number | null;
   marketCap: number | null;
@@ -192,7 +214,7 @@ export interface YahooChartQuote {
   week52Low: number | null;
 }
 
-/** Richer Yahoo chart v8 quote (auth-free). Bid/ask/marketCap typically unavailable. */
+/** Richer Yahoo chart v8 quote for watchlist enrichment (auth-free). */
 export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQuote> {
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
@@ -254,10 +276,6 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
   }
 
-  // Determine the most current tradeable price Yahoo would show:
-  // - During regular hours: use regularMarketPrice
-  // - Outside regular hours (pre/post market): prefer fulldayPrice when hasPrePostMarketData is true
-  // - Fallback chain: fulldayPrice → regularMarketPrice → previousClose → chartPreviousClose
   let lastRaw: number | null = null;
 
   const now = Math.floor(Date.now() / 1000);
@@ -267,14 +285,11 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
 
   if (isRegularHours) {
-    // During regular trading hours, use regularMarketPrice
     lastRaw = meta.regularMarketPrice ?? null;
   } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    // Outside regular hours with extended data available, use fulldayPrice
     lastRaw = meta.fulldayPrice;
   }
 
-  // Fallback chain for all scenarios
   if (lastRaw === null || !Number.isFinite(lastRaw)) {
     lastRaw =
       meta.fulldayPrice ??
@@ -289,14 +304,12 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
   const previousClose =
     prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
 
-  // Extract session open from daily bars
   let sessionOpen: number | null = null;
   const timestamps = result?.timestamp ?? [];
   const opens = result?.indicators?.quote?.[0]?.open ?? [];
   const sessionStart = meta.currentTradingPeriod?.regular?.start;
 
   if (sessionStart && timestamps.length > 0) {
-    // Find today's bar by matching timestamp with currentTradingPeriod.regular.start
     const todayBarIndex = timestamps.findIndex((ts) => ts === sessionStart);
     if (todayBarIndex >= 0 && todayBarIndex < opens.length) {
       const openRaw = opens[todayBarIndex];
@@ -306,19 +319,15 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     }
   }
 
-  // Calculate session-based change (reset at session start)
   let pctChange: number | null = null;
   let valChange: number | null = null;
 
   if (last !== null && sessionOpen !== null) {
-    // Use session open as baseline when available (intraday during active session)
     valChange = last - sessionOpen;
     if (sessionOpen !== 0) {
       pctChange = (valChange / sessionOpen) * 100;
     }
   } else if (last !== null && previousClose !== null) {
-    // Fallback to previousClose when no session open (pre-market, weekend, or closed market)
-    // This represents the most recent completed session's change
     valChange = last - previousClose;
     if (previousClose !== 0) {
       pctChange = (valChange / previousClose) * 100;
@@ -340,7 +349,6 @@ export async function fetchYahooChartQuote(symbol: string): Promise<YahooChartQu
     if (lastVol != null) volume = Number(lastVol);
   }
 
-  // Bid/ask/marketCap are not reliably present on chart v8 without crumb — leave null
   const bid =
     typeof meta.bid === 'number' && Number.isFinite(meta.bid) ? Number(meta.bid) : null;
   const ask =
@@ -422,7 +430,7 @@ export async function openSymbolsFromTrades(): Promise<string[]> {
     .sort();
 }
 
-export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid'): Promise<RefreshResult> {
+export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca' | 'yahoo' = 'alpaca'): Promise<RefreshResult> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
@@ -440,60 +448,16 @@ export async function refreshQuotes(extraSymbols: string[] = [], source: 'alpaca
         ),
       );
 
-      if (source === 'yahoo') {
-        // Yahoo-only mode: fetch all symbols from Yahoo
-        for (const symbol of symbols) {
-          try {
-            const price = await fetchYahooQuote(symbol);
-            if (price === null) {
-              failed.push(symbol);
-              continue;
-            }
-            await upsertMark(symbol, price, 'yahoo');
-            updated.push(symbol);
-            await new Promise((r) => setTimeout(r, 80));
-          } catch (e) {
-            failed.push(symbol);
-            if (!error) error = String(e);
-          }
+      const prices = await fetchQuotesBatch(symbols, source);
+
+      for (const symbol of symbols) {
+        const price = prices.get(symbol);
+        if (price === null || price === undefined) {
+          failed.push(symbol);
+          continue;
         }
-      } else {
-        // Alpaca or hybrid mode: try Alpaca batch first
-        const alpacaPrices = await fetchAlpacaQuotesBatch(symbols);
-
-        for (const symbol of symbols) {
-          try {
-            const alpacaPrice = alpacaPrices.get(symbol);
-            let price: number | null = null;
-            let priceSource = 'yahoo';
-
-            if (alpacaPrice != null && Number.isFinite(alpacaPrice)) {
-              price = alpacaPrice;
-              priceSource = 'alpaca';
-            } else if (source === 'hybrid') {
-              // Hybrid mode: fall back to Yahoo if Alpaca fails
-              price = await fetchYahooQuote(symbol);
-            } else {
-              // Alpaca-only mode: no fallback
-              failed.push(symbol);
-              continue;
-            }
-
-            if (price === null) {
-              failed.push(symbol);
-              continue;
-            }
-
-            await upsertMark(symbol, price, priceSource);
-            updated.push(symbol);
-            if (priceSource === 'yahoo') {
-              await new Promise((r) => setTimeout(r, 80));
-            }
-          } catch (e) {
-            failed.push(symbol);
-            if (!error) error = String(e);
-          }
-        }
+        await upsertMark(symbol, price, source);
+        updated.push(symbol);
       }
 
       lastRefreshAt = new Date().toISOString();
@@ -582,7 +546,7 @@ export async function putMarksHandler(c: Context) {
 
 export async function refreshQuotesHandler(c: Context) {
   let extra: string[] = [];
-  let source: 'alpaca' | 'yahoo' | 'hybrid' = 'hybrid';
+  let source: 'alpaca' | 'yahoo' = 'alpaca';
   try {
     if (c.req.method === 'POST') {
       const body = await c.req.json().catch(() => ({}));
@@ -608,7 +572,7 @@ export async function refreshQuotesHandler(c: Context) {
   return c.json(result, result.ok ? 200 : 502);
 }
 
-export function startQuoteRefreshCron(intervalMs = 15 * 60 * 1000): void {
+export function startQuoteRefreshCron(intervalMs = 30_000): void {
   // DISABLE in Cloudflare Workers (scheduled cron triggers too many subrequests on free tier)
   if (typeof process === 'undefined' || !process.versions?.node) {
     console.log('Quote refresh cron disabled in Workers environment');
@@ -623,7 +587,7 @@ export function startQuoteRefreshCron(intervalMs = 15 * 60 * 1000): void {
     void refreshQuotes().catch((e) => console.error('quote refresh failed:', e));
   }, intervalMs);
 
-  console.log(`Quote refresh cron every ${Math.round(intervalMs / 60000)} minutes`);
+  console.log(`Quote refresh cron every ${Math.round(intervalMs / 1000)} seconds`);
 }
 
 export async function fetchYahooMeta(symbol: string): Promise<{
@@ -660,7 +624,6 @@ export async function fetchYahooMeta(symbol: string): Promise<{
   const meta = data.chart?.result?.[0]?.meta;
   if (!meta) throw new Error(`No meta for ${symbol}`);
 
-  // Use the same extended-hours logic as fetchYahooQuote
   let price: number | null = null;
   const now = Math.floor(Date.now() / 1000);
   const regularStart = meta.currentTradingPeriod?.regular?.start;

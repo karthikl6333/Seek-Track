@@ -23,7 +23,7 @@ const defaultCalc: CalculatorState = {
 
 type CalcSlot = 'A' | 'B';
 
-const POLL_MS = 15 * 60 * 1000;
+const POLL_MS = 30 * 1000; // 30 seconds
 
 const VALID_VIEWS: ViewId[] = [
   'overview',

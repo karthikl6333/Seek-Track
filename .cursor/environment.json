@@ -5,7 +5,7 @@
   "terminals": [
     {
       "name": "dev",
-      "command": "DATABASE_URL='postgres://seek:seek@localhost:5432/seektrack' PORT=3000 npm run dev"
+      "command": "bash .cursor/start.sh && DATABASE_URL='postgres://seek:seek@localhost:5432/seektrack' PORT=3000 npm run dev"
     }
   ],
   "ports": [5173, 3000]

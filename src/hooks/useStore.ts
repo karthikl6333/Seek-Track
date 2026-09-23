@@ -174,10 +174,13 @@ export function useStore() {
     async (extra?: string[]) => {
       setError(null);
       setLastRefreshError(null);
+      
+      // Build symbol list
       const symbols = [...(extra ?? [])];
       if (calcA.symbol) symbols.push(calcA.symbol);
       if (calcB.symbol) symbols.push(calcB.symbol);
-      // When a pair is known, always refresh BOTH etf and underlying (e.g. SNDQ + SNDK)
+      
+      // When a pair is known, always refresh BOTH etf and underlying
       const pairA = resolvedPairA?.pair;
       const pairB = resolvedPairB?.pair;
       if (pairA) {
@@ -198,14 +201,48 @@ export function useStore() {
         );
         if (foundB) symbols.push(foundB.etf, foundB.underlying);
       }
+      
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
-      const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
-      // Server will merge these with its universe and refresh everything
+      let universe = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
+      
       try {
-        const result = await db.refreshQuotes(unique);
+        // If no symbols, get universe
+        if (universe.length === 0) {
+          const { symbols: universeSymbols } = await db.getQuoteUniverse();
+          universe = universeSymbols;
+        }
+        
+        // Chunk at client level (never send >10 symbols to server)
+        const CHUNK_SIZE = 10;
+        const allResults: Awaited<ReturnType<typeof db.refreshQuotes>>[] = [];
+        
+        for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
+          const chunk = universe.slice(i, i + CHUNK_SIZE);
+          const result = await db.refreshQuotes(chunk);
+          
+          // Handle needsChunking response (shouldn't happen with chunk ≤10, but be safe)
+          if (result.needsChunking && result.universe) {
+            // Server returned universe - use it for remaining chunks
+            universe = result.universe;
+            continue;
+          }
+          
+          allResults.push(result);
+        }
+        
         await refreshMarks();
-        return result;
+        
+        // Return aggregated result
+        const aggregated = {
+          ok: allResults.some(r => r.ok),
+          updated: allResults.flatMap(r => r.updated),
+          failed: allResults.flatMap(r => r.failed),
+          refreshedAt: allResults[allResults.length - 1]?.refreshedAt ?? new Date().toISOString(),
+          total: universe.length,
+        };
+        
+        return aggregated;
       } catch (err) {
         setLastRefreshError(String(err));
         throw err;

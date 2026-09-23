@@ -100,6 +100,10 @@ export async function setMark(symbol: string, price: number): Promise<void> {
   });
 }
 
+export async function getQuoteUniverse(): Promise<{ symbols: string[]; total: number }> {
+  return api('/api/quotes/universe');
+}
+
 export async function refreshQuotes(
   symbols?: string[]
 ): Promise<{
@@ -109,6 +113,9 @@ export async function refreshQuotes(
   error?: string;
   refreshedAt: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   const body: {
     symbols?: string[];

@@ -4,7 +4,7 @@
  */
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { forceRefresh, getQuoteServiceStatus, markActivity } from './quote-service.js';
+import { forceRefresh, getQuoteServiceStatus, getSymbolUniverse, markActivity } from './quote-service.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT =
@@ -100,27 +100,57 @@ export async function putMarksHandler(c: Context) {
   return c.json({ error: 'Expected { symbol, price } or { marks: Record }' }, 400);
 }
 
+export async function getUniverseHandler(c: Context) {
+  markActivity();
+  try {
+    const universe = await getSymbolUniverse();
+    return c.json({ symbols: universe, total: universe.length });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+}
+
 export async function refreshQuotesHandler(c: Context) {
   markActivity();
-  let extra: string[] = [];
+  let symbols: string[] | undefined = undefined;
   
   try {
     if (c.req.method === 'POST') {
       const body = await c.req.json().catch(() => ({}));
       if (Array.isArray(body?.symbols)) {
-        extra = body.symbols.filter((s: unknown) => typeof s === 'string');
+        symbols = body.symbols.filter((s: unknown) => typeof s === 'string');
       } else if (typeof body?.symbol === 'string') {
-        extra = [body.symbol];
+        symbols = [body.symbol];
       }
+      // Legacy tier param: accept and ignore (chunking now at HTTP boundary)
+      // Old clients may send ?tier=hot or ?tier=full - we don't error, just refresh provided symbols
     }
   } catch {
     // ignore
   }
   
   const qSym = c.req.query('symbol');
-  if (qSym) extra.push(qSym);
+  if (qSym) {
+    symbols = symbols || [];
+    symbols.push(qSym);
+  }
   
-  const result = await forceRefresh(extra);
+  // Legacy tier query param: accept and ignore
+  // const tierQuery = c.req.query('tier'); // not used
+  
+  const result = await forceRefresh(symbols);
+  
+  // HTTP status codes:
+  // - needsChunking: 200 (successful "here's the universe, please chunk" response)
+  // - Too many symbols: 400 (client error, must chunk)
+  // - Yahoo/Neon failure: 502 (upstream service error)
+  // - Success: 200
+  if (result.needsChunking) {
+    return c.json(result, 200);
+  }
+  if (result.error && result.error.includes('Too many symbols')) {
+    return c.json(result, 400);
+  }
   return c.json(result, result.ok ? 200 : 502);
 }
 

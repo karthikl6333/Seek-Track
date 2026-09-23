@@ -23,6 +23,9 @@ const REFRESH_INTERVAL_MS = 30_000; // 30 seconds - simple, predictable
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes - stop refreshing if no activity
 const YAHOO_CONCURRENCY = 5; // Parallel Yahoo requests
 const YAHOO_DELAY_MS = 80; // Delay between request batches
+// CF Workers free tier limit: 50 subrequests per request
+// Safe chunk size: 10 symbols per invocation (0 + 10 + 2 = 12 subrequests, well under limit)
+export const MAX_SYMBOLS_PER_REFRESH = 10;
 
 export interface QuoteData {
   symbol: string;
@@ -266,76 +269,92 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
 /**
  * Build the complete symbol universe: ALL symbols that need pricing
  * This is the ONLY place that decides what symbols to refresh
+ * 
+ * Optimized for CF Workers: Single query combining all sources
  */
 async function buildSymbolUniverse(): Promise<string[]> {
   const symbols = new Set<string>();
 
-  // 1. Holdings (open positions from trades)
-  const tradesRes = await query<{ symbol: string; action: string; quantity: number }>(
-    `SELECT symbol, action, quantity FROM trades ORDER BY date ASC, imported_at ASC`
+  // Single query combining all symbol sources (1 Neon query instead of 5)
+  const allSymbolsRes = await query<{ symbol: string; source: string }>(
+    `
+    -- Holdings: compute net positions
+    SELECT DISTINCT symbol, 'holdings' as source
+    FROM trades
+    GROUP BY symbol
+    HAVING SUM(
+      CASE 
+        WHEN LOWER(action) LIKE '%short%' THEN -ABS(quantity)
+        WHEN LOWER(action) LIKE '%cover%' THEN ABS(quantity)
+        WHEN LOWER(action) LIKE '%buy%' OR LOWER(action) LIKE 'bought%' THEN ABS(quantity)
+        WHEN LOWER(action) LIKE '%sell%' OR LOWER(action) LIKE 'sold%' THEN -ABS(quantity)
+        ELSE 0
+      END
+    ) <> 0
+    
+    UNION
+    
+    -- Watchlist
+    SELECT symbol, 'watchlist' as source FROM watchlist
+    
+    UNION
+    
+    -- Research universe
+    SELECT symbol, 'research' as source FROM research_universe
+    
+    UNION
+    
+    -- Research ETFs
+    SELECT etf as symbol, 'etf' as source FROM research_etf_map
+    
+    UNION
+    
+    -- Pair cache ETFs
+    SELECT etf as symbol, 'pair_etf' as source FROM pair_cache
+    
+    UNION
+    
+    -- Pair cache underlyings
+    SELECT underlying as symbol, 'pair_underlying' as source FROM pair_cache
+    `
   );
-  const netPositions = new Map<string, number>();
-  for (const r of tradesRes.rows) {
-    const sym = r.symbol.toUpperCase();
-    const qty = Math.abs(Number(r.quantity));
-    if (!qty) continue;
-    const a = r.action.toLowerCase();
-    const cur = netPositions.get(sym) ?? 0;
-    if (a.includes('short')) {
-      netPositions.set(sym, cur - qty);
-    } else if (a.includes('cover')) {
-      netPositions.set(sym, cur + qty);
-    } else if (a.includes('buy') || a.startsWith('bought')) {
-      netPositions.set(sym, cur + qty);
-    } else if (a.includes('sell') || a.startsWith('sold')) {
-      netPositions.set(sym, cur - qty);
-    }
-  }
-  for (const [sym, qty] of netPositions.entries()) {
-    if (Math.abs(qty) > 1e-8 && sym.trim().length > 0) symbols.add(sym);
-  }
 
-  // 2. Watchlist
-  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
-  for (const r of watchlistRes.rows) {
+  for (const r of allSymbolsRes.rows) {
     const sym = r.symbol.toUpperCase().trim();
     if (sym.length > 0) symbols.add(sym);
-  }
-
-  // 3. Research universe
-  const researchRes = await query<{ symbol: string }>(`SELECT symbol FROM research_universe`);
-  for (const r of researchRes.rows) {
-    const sym = r.symbol.toUpperCase().trim();
-    if (sym.length > 0) symbols.add(sym);
-  }
-
-  // 4. Research ETFs
-  const etfsRes = await query<{ etf: string }>(`SELECT DISTINCT etf FROM research_etf_map`);
-  for (const r of etfsRes.rows) {
-    const sym = r.etf.toUpperCase().trim();
-    if (sym.length > 0) symbols.add(sym);
-  }
-
-  // 5. Pair cache (for calculators)
-  const pairsRes = await query<{ etf: string; underlying: string }>(`SELECT etf, underlying FROM pair_cache`);
-  for (const r of pairsRes.rows) {
-    const etf = r.etf.toUpperCase().trim();
-    const underlying = r.underlying.toUpperCase().trim();
-    if (etf.length > 0) symbols.add(etf);
-    if (underlying.length > 0) symbols.add(underlying);
   }
 
   return Array.from(symbols).filter(s => s.length > 0).sort();
 }
 
+// Cache watchlist symbols to avoid repeated queries
+let watchlistSymbolsCache: Set<string> | null = null;
+let watchlistCacheTime = 0;
+const WATCHLIST_CACHE_TTL_MS = 60_000; // 1 minute
+
+async function getWatchlistSymbols(): Promise<Set<string>> {
+  const now = Date.now();
+  if (watchlistSymbolsCache && (now - watchlistCacheTime) < WATCHLIST_CACHE_TTL_MS) {
+    return watchlistSymbolsCache;
+  }
+  
+  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
+  watchlistSymbolsCache = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
+  watchlistCacheTime = now;
+  return watchlistSymbolsCache;
+}
+
 /**
  * Update database with fresh quotes
- * Single bulk upsert for marks, then derive watchlist_quotes from join
+ * Optimized for CF Workers: 2 Neon queries per call (marks + watchlist_quotes)
  */
 async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   if (quotes.size === 0) return;
 
-  // Bulk upsert to marks table (all symbols) - single query
+  // Get watchlist symbols (cached, so only 1 query per minute across all chunks)
+  const watchlistSet = await getWatchlistSymbols();
+
+  // Bulk upsert to marks table (all symbols) - 1 query
   const marksValues: string[] = [];
   const marksParams: unknown[] = [];
   let paramIndex = 1;
@@ -346,24 +365,7 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
     paramIndex += 5;
   }
 
-  if (marksValues.length > 0) {
-    await query(
-      `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
-       VALUES ${marksValues.join(', ')}
-       ON CONFLICT (symbol) DO UPDATE SET
-         price = EXCLUDED.price,
-         updated_at = EXCLUDED.updated_at,
-         source = EXCLUDED.source,
-         day_pct = EXCLUDED.day_pct`,
-      marksParams
-    );
-  }
-
-  // Load watchlist symbols once to know which need rich metadata
-  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
-  const watchlistSet = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
-
-  // Bulk upsert to watchlist_quotes (only watchlist symbols) - single query
+  // Bulk upsert to watchlist_quotes (only watchlist symbols) - 1 query
   const watchlistValues: string[] = [];
   const watchlistParams: unknown[] = [];
   paramIndex = 1;
@@ -393,8 +395,19 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
     paramIndex += 12;
   }
 
-  if (watchlistValues.length > 0) {
-    await query(
+  // Execute both upserts in parallel (2 queries total)
+  await Promise.all([
+    marksValues.length > 0 ? query(
+      `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
+       VALUES ${marksValues.join(', ')}
+       ON CONFLICT (symbol) DO UPDATE SET
+         price = EXCLUDED.price,
+         updated_at = EXCLUDED.updated_at,
+         source = EXCLUDED.source,
+         day_pct = EXCLUDED.day_pct`,
+      marksParams
+    ) : Promise.resolve(),
+    watchlistValues.length > 0 ? query(
       `INSERT INTO watchlist_quotes
          (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
           week52_high, week52_low, updated_at)
@@ -412,18 +425,27 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
          week52_low = EXCLUDED.week52_low,
          updated_at = EXCLUDED.updated_at`,
       watchlistParams
-    );
-  }
+    ) : Promise.resolve(),
+  ]);
 }
 
 /**
  * THE refresh function - everything goes through here
  * 
- * @param extraSymbols - Additional symbols to include (e.g., user added to watchlist)
- * @returns Refresh result with explicit success/failure per symbol
+ * SAFETY: Enforces CF Workers subrequest limits
+ * - If symbols.length > MAX: returns error (caller must chunk)
+ * - If no symbols: returns universe WITHOUT refreshing (caller must chunk)
+ * 
+ * Subrequest budget per invocation:
+ * - Yahoo fetches: N (where N ≤ MAX_SYMBOLS_PER_REFRESH = 10)
+ * - Persist: 2 Neon queries (marks + watchlist_quotes)
+ * Total: N + 2 subrequests (N≤10 → ≤12 subrequests)
+ * 
+ * @param symbols - Specific symbols to refresh (REQUIRED for actual refresh)
+ * @returns Refresh result OR chunking instructions
  */
 export async function refreshAllPrices(
-  extraSymbols: string[] = []
+  symbols?: string[]
 ): Promise<{
   ok: boolean;
   updated: string[];
@@ -431,6 +453,9 @@ export async function refreshAllPrices(
   refreshedAt: string;
   error?: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   if (isRefreshing) {
     return {
@@ -443,18 +468,52 @@ export async function refreshAllPrices(
     };
   }
 
+  // No symbols provided - return universe for caller to chunk
+  if (!symbols || symbols.length === 0) {
+    const universe = await buildSymbolUniverse();
+    console.log(
+      `[QuoteService] No symbols provided. Returning universe (${universe.length} symbols) for caller to chunk.`
+    );
+    return {
+      ok: false,
+      updated: [],
+      failed: [],
+      refreshedAt: lastRefreshAt ?? new Date().toISOString(),
+      needsChunking: true,
+      universe,
+      chunkSize: MAX_SYMBOLS_PER_REFRESH,
+      total: universe.length,
+    };
+  }
+
+  // Normalize symbols
+  const universe = Array.from(
+    new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0))
+  ).sort();
+
+  // Too many symbols - reject with error
+  if (universe.length > MAX_SYMBOLS_PER_REFRESH) {
+    console.error(
+      `[QuoteService] Too many symbols: ${universe.length} (max ${MAX_SYMBOLS_PER_REFRESH}). ` +
+      `Caller must chunk via GET /api/quotes/universe + multiple POST /api/quotes/refresh calls.`
+    );
+    return {
+      ok: false,
+      updated: [],
+      failed: [],
+      refreshedAt: lastRefreshAt ?? new Date().toISOString(),
+      error: `Too many symbols: ${universe.length} (max ${MAX_SYMBOLS_PER_REFRESH} per request). Use GET /api/quotes/universe and chunk.`,
+      total: universe.length,
+    };
+  }
+
   isRefreshing = true;
   const updated: string[] = [];
   const failed: string[] = [];
   let error: string | undefined;
 
   try {
-    const baseUniverse = await buildSymbolUniverse();
-    const extraNormalized = extraSymbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
-    const universe = Array.from(new Set([...baseUniverse, ...extraNormalized])).sort();
     const total = universe.length;
-    
-    console.log(`[QuoteService] Refreshing ${total} symbols`);
 
     if (universe.length === 0) {
       lastRefreshAt = new Date().toISOString();
@@ -466,6 +525,8 @@ export async function refreshAllPrices(
         total: 0,
       };
     }
+
+    console.log(`[QuoteService] Refreshing ${universe.length} symbols`);
 
     const startTime = Date.now();
     const quotes = await fetchQuotesBatch(universe);
@@ -517,6 +578,15 @@ export async function refreshAllPrices(
   } finally {
     isRefreshing = false;
   }
+}
+
+/**
+ * Get the symbol universe without refreshing
+ * Used by clients to chunk refresh across multiple HTTP calls
+ */
+export async function getSymbolUniverse(): Promise<string[]> {
+  markActivity();
+  return buildSymbolUniverse();
 }
 
 /**
@@ -583,16 +653,19 @@ export function markActivity(): void {
 /**
  * Force refresh on demand (for user-triggered refreshes and external callers)
  * 
- * @param extraSymbols - Additional symbols to include beyond universe
+ * @param symbols - Specific symbols to refresh (if empty/undefined, builds universe)
  */
-export async function forceRefresh(extraSymbols?: string[]): Promise<{
+export async function forceRefresh(symbols?: string[]): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   markActivity();
-  return refreshAllPrices(extraSymbols ?? []);
+  return refreshAllPrices(symbols);
 }

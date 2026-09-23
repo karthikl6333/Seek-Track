@@ -261,9 +261,16 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
 
 /**
  * Build the portal universe: all symbols that need pricing
+ * Can be augmented with extra symbols for immediate inclusion
  */
-async function buildPortalUniverse(): Promise<string[]> {
+async function buildPortalUniverse(extraSymbols: string[] = []): Promise<string[]> {
   const symbols = new Set<string>();
+
+  // Add extra symbols first (e.g., newly added watchlist/research items)
+  for (const sym of extraSymbols) {
+    const normalized = sym.trim().toUpperCase();
+    if (normalized) symbols.add(normalized);
+  }
 
   // 1. Holdings (open positions from trades)
   const tradesRes = await query<{ symbol: string; action: string; quantity: number }>(
@@ -320,13 +327,17 @@ async function buildPortalUniverse(): Promise<string[]> {
 
 /**
  * Update database with fresh quotes
+ * Loads watchlist once to avoid N+1 queries
  */
 async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
-  // Batch upsert to marks table
+  if (quotes.size === 0) return;
+
+  // Load watchlist symbols once (avoid N+1)
+  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
+  const watchlistSet = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
+
+  // Batch upsert to marks table (all symbols)
   for (const [symbol, quote] of quotes.entries()) {
-    if (!quote) continue;
-    
-    // Update marks (main price store)
     await query(
       `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
        VALUES ($1, $2, $3, $4, $5)
@@ -337,53 +348,51 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
          day_pct = EXCLUDED.day_pct`,
       [symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct]
     );
+  }
 
-    // Update watchlist_quotes if symbol is in watchlist
-    const watchlistCheck = await query<{ symbol: string }>(
-      `SELECT symbol FROM watchlist WHERE symbol = $1`,
-      [symbol]
+  // Batch upsert to watchlist_quotes (only watchlist symbols)
+  for (const [symbol, quote] of quotes.entries()) {
+    if (!watchlistSet.has(symbol)) continue;
+
+    await query(
+      `INSERT INTO watchlist_quotes
+         (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
+          week52_high, week52_low, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (symbol) DO UPDATE SET
+         last = EXCLUDED.last,
+         pct_change = EXCLUDED.pct_change,
+         val_change = EXCLUDED.val_change,
+         session_open = EXCLUDED.session_open,
+         bid = EXCLUDED.bid,
+         ask = EXCLUDED.ask,
+         market_cap = EXCLUDED.market_cap,
+         volume = EXCLUDED.volume,
+         week52_high = EXCLUDED.week52_high,
+         week52_low = EXCLUDED.week52_low,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        symbol,
+        quote.price,
+        quote.dayPct,
+        quote.valChange,
+        quote.sessionOpen,
+        quote.bid,
+        quote.ask,
+        quote.marketCap,
+        quote.volume,
+        quote.week52High,
+        quote.week52Low,
+        quote.updatedAt,
+      ]
     );
-    if (watchlistCheck.rows.length > 0) {
-      await query(
-        `INSERT INTO watchlist_quotes
-           (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
-            week52_high, week52_low, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (symbol) DO UPDATE SET
-           last = EXCLUDED.last,
-           pct_change = EXCLUDED.pct_change,
-           val_change = EXCLUDED.val_change,
-           session_open = EXCLUDED.session_open,
-           bid = EXCLUDED.bid,
-           ask = EXCLUDED.ask,
-           market_cap = EXCLUDED.market_cap,
-           volume = EXCLUDED.volume,
-           week52_high = EXCLUDED.week52_high,
-           week52_low = EXCLUDED.week52_low,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          symbol,
-          quote.price,
-          quote.dayPct,
-          quote.valChange,
-          quote.sessionOpen,
-          quote.bid,
-          quote.ask,
-          quote.marketCap,
-          quote.volume,
-          quote.week52High,
-          quote.week52Low,
-          quote.updatedAt,
-        ]
-      );
-    }
   }
 }
 
 /**
  * Perform one refresh cycle
  */
-export async function refreshQuoteService(): Promise<{
+export async function refreshQuoteService(extraSymbols: string[] = []): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
@@ -406,7 +415,7 @@ export async function refreshQuoteService(): Promise<{
   let error: string | undefined;
 
   try {
-    const universe = await buildPortalUniverse();
+    const universe = await buildPortalUniverse(extraSymbols);
     console.log(`[QuoteService] Refreshing ${universe.length} symbols`);
 
     if (universe.length === 0) {
@@ -508,7 +517,7 @@ export function startQuoteServiceLoop(): void {
       console.log('[QuoteService] Idle timeout reached, pausing refresh');
       return;
     }
-    void refreshQuoteService();
+    void refreshQuoteService(); // No extra symbols on auto-refresh
   }, REFRESH_INTERVAL_MS);
 }
 
@@ -555,13 +564,5 @@ export async function forceRefresh(extraSymbols?: string[]): Promise<{
   error?: string;
 }> {
   markActivity();
-  
-  // Add extra symbols to the next refresh cycle by temporarily inserting them
-  // (they'll be picked up by buildPortalUniverse if they're in any tracked table)
-  if (extraSymbols && extraSymbols.length > 0) {
-    // Just refresh - the universe builder will pick up everything
-    console.log(`[QuoteService] Force refresh requested with ${extraSymbols.length} extra symbols`);
-  }
-  
-  return refreshQuoteService();
+  return refreshQuoteService(extraSymbols ?? []);
 }

@@ -13,7 +13,6 @@ import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
 import { TickerLink, yahooQuoteUrl } from '../lib/yahoo';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
-const POLL_MS = 15 * 60 * 1000;
 
 interface UniverseRow {
   symbol: string;
@@ -320,13 +319,6 @@ export function Research() {
       cancelled = true;
     };
   }, [selected, loadDetail]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      void refreshAll(false);
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [refreshAll]);
 
   const universe = summary?.universe ?? [];
   const rows = summary?.rows ?? [];

@@ -4,7 +4,6 @@ import { TickerLink } from '../lib/yahoo';
 import type { PairDef } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
-const POLL_MS = 5 * 60 * 1000; // 5 minutes fallback when Watch mode is off
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
@@ -192,13 +191,6 @@ export function Watchlist(props: WatchlistProps = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      void refreshQuotes();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [refreshQuotes]);
 
   const addSymbol = async () => {
     const sym = symbol.trim().toUpperCase();
@@ -439,7 +431,7 @@ export function Watchlist(props: WatchlistProps = {}) {
         {compact
           ? 'Bid / ask / market cap hidden until quote source provides them.'
           : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
-        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh via Watch mode (15s) or fallback poll (~5m)
+        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh: 15s (pauses when tab hidden)
       </p>
     </div>
   );

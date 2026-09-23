@@ -66,14 +66,37 @@ export default function App() {
 
   /**
    * Cold tier refresh: research universe, ETFs, pair cache (15m cadence)
+   * Uses chunking to avoid Workers subrequest limits
    */
   const refreshColdTier = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Full refresh: server will refresh entire universe
-      await store.refreshLiveQuotes([], 'full');
+      // First chunk: fetch with tier='full' to get total and remaining
+      const firstResult = await store.refreshLiveQuotes([], 'full');
+      
+      let offset = firstResult.updated.length;
+      let remaining = firstResult.remaining ?? 0;
+      const total = firstResult.total ?? firstResult.updated.length;
+      
+      console.log(`[App] Cold refresh chunk 1: ${firstResult.updated.length} updated, ${remaining} remaining (${total} total)`);
+      
+      // Continue fetching chunks until remaining === 0
+      while (remaining > 0) {
+        const chunkResult = await store.refreshLiveQuotes([], 'full', offset, 25);
+        offset += chunkResult.updated.length;
+        remaining = chunkResult.remaining ?? 0;
+        
+        console.log(`[App] Cold refresh chunk: ${chunkResult.updated.length} updated, ${remaining} remaining`);
+        
+        // Small delay between chunks to avoid hammering the server
+        if (remaining > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      console.log(`[App] Cold refresh complete: ${total} symbols updated`);
       
       // Re-read all client state from shared store
       await Promise.allSettled([
@@ -314,7 +337,7 @@ export default function App() {
               className="btn"
               onClick={() => void refreshAll()}
               disabled={refreshing}
-              title="Refresh all data now (auto-refresh every 15s)"
+              title="Refresh all data now (auto: hot 30s / cold 15m)"
               style={{
                 minWidth: 40,
                 minHeight: 40,

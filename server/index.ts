@@ -13,8 +13,11 @@ import {
   getMarksHandler,
   putMarksHandler,
   refreshQuotesHandler,
-  startQuoteRefreshCron,
 } from './quotes.js';
+import {
+  startQuoteServiceLoop,
+  stopQuoteServiceLoop,
+} from './quote-service.js';
 import {
   deleteResearchUniverseHandler,
   ensureResearchSeeded,
@@ -147,8 +150,7 @@ app.post('/api/paper-flex/journal', postPaperFlexJournal);
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations
 if (typeof process === 'undefined' || !process.versions?.node) {
-  // Workers environment: just call these to register (they're no-ops or self-disable)
-  startQuoteRefreshCron(30 * 1000); // 30 seconds
+  // Workers environment: disabled (use on-demand refresh only)
   startResearchRefreshCron(15 * 60 * 1000);
 }
 
@@ -207,7 +209,7 @@ async function main() {
   await ensureResearchSeeded();
   await ensureWatchlistSeeded();
   
-  startQuoteRefreshCron(30 * 1000); // 30 seconds
+  startQuoteServiceLoop(); // Unified 15-second quote refresh
   startResearchRefreshCron(15 * 60 * 1000);
   console.log('Seek&Track listening on :' + String(port));
   

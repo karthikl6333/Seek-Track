@@ -439,7 +439,7 @@ export function Watchlist(props: WatchlistProps = {}) {
         {compact
           ? 'Bid / ask / market cap hidden until quote source provides them.'
           : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
-        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh via Watch mode (30s) or fallback poll (~5m)
+        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh via Watch mode (15s) or fallback poll (~5m)
       </p>
     </div>
   );

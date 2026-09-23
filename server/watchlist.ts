@@ -1,6 +1,5 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { fetchYahooChartQuote, type YahooChartQuote } from './quotes.js';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -242,10 +241,9 @@ export async function refreshWatchlistQuotes(): Promise<{
     await ensureWatchlistSeeded();
     const symbols = await listWatchlistSymbols();
 
-    // Delegate to the unified quotes.refreshQuotes to avoid duplicate fetches
-    // and ensure all surfaces see the same batch result.
-    const { refreshQuotes } = await import('./quotes.js');
-    const result = await refreshQuotes(symbols);
+    // Delegate to the unified quote service
+    const { forceRefresh } = await import('./quote-service.js');
+    const result = await forceRefresh(symbols);
 
     lastWatchlistRefreshAt = result.refreshedAt;
     return result;
@@ -277,8 +275,8 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
 
   try {
     // Trigger a refresh for this single symbol using the unified refresh path
-    const { refreshQuotes } = await import('./quotes.js');
-    const result = await refreshQuotes([symbol]);
+    const { forceRefresh } = await import('./quote-service.js');
+    const result = await forceRefresh([symbol]);
     if (result.updated.length > 0) {
       lastWatchlistRefreshAt = result.refreshedAt;
     }

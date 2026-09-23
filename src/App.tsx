@@ -26,7 +26,7 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const WATCH_MODE_INTERVAL_MS = 30_000; // 30 seconds
+const WATCH_MODE_INTERVAL_MS = 15_000; // 15 seconds (matches server refresh)
 const WATCH_MODE_STORAGE_KEY = 'seektrack_watch_mode';
 
 export default function App() {
@@ -241,7 +241,7 @@ export default function App() {
                 fontSize: 13,
                 userSelect: 'none',
               }}
-              title="Auto-refresh holdings and watchlist every 30 seconds"
+              title="Auto-refresh holdings and watchlist every 15 seconds"
             >
               <div
                 style={{
@@ -270,7 +270,7 @@ export default function App() {
                 />
               </div>
               <span style={{ color: 'var(--text)' }}>
-                Watch{watchModeEnabled ? ' · 30s' : ''}
+                Watch{watchModeEnabled ? ' · 15s' : ''}
               </span>
             </label>
             <button

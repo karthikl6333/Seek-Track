@@ -171,7 +171,7 @@ export function useStore() {
   );
 
   const refreshLiveQuotes = useCallback(
-    async (extra?: string[], tier?: 'hot' | 'full', chunkOffset?: number, chunkLimit?: number) => {
+    async (extra?: string[]) => {
       setError(null);
       setLastRefreshError(null);
       const symbols = [...(extra ?? [])];
@@ -201,9 +201,9 @@ export function useStore() {
       const open =
         analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
       const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
-      // Pass the full unique set to refreshQuotes so the server refreshes ALL relevant symbols
+      // Server will merge these with its universe and refresh everything
       try {
-        const result = await db.refreshQuotes(unique, tier, chunkOffset, chunkLimit);
+        const result = await db.refreshQuotes(unique);
         await refreshMarks();
         return result;
       } catch (err) {

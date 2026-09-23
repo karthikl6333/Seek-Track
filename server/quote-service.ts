@@ -1,22 +1,28 @@
 /**
- * Unified Quote Service - single source of truth for live pricing
+ * UNIFIED QUOTE SERVICE - Single source of truth for all pricing
  * 
- * Architecture:
- * - Builds "portal universe" from all price-display surfaces (holdings, watchlist, research, calculators)
- * - Maintains shared quote store in marks table + in-memory cache
- * - Refreshes on strict 15-second cadence while in use
- * - Batches Yahoo fetches with controlled concurrency
- * - Supports regular + after-hours pricing
+ * Design principles:
+ * 1. ONE refresh path: forceRefresh() - all UI and auto-refresh use this
+ * 2. ONE symbol universe: union of all open positions + watchlist + research
+ * 3. ONE storage: marks table (watchlist_quotes is derived view)
+ * 4. ONE auto-refresh: 30s interval for ALL symbols when active
+ * 5. Explicit errors: never silently fail, always surface issues to UI
+ * 
+ * What was removed:
+ * - Hot/cold tier split (caused confusion about what gets refreshed when)
+ * - Chunking (moved to caller if needed for CF limits)
+ * - In-memory cache racing with DB (marks table is source of truth)
+ * - Multiple refresh entry points (research.ts, watchlist.ts now delegate here)
  */
 
 import { query } from './db.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT = 'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
-const REFRESH_INTERVAL_MS = 15_000; // 15 seconds
+const REFRESH_INTERVAL_MS = 30_000; // 30 seconds - simple, predictable
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes - stop refreshing if no activity
 const YAHOO_CONCURRENCY = 5; // Parallel Yahoo requests
-const YAHOO_DELAY_MS = 80; // Delay between requests in same batch
+const YAHOO_DELAY_MS = 80; // Delay between request batches
 
 export interface QuoteData {
   symbol: string;
@@ -74,14 +80,12 @@ interface YahooChartResponse {
   };
 }
 
-// In-memory cache for fast reads
-const quoteCache = new Map<string, QuoteData>();
+// Service state
 let lastRefreshAt: string | null = null;
 let lastRefreshError: string | null = null;
 let refreshIntervalHandle: NodeJS.Timeout | null = null;
 let lastActivityAt = Date.now();
 let isRefreshing = false;
-let subscriberCount = 0;
 
 /**
  * Determine current trading session
@@ -243,7 +247,7 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
         const quote = await fetchYahooQuote(symbol);
         results.set(symbol, quote);
       } catch (err) {
-        console.error(`Quote fetch failed for ${symbol}:`, err);
+        console.error(`[QuoteService] Failed to fetch ${symbol}:`, err);
         results.set(symbol, null);
       }
     });
@@ -260,22 +264,13 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
 }
 
 /**
- * Build the portal universe: all symbols that need pricing
- * Can be augmented with extra symbols for immediate inclusion
- * 
- * @param extraSymbols - Additional symbols to include
- * @param hotOnly - If true, only include hot tier (holdings + watchlist)
+ * Build the complete symbol universe: ALL symbols that need pricing
+ * This is the ONLY place that decides what symbols to refresh
  */
-async function buildPortalUniverse(extraSymbols: string[] = [], hotOnly = false): Promise<string[]> {
+async function buildSymbolUniverse(): Promise<string[]> {
   const symbols = new Set<string>();
 
-  // Add extra symbols first (e.g., newly added watchlist/research items)
-  for (const sym of extraSymbols) {
-    const normalized = sym.trim().toUpperCase();
-    if (normalized && normalized.length > 0) symbols.add(normalized);
-  }
-
-  // 1. Holdings (open positions from trades) - HOT TIER
+  // 1. Holdings (open positions from trades)
   const tradesRes = await query<{ symbol: string; action: string; quantity: number }>(
     `SELECT symbol, action, quantity FROM trades ORDER BY date ASC, imported_at ASC`
   );
@@ -300,19 +295,12 @@ async function buildPortalUniverse(extraSymbols: string[] = [], hotOnly = false)
     if (Math.abs(qty) > 1e-8 && sym.trim().length > 0) symbols.add(sym);
   }
 
-  // 2. Watchlist - HOT TIER
+  // 2. Watchlist
   const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
   for (const r of watchlistRes.rows) {
     const sym = r.symbol.toUpperCase().trim();
     if (sym.length > 0) symbols.add(sym);
   }
-
-  // If hot-only, stop here
-  if (hotOnly) {
-    return Array.from(symbols).filter(s => s.length > 0).sort();
-  }
-
-  // COLD TIER: Research universe, ETFs, pair cache
 
   // 3. Research universe
   const researchRes = await query<{ symbol: string }>(`SELECT symbol FROM research_universe`);
@@ -328,7 +316,7 @@ async function buildPortalUniverse(extraSymbols: string[] = [], hotOnly = false)
     if (sym.length > 0) symbols.add(sym);
   }
 
-  // 5. Pair cache underlyings (for calculators)
+  // 5. Pair cache (for calculators)
   const pairsRes = await query<{ etf: string; underlying: string }>(`SELECT etf, underlying FROM pair_cache`);
   for (const r of pairsRes.rows) {
     const etf = r.etf.toUpperCase().trim();
@@ -341,15 +329,11 @@ async function buildPortalUniverse(extraSymbols: string[] = [], hotOnly = false)
 }
 
 /**
- * Update database with fresh quotes using bulk upserts
- * Reduces subrequests from N to 2 (one for marks, one for watchlist_quotes)
+ * Update database with fresh quotes
+ * Single bulk upsert for marks, then derive watchlist_quotes from join
  */
 async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   if (quotes.size === 0) return;
-
-  // Load watchlist symbols once (avoid N+1)
-  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
-  const watchlistSet = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
 
   // Bulk upsert to marks table (all symbols) - single query
   const marksValues: string[] = [];
@@ -374,6 +358,10 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
       marksParams
     );
   }
+
+  // Load watchlist symbols once to know which need rich metadata
+  const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
+  const watchlistSet = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
 
   // Bulk upsert to watchlist_quotes (only watchlist symbols) - single query
   const watchlistValues: string[] = [];
@@ -429,27 +417,20 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
 }
 
 /**
- * Perform one refresh cycle
+ * THE refresh function - everything goes through here
  * 
- * @param extraSymbols - Additional symbols to refresh beyond universe
- * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
- * @param chunkOffset - For chunked cold refresh, skip this many symbols
- * @param chunkLimit - For chunked cold refresh, process at most this many symbols
+ * @param extraSymbols - Additional symbols to include (e.g., user added to watchlist)
+ * @returns Refresh result with explicit success/failure per symbol
  */
-export async function refreshQuoteService(
-  extraSymbols: string[] = [],
-  hotOnly = false,
-  chunkOffset = 0,
-  chunkLimit?: number
+export async function refreshAllPrices(
+  extraSymbols: string[] = []
 ): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
-  tier?: 'hot' | 'full';
-  remaining?: number;
-  total?: number;
+  total: number;
 }> {
   if (isRefreshing) {
     return {
@@ -458,6 +439,7 @@ export async function refreshQuoteService(
       failed: [],
       refreshedAt: lastRefreshAt ?? new Date().toISOString(),
       error: 'Refresh already in progress',
+      total: 0,
     };
   }
 
@@ -467,26 +449,12 @@ export async function refreshQuoteService(
   let error: string | undefined;
 
   try {
-    const fullUniverse = await buildPortalUniverse(extraSymbols, hotOnly);
-    const tier = hotOnly ? 'hot' : 'full';
-    const total = fullUniverse.length;
+    const baseUniverse = await buildSymbolUniverse();
+    const extraNormalized = extraSymbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+    const universe = Array.from(new Set([...baseUniverse, ...extraNormalized])).sort();
+    const total = universe.length;
     
-    // For full tier, apply chunking to avoid subrequest limits (hot tier stays unchunked)
-    const shouldChunk = !hotOnly && chunkLimit !== undefined && chunkLimit > 0;
-    
-    let universe = fullUniverse;
-    let remaining = 0;
-    
-    if (shouldChunk) {
-      // Chunk the universe
-      universe = fullUniverse.slice(chunkOffset, chunkOffset + chunkLimit);
-      remaining = Math.max(0, fullUniverse.length - chunkOffset - universe.length);
-      console.log(
-        `[QuoteService] Chunked refresh: ${universe.length} symbols (offset ${chunkOffset}, ${remaining} remaining, ${total} total)`
-      );
-    } else {
-      console.log(`[QuoteService] Refreshing ${universe.length} symbols (${tier} tier)`);
-    }
+    console.log(`[QuoteService] Refreshing ${total} symbols`);
 
     if (universe.length === 0) {
       lastRefreshAt = new Date().toISOString();
@@ -495,9 +463,7 @@ export async function refreshQuoteService(
         updated: [],
         failed: [],
         refreshedAt: lastRefreshAt,
-        tier,
-        remaining,
-        total: shouldChunk ? total : undefined,
+        total: 0,
       };
     }
 
@@ -507,20 +473,24 @@ export async function refreshQuoteService(
 
     for (const [symbol, quote] of quotes.entries()) {
       if (quote) {
-        quoteCache.set(symbol, quote);
         updated.push(symbol);
       } else {
         failed.push(symbol);
       }
     }
 
-    await persistQuotes(new Map(Array.from(quotes.entries()).filter(([, q]) => q !== null) as [string, QuoteData][]));
+    // Only persist successful quotes
+    const successQuotes = new Map(
+      Array.from(quotes.entries()).filter(([, q]) => q !== null) as [string, QuoteData][]
+    );
+    await persistQuotes(successQuotes);
 
     lastRefreshAt = new Date().toISOString();
     lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
 
     console.log(
-      `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms (${failed.length} failed, ${tier} tier)`
+      `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms` +
+      (failed.length > 0 ? ` (${failed.length} failed)` : '')
     );
 
     return {
@@ -529,9 +499,7 @@ export async function refreshQuoteService(
       failed,
       refreshedAt: lastRefreshAt,
       error: lastRefreshError ?? undefined,
-      tier,
-      remaining: shouldChunk ? remaining : undefined,
-      total: shouldChunk ? total : undefined,
+      total,
     };
   } catch (e) {
     error = String(e);
@@ -544,7 +512,7 @@ export async function refreshQuoteService(
       failed,
       refreshedAt: lastRefreshAt,
       error,
-      tier: hotOnly ? 'hot' : 'full',
+      total: updated.length + failed.length,
     };
   } finally {
     isRefreshing = false;
@@ -552,28 +520,19 @@ export async function refreshQuoteService(
 }
 
 /**
- * Get cached quotes (fast read path)
- */
-export function getCachedQuotes(): Map<string, QuoteData> {
-  return new Map(quoteCache);
-}
-
-/**
- * Get status
+ * Get service status
  */
 export function getQuoteServiceStatus() {
   return {
     lastRefreshAt,
     lastRefreshError,
-    cacheSize: quoteCache.size,
     isRefreshing,
-    subscriberCount,
     intervalActive: refreshIntervalHandle !== null,
   };
 }
 
 /**
- * Start the refresh loop (Node.js only)
+ * Start the auto-refresh loop (Node.js only)
  */
 export function startQuoteServiceLoop(): void {
   if (typeof process === 'undefined' || !process.versions?.node) {
@@ -586,31 +545,31 @@ export function startQuoteServiceLoop(): void {
     return;
   }
 
-  console.log(`[QuoteService] Starting refresh loop (${REFRESH_INTERVAL_MS}ms interval)`);
+  console.log(`[QuoteService] Starting auto-refresh (${REFRESH_INTERVAL_MS}ms interval)`);
 
   // Initial refresh after 2 seconds
   setTimeout(() => {
-    void refreshQuoteService();
+    void refreshAllPrices();
   }, 2000);
 
   refreshIntervalHandle = setInterval(() => {
     const idleTime = Date.now() - lastActivityAt;
-    if (idleTime > IDLE_TIMEOUT_MS && subscriberCount === 0) {
-      console.log('[QuoteService] Idle timeout reached, pausing refresh');
+    if (idleTime > IDLE_TIMEOUT_MS) {
+      console.log('[QuoteService] Idle timeout reached, pausing auto-refresh');
       return;
     }
-    void refreshQuoteService(); // No extra symbols on auto-refresh
+    void refreshAllPrices();
   }, REFRESH_INTERVAL_MS);
 }
 
 /**
- * Stop the refresh loop
+ * Stop the auto-refresh loop
  */
 export function stopQuoteServiceLoop(): void {
   if (refreshIntervalHandle !== null) {
     clearInterval(refreshIntervalHandle);
     refreshIntervalHandle = null;
-    console.log('[QuoteService] Stopped refresh loop');
+    console.log('[QuoteService] Stopped auto-refresh loop');
   }
 }
 
@@ -622,42 +581,18 @@ export function markActivity(): void {
 }
 
 /**
- * Subscribe to updates (for client connections)
- */
-export function subscribeToUpdates(): () => void {
-  subscriberCount++;
-  markActivity();
-  console.log(`[QuoteService] Subscriber added (count: ${subscriberCount})`);
-
-  return () => {
-    subscriberCount = Math.max(0, subscriberCount - 1);
-    console.log(`[QuoteService] Subscriber removed (count: ${subscriberCount})`);
-  };
-}
-
-/**
- * Force refresh on demand (for user-triggered refreshes)
+ * Force refresh on demand (for user-triggered refreshes and external callers)
  * 
- * @param extraSymbols - Additional symbols to refresh
- * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
- * @param chunkOffset - For chunked cold refresh, skip this many symbols
- * @param chunkLimit - For chunked cold refresh, process at most this many symbols
+ * @param extraSymbols - Additional symbols to include beyond universe
  */
-export async function forceRefresh(
-  extraSymbols?: string[],
-  hotOnly = false,
-  chunkOffset = 0,
-  chunkLimit?: number
-): Promise<{
+export async function forceRefresh(extraSymbols?: string[]): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
-  tier?: 'hot' | 'full';
-  remaining?: number;
-  total?: number;
+  total: number;
 }> {
   markActivity();
-  return refreshQuoteService(extraSymbols ?? [], hotOnly, chunkOffset, chunkLimit);
+  return refreshAllPrices(extraSymbols ?? []);
 }

@@ -49,7 +49,7 @@ export function Positions({ store }: { store: Store }) {
               className="btn small"
               disabled={refreshing}
               onClick={handleRefreshPrices}
-              title="Refresh prices for all open positions"
+              title="Refresh all prices now"
               style={{
                 opacity: refreshing ? 0.6 : 1,
                 transition: 'opacity 0.15s',

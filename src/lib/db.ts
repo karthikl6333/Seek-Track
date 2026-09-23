@@ -113,6 +113,9 @@ export async function refreshQuotes(
   error?: string;
   refreshedAt: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   const body: {
     symbols?: string[];

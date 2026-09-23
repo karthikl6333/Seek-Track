@@ -24,9 +24,8 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes - stop refreshing if no acti
 const YAHOO_CONCURRENCY = 5; // Parallel Yahoo requests
 const YAHOO_DELAY_MS = 80; // Delay between request batches
 // CF Workers free tier limit: 50 subrequests per request
-// Budget: 8 Neon queries (universe build + persist) + N Yahoo fetches = 8 + N < 50
-// Safe chunk size: 10 symbols per invocation (8 + 10 = 18 subrequests, well under limit)
-const MAX_SYMBOLS_PER_REFRESH = 10;
+// Safe chunk size: 10 symbols per invocation (0 + 10 + 2 = 12 subrequests, well under limit)
+export const MAX_SYMBOLS_PER_REFRESH = 10;
 
 export interface QuoteData {
   symbol: string;
@@ -433,18 +432,17 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
 /**
  * THE refresh function - everything goes through here
  * 
- * Designed for CF Workers subrequest limits:
- * - If symbols provided: refresh ONLY those (caller handles chunking)
- * - If no symbols: build universe and refresh all (for small universes only)
+ * SAFETY: Enforces CF Workers subrequest limits
+ * - If symbols.length > MAX: returns error (caller must chunk)
+ * - If no symbols: returns universe WITHOUT refreshing (caller must chunk)
  * 
  * Subrequest budget per invocation:
- * - Universe build (when no symbols): 1 Neon query
- * - Yahoo fetches: N (where N = symbols.length, typically ≤10)
+ * - Yahoo fetches: N (where N ≤ MAX_SYMBOLS_PER_REFRESH = 10)
  * - Persist: 2 Neon queries (marks + watchlist_quotes)
- * Total: 1 + N + 2 = 3 + N subrequests (N≤10 → ≤13 subrequests)
+ * Total: N + 2 subrequests (N≤10 → ≤12 subrequests)
  * 
- * @param symbols - Specific symbols to refresh (if empty, builds universe)
- * @returns Refresh result with explicit success/failure per symbol
+ * @param symbols - Specific symbols to refresh (REQUIRED for actual refresh)
+ * @returns Refresh result OR chunking instructions
  */
 export async function refreshAllPrices(
   symbols?: string[]
@@ -455,6 +453,9 @@ export async function refreshAllPrices(
   refreshedAt: string;
   error?: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   if (isRefreshing) {
     return {
@@ -467,34 +468,51 @@ export async function refreshAllPrices(
     };
   }
 
+  // No symbols provided - return universe for caller to chunk
+  if (!symbols || symbols.length === 0) {
+    const universe = await buildSymbolUniverse();
+    console.log(
+      `[QuoteService] No symbols provided. Returning universe (${universe.length} symbols) for caller to chunk.`
+    );
+    return {
+      ok: false,
+      updated: [],
+      failed: [],
+      refreshedAt: lastRefreshAt ?? new Date().toISOString(),
+      needsChunking: true,
+      universe,
+      chunkSize: MAX_SYMBOLS_PER_REFRESH,
+      total: universe.length,
+    };
+  }
+
+  // Normalize symbols
+  const universe = Array.from(
+    new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0))
+  ).sort();
+
+  // Too many symbols - reject with error
+  if (universe.length > MAX_SYMBOLS_PER_REFRESH) {
+    console.error(
+      `[QuoteService] Too many symbols: ${universe.length} (max ${MAX_SYMBOLS_PER_REFRESH}). ` +
+      `Caller must chunk via GET /api/quotes/universe + multiple POST /api/quotes/refresh calls.`
+    );
+    return {
+      ok: false,
+      updated: [],
+      failed: [],
+      refreshedAt: lastRefreshAt ?? new Date().toISOString(),
+      error: `Too many symbols: ${universe.length} (max ${MAX_SYMBOLS_PER_REFRESH} per request). Use GET /api/quotes/universe and chunk.`,
+      total: universe.length,
+    };
+  }
+
   isRefreshing = true;
   const updated: string[] = [];
   const failed: string[] = [];
   let error: string | undefined;
 
   try {
-    // Determine which symbols to refresh
-    let universe: string[];
-    if (symbols && symbols.length > 0) {
-      // Caller provided symbols - use those directly
-      universe = Array.from(
-        new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0))
-      ).sort();
-      console.log(`[QuoteService] Refreshing ${universe.length} symbols (caller-specified)`);
-    } else {
-      // No symbols provided - build full universe
-      universe = await buildSymbolUniverse();
-      console.log(`[QuoteService] Refreshing ${universe.length} symbols (full universe)`);
-      
-      // Warn if universe is too large for one invocation
-      if (universe.length > MAX_SYMBOLS_PER_REFRESH) {
-        console.warn(
-          `[QuoteService] Universe has ${universe.length} symbols (max ${MAX_SYMBOLS_PER_REFRESH} per invocation). ` +
-          `Caller should chunk via GET /api/quotes/universe + multiple POST /api/quotes/refresh calls.`
-        );
-      }
-    }
-    
     const total = universe.length;
 
     if (universe.length === 0) {
@@ -507,6 +525,8 @@ export async function refreshAllPrices(
         total: 0,
       };
     }
+
+    console.log(`[QuoteService] Refreshing ${universe.length} symbols`);
 
     const startTime = Date.now();
     const quotes = await fetchQuotesBatch(universe);

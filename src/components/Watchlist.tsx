@@ -7,7 +7,8 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
-  refreshQuotes: () => Promise<void>;
+  reload: () => Promise<void>; // Read-only: GET /api/watchlist (for auto-cycle)
+  forceRefresh: () => Promise<void>; // Manual button: POST /api/watchlist/refresh
 }
 
 interface WatchlistRow {
@@ -140,12 +141,24 @@ export function Watchlist(props: WatchlistProps = {}) {
     setLastRefreshAt(data.lastRefreshAt ?? null);
   }, []);
 
-  const load = useCallback(async () => {
-    const data = await apiGet<WatchlistPayload>('/api/watchlist');
-    applyPayload(data);
+  /**
+   * Read-only reload: GET /api/watchlist (re-reads marks join)
+   * Used by App's auto-cycle after server refresh
+   */
+  const reload = useCallback(async () => {
+    try {
+      const data = await apiGet<WatchlistPayload>('/api/watchlist');
+      applyPayload(data);
+    } catch (e) {
+      setError(String(e));
+    }
   }, [applyPayload]);
 
-  const refreshQuotes = useCallback(async () => {
+  /**
+   * Force server refresh: POST /api/watchlist/refresh
+   * Used by manual Refresh button
+   */
+  const forceRefresh = useCallback(async () => {
     if (refreshInProgressRef.current) return;
     setError(null);
     setBusy(true);
@@ -159,7 +172,7 @@ export function Watchlist(props: WatchlistProps = {}) {
     } catch (e) {
       setError(String(e));
       try {
-        await load();
+        await reload();
       } catch {
         // ignore
       }
@@ -167,21 +180,23 @@ export function Watchlist(props: WatchlistProps = {}) {
       setBusy(false);
       refreshInProgressRef.current = false;
     }
-  }, [applyPayload, load]);
+  }, [applyPayload, reload]);
 
-  useImperativeHandle(watchlistRef, () => ({
-    refreshQuotes,
-  }), [refreshQuotes]);
+  useImperativeHandle(
+    watchlistRef,
+    () => ({
+      reload,
+      forceRefresh,
+    }),
+    [reload, forceRefresh],
+  );
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        await load();
-        if (!cancelled) {
-          // Refresh quotes on mount (non-blocking after initial rows)
-          void refreshQuotes();
-        }
+        await reload(); // Initial GET load only (no POST)
+        if (cancelled) return;
       } catch (e) {
         if (!cancelled) setError(String(e));
       }
@@ -340,8 +355,8 @@ export function Watchlist(props: WatchlistProps = {}) {
             type="button"
             className="btn small"
             disabled={busy}
-            onClick={() => void refreshQuotes()}
-            title="Refresh Yahoo quotes for watchlist now"
+            onClick={() => void forceRefresh()}
+            title="Force refresh Yahoo quotes for watchlist now"
             style={{
               opacity: busy ? 0.6 : 1,
               transition: 'opacity 0.15s',

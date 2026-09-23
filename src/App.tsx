@@ -13,6 +13,7 @@ import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
 import { refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
+import type { ResearchRef } from './components/Research';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -31,6 +32,7 @@ const AUTO_REFRESH_INTERVAL_MS = 15_000; // Always-on 15s refresh while portal i
 export default function App() {
   const store = useStore();
   const watchlistRef = useRef<WatchlistRef>(null);
+  const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
   const autoRefreshIntervalRef = useRef<number | null>(null);
@@ -38,20 +40,21 @@ export default function App() {
 
   /**
    * Unified refresh: triggers server quote service + re-reads all client state
-   * Single call to avoid double forceRefresh race
+   * Single server call to avoid double forceRefresh race
    */
   const refreshPortalPrices = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Single server refresh call (avoids double forceRefresh race)
+      // Single server refresh call (triggers quote-service forceRefresh)
       await store.refreshLiveQuotes();
       
-      // Re-read all client state from shared store
+      // Re-read all client state from shared store (GET only, no POST)
       await Promise.allSettled([
         store.refresh(), // Re-reads marks, updates holdings/positions
-        watchlistRef.current?.refreshQuotes(), // Re-reads watchlist join (marks + watchlist_quotes)
+        watchlistRef.current?.reload(), // GET /api/watchlist (re-reads marks join)
+        researchRef.current?.reload(), // GET /api/research (re-reads marks join)
         // Paper/crypto refresh their own separate data
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
@@ -268,7 +271,7 @@ export default function App() {
         {store.view === 'trades' && <Trades store={store} />}
         {store.view === 'charges' && <Charges store={store} />}
         {store.view === 'charts' && <Charts store={store} />}
-        {store.view === 'research' && <Research />}
+        {store.view === 'research' && <Research researchRef={researchRef} />}
         {store.view === 'paper' && <Paper />}
         {store.view === 'paperFlex' && <PaperFlex />}
         {store.view === 'cryptoPaper' && <CryptoPaper />}

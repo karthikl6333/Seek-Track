@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -179,7 +179,11 @@ function generalCharacteristics(
   };
 }
 
-export function Research() {
+export interface ResearchRef {
+  reload: () => Promise<void>; // Re-read research data from server (GET only)
+}
+
+export function Research({ researchRef }: { researchRef?: React.RefObject<ResearchRef> } = {}) {
   const [summary, setSummary] = useState<ResearchSummary | null>(null);
   const [detail, setDetail] = useState<ResearchDetail | null>(null);
   const [selected, setSelected] = useState<string>('NVDA');
@@ -230,6 +234,28 @@ export function Research() {
       setBusy(false);
     }
   }, [loadDetail, loadSummary, selected]);
+
+  /**
+   * Read-only reload: re-read research data (GET only)
+   * Used by App's auto-cycle after marks are updated
+   */
+  const reload = useCallback(async () => {
+    try {
+      await loadSummary();
+      if (selected) await loadDetail(selected);
+    } catch (e) {
+      // Silent failure on auto-reload
+      console.warn('[Research] Auto-reload failed:', e);
+    }
+  }, [loadSummary, loadDetail, selected]);
+
+  useImperativeHandle(
+    researchRef,
+    () => ({
+      reload,
+    }),
+    [reload],
+  );
 
   const handleAddUniverse = useCallback(async () => {
     const sym = addSymbol.trim().toUpperCase();

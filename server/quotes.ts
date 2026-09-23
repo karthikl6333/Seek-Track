@@ -397,16 +397,74 @@ export async function refreshQuotes(extraSymbols: string[] = []): Promise<Refres
         ),
       );
 
-      const quotes = await fetchQuotesBatch(symbols);
+      // Check which symbols are in watchlist to also update their metadata
+      const { query } = await import('./db.js');
+      const watchlistRes = await query<{ symbol: string }>(
+        `SELECT symbol FROM watchlist WHERE symbol = ANY($1)`,
+        [symbols],
+      );
+      const watchlistSymbols = new Set(
+        watchlistRes.rows.map((r) => r.symbol.toUpperCase()),
+      );
 
+      // Fetch quotes for all symbols. For watchlist symbols, fetch the full enriched quote.
+      // For non-watchlist symbols, use the simple price+dayPct fetch.
       for (const symbol of symbols) {
-        const quote = quotes.get(symbol);
-        if (quote === null || quote === undefined) {
+        try {
+          if (watchlistSymbols.has(symbol.toUpperCase())) {
+            // Watchlist symbol: fetch full metadata and update both tables
+            const yahooQuote = await fetchYahooChartQuote(symbol);
+            
+            // Update marks (price + day%)
+            if (yahooQuote.last !== null) {
+              await upsertMark(symbol, yahooQuote.last, 'yahoo', yahooQuote.pctChange);
+            }
+
+            // Update watchlist_quotes (full metadata)
+            const now = new Date().toISOString();
+            await query(
+              `INSERT INTO watchlist_quotes
+                 (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
+                  week52_high, week52_low, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               ON CONFLICT (symbol) DO UPDATE SET
+                 last = EXCLUDED.last,
+                 pct_change = EXCLUDED.pct_change,
+                 val_change = EXCLUDED.val_change,
+                 session_open = EXCLUDED.session_open,
+                 bid = EXCLUDED.bid,
+                 ask = EXCLUDED.ask,
+                 market_cap = EXCLUDED.market_cap,
+                 volume = EXCLUDED.volume,
+                 week52_high = EXCLUDED.week52_high,
+                 week52_low = EXCLUDED.week52_low,
+                 updated_at = EXCLUDED.updated_at`,
+              [
+                symbol.toUpperCase(),
+                yahooQuote.last,
+                yahooQuote.pctChange,
+                yahooQuote.valChange,
+                yahooQuote.sessionOpen,
+                yahooQuote.bid,
+                yahooQuote.ask,
+                yahooQuote.marketCap,
+                yahooQuote.volume,
+                yahooQuote.week52High,
+                yahooQuote.week52Low,
+                now,
+              ],
+            );
+          } else {
+            // Non-watchlist symbol: simple price+dayPct fetch
+            const quote = await fetchYahooQuoteWithPct(symbol);
+            await upsertMark(symbol, quote.price, quote.source, quote.dayPct);
+          }
+          
+          updated.push(symbol);
+          await new Promise((r) => setTimeout(r, 80));
+        } catch (err) {
           failed.push(symbol);
-          continue;
         }
-        await upsertMark(symbol, quote.price, quote.source, quote.dayPct);
-        updated.push(symbol);
       }
 
       lastRefreshAt = new Date().toISOString();

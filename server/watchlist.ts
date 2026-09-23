@@ -94,6 +94,8 @@ async function listWatchlistSymbols(): Promise<string[]> {
 
 async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, WatchlistQuoteRow>> {
   if (!symbols.length) return {};
+  // Join marks (price + day%) with watchlist_quotes (metadata: bid/ask/volume/52w high/low)
+  // for unified display. Price/day% always come from marks (single source of truth).
   const res = await query<{
     symbol: string;
     last: number | null;
@@ -107,9 +109,21 @@ async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, Wa
     week52_low: number | null;
     updated_at: Date | string | null;
   }>(
-    `SELECT symbol, last, pct_change, val_change, bid, ask, market_cap, volume,
-            week52_high, week52_low, updated_at
-     FROM watchlist_quotes WHERE symbol = ANY($1)`,
+    `SELECT 
+       COALESCE(m.symbol, wq.symbol) AS symbol,
+       m.price AS last,
+       m.day_pct AS pct_change,
+       wq.val_change,
+       wq.bid,
+       wq.ask,
+       wq.market_cap,
+       wq.volume,
+       wq.week52_high,
+       wq.week52_low,
+       COALESCE(m.updated_at, wq.updated_at) AS updated_at
+     FROM marks m
+     FULL OUTER JOIN watchlist_quotes wq ON m.symbol = wq.symbol
+     WHERE COALESCE(m.symbol, wq.symbol) = ANY($1)`,
     [symbols],
   );
   const out: Record<string, WatchlistQuoteRow> = {};
@@ -227,41 +241,14 @@ export async function refreshWatchlistQuotes(): Promise<{
   watchlistRefreshInFlight = (async () => {
     await ensureWatchlistSeeded();
     const symbols = await listWatchlistSymbols();
-    const updated: string[] = [];
-    const failed: string[] = [];
 
-    // Fetch Yahoo enrichment for all watchlist symbols (volume, 52w high/low, session %, bid/ask, marketCap)
-    for (const symbol of symbols) {
-      try {
-        const yahooQuote = await fetchYahooChartQuote(symbol);
+    // Delegate to the unified quotes.refreshQuotes to avoid duplicate fetches
+    // and ensure all surfaces see the same batch result.
+    const { refreshQuotes } = await import('./quotes.js');
+    const result = await refreshQuotes(symbols);
 
-        await upsertWatchlistQuote({
-          symbol,
-          last: yahooQuote.last,
-          pctChange: yahooQuote.pctChange,
-          valChange: yahooQuote.valChange,
-          sessionOpen: yahooQuote.sessionOpen,
-          bid: yahooQuote.bid,
-          ask: yahooQuote.ask,
-          marketCap: yahooQuote.marketCap,
-          volume: yahooQuote.volume,
-          week52High: yahooQuote.week52High,
-          week52Low: yahooQuote.week52Low,
-        });
-        updated.push(symbol);
-        await new Promise((r) => setTimeout(r, 80));
-      } catch {
-        failed.push(symbol);
-      }
-    }
-
-    lastWatchlistRefreshAt = new Date().toISOString();
-    return {
-      ok: updated.length > 0 || symbols.length === 0,
-      updated,
-      failed,
-      refreshedAt: lastWatchlistRefreshAt,
-    };
+    lastWatchlistRefreshAt = result.refreshedAt;
+    return result;
   })().finally(() => {
     watchlistRefreshInFlight = null;
   });
@@ -289,21 +276,12 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
   );
 
   try {
-    const q = await fetchYahooChartQuote(symbol);
-    await upsertWatchlistQuote({
-      symbol,
-      last: q.last,
-      pctChange: q.pctChange,
-      valChange: q.valChange,
-      sessionOpen: q.sessionOpen,
-      bid: q.bid,
-      ask: q.ask,
-      marketCap: q.marketCap,
-      volume: q.volume,
-      week52High: q.week52High,
-      week52Low: q.week52Low,
-    });
-    lastWatchlistRefreshAt = new Date().toISOString();
+    // Trigger a refresh for this single symbol using the unified refresh path
+    const { refreshQuotes } = await import('./quotes.js');
+    const result = await refreshQuotes([symbol]);
+    if (result.updated.length > 0) {
+      lastWatchlistRefreshAt = result.refreshedAt;
+    }
   } catch {
     // quote best-effort on add
   }

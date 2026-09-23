@@ -49,19 +49,17 @@ export default function App() {
     setRefreshing(true);
     setRefreshComplete(false);
     try {
-      // Sequence the refresh to avoid race conditions:
-      // 1. First, refresh quotes (writes to marks DB)
-      // 2. Then refresh other data sources in parallel
-      // 3. Watchlist refreshes its own separate quote cache in parallel
-
-      // Phase 1: Refresh live quotes for holdings, calculators, and pairs
-      // This writes to the marks table
+      // Unified refresh: both holdings and watchlist now share the same quote pipeline
+      // (watchlist refresh delegates to the same refreshQuotes() that holdings uses)
+      // Phase 1: Refresh live quotes for holdings, calculators, pairs, and watchlist
+      // This writes to marks + watchlist_quotes in one batch
       await store.refreshLiveQuotes().catch((e) => {
         console.warn('refreshLiveQuotes failed:', e);
       });
 
       // Phase 2: Refresh other data in parallel
       // store.refresh() will re-read marks at the end, getting the fresh data from Phase 1
+      // watchlist refresh is redundant but harmless (in-flight guard prevents duplicate fetches)
       const results = await Promise.allSettled([
         store.refresh(),
         watchlistRef.current?.refreshQuotes(),

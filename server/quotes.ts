@@ -112,6 +112,8 @@ export async function refreshQuotesHandler(c: Context) {
       } else if (typeof body?.symbol === 'string') {
         extra = [body.symbol];
       }
+      // Legacy tier param: accept and ignore (unified refresh handles chunking internally)
+      // Old clients may send ?tier=hot or ?tier=full - we don't error, just use unified path
     }
   } catch {
     // ignore
@@ -119,6 +121,9 @@ export async function refreshQuotesHandler(c: Context) {
   
   const qSym = c.req.query('symbol');
   if (qSym) extra.push(qSym);
+  
+  // Legacy tier query param: accept and ignore
+  // const tierQuery = c.req.query('tier'); // not used, all refreshes are unified
   
   const result = await forceRefresh(extra);
   return c.json(result, result.ok ? 200 : 502);

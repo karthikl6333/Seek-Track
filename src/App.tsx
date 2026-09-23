@@ -27,8 +27,7 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const AUTO_REFRESH_HOT_INTERVAL_MS = 30_000; // 30 seconds for hot tier (holdings + watchlist)
-const AUTO_REFRESH_COLD_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes for cold tier (research, etc.)
+const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds - refresh ALL symbols
 
 export default function App() {
   const store = useStore();
@@ -36,104 +35,44 @@ export default function App() {
   const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
-  const hotRefreshIntervalRef = useRef<number | null>(null);
-  const coldRefreshIntervalRef = useRef<number | null>(null);
+  const refreshIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
-  const lastColdRefreshAt = useRef<number>(0);
 
   /**
-   * Hot tier refresh: holdings + watchlist (30s cadence)
+   * Unified refresh: ALL symbols (holdings + watchlist + research)
    */
-  const refreshHotTier = useCallback(async () => {
+  const refreshAll = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Hot refresh: server will only refresh holdings + watchlist
-      await store.refreshLiveQuotes([], 'hot');
-      
-      // Re-read all client state from shared store (GET only, no POST)
-      await Promise.allSettled([
-        store.refresh(), // Re-reads marks, updates holdings/positions
-        watchlistRef.current?.reload(), // GET /api/watchlist (re-reads marks join)
-      ]);
-    } catch (error) {
-      console.error('[App] Hot tier refresh error:', error);
-    } finally {
-      autoRefreshingRef.current = false;
-    }
-  }, [store]);
-
-  /**
-   * Cold tier refresh: research universe, ETFs, pair cache (15m cadence)
-   * Uses chunking to avoid Workers subrequest limits
-   */
-  const refreshColdTier = useCallback(async () => {
-    if (autoRefreshingRef.current) return;
-    autoRefreshingRef.current = true;
-    
-    try {
-      const CHUNK_SIZE = 25;
-      let offset = 0;
-      let remaining = 1; // Start with non-zero to enter loop
-      let total = 0;
-      
-      // Loop through chunks until remaining === 0
-      while (remaining > 0) {
-        const result = await store.refreshLiveQuotes([], 'full', offset, CHUNK_SIZE);
-        
-        remaining = result.remaining ?? 0;
-        total = result.total ?? result.updated.length;
-        
-        console.log(
-          `[App] Cold refresh chunk (offset ${offset}): ${result.updated.length} updated, ${remaining} remaining (${total} total)`
-        );
-        
-        // Advance offset by chunk size (not by updated.length, since failed symbols still consume universe slots)
-        offset += CHUNK_SIZE;
-        
-        // Small delay between chunks to avoid hammering the server
-        if (remaining > 0) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-      
-      console.log(`[App] Cold refresh complete: ${total} symbols processed`);
+      // Refresh ALL prices through unified service
+      await store.refreshLiveQuotes([]);
       
       // Re-read all client state from shared store
       await Promise.allSettled([
         store.refresh(),
         watchlistRef.current?.reload(),
-        researchRef.current?.reload(), // Research benefits from cold tier
+        researchRef.current?.reload(),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
       ]);
-      
-      lastColdRefreshAt.current = Date.now();
     } catch (error) {
-      console.error('[App] Cold tier refresh error:', error);
+      console.error('[App] Refresh error:', error);
     } finally {
       autoRefreshingRef.current = false;
     }
   }, [store]);
 
   /**
-   * Unified refresh (hot tier only for fast UI response)
-   */
-  const refreshPortalPrices = useCallback(async () => {
-    // Manual/topbar refresh uses hot tier for fast response
-    return refreshHotTier();
-  }, [refreshHotTier]);
-
-  /**
    * Manual refresh button (with animation)
    */
-  const refreshAll = useCallback(async () => {
+  const handleManualRefresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshComplete(false);
     try {
-      await refreshPortalPrices();
+      await refreshAll();
       setRefreshComplete(true);
       setTimeout(() => setRefreshComplete(false), 1500);
     } catch (error) {
@@ -141,73 +80,47 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
-  }, [refreshPortalPrices]);
+  }, [refreshAll]);
 
   /**
-   * Dual-tier refresh system:
-   * - Hot tier (holdings + watchlist): 30s interval
-   * - Cold tier (research, ETFs, pairs): 15m interval
-   * Both pause when tab is hidden
+   * Auto-refresh system:
+   * - 30s interval for ALL symbols
+   * - Pauses when tab is hidden
    */
   useEffect(() => {
-    // Initial hot refresh on mount
-    const initialHotTimer = setTimeout(() => {
-      void refreshHotTier();
+    // Initial refresh on mount
+    const initialTimer = setTimeout(() => {
+      void refreshAll();
     }, 2000); // 2s delay for initial load
 
-    // Initial cold refresh on mount
-    const initialColdTimer = setTimeout(() => {
-      void refreshColdTier();
-    }, 5000); // 5s delay, after hot
-
-    // Set up 30s hot tier interval
-    hotRefreshIntervalRef.current = window.setInterval(() => {
+    // Set up 30s interval
+    refreshIntervalRef.current = window.setInterval(() => {
       // Skip refresh if tab is hidden (save Yahoo quota)
       if (document.hidden) {
-        console.log('[App] Skipping hot refresh (tab hidden)');
+        console.log('[App] Skipping auto-refresh (tab hidden)');
         return;
       }
-      void refreshHotTier();
-    }, AUTO_REFRESH_HOT_INTERVAL_MS);
-
-    // Set up 15m cold tier interval
-    coldRefreshIntervalRef.current = window.setInterval(() => {
-      if (document.hidden) {
-        console.log('[App] Skipping cold refresh (tab hidden)');
-        return;
-      }
-      void refreshColdTier();
-    }, AUTO_REFRESH_COLD_INTERVAL_MS);
+      void refreshAll();
+    }, AUTO_REFRESH_INTERVAL_MS);
 
     // Resume immediately when tab becomes visible
     const handleVisibilityChange = () => {
       if (!document.hidden && !autoRefreshingRef.current) {
         console.log('[App] Tab visible, triggering refresh');
-        void refreshHotTier(); // Always refresh hot tier
-        
-        // Refresh cold tier if it's been >15m since last cold refresh
-        const coldAge = Date.now() - lastColdRefreshAt.current;
-        if (coldAge > AUTO_REFRESH_COLD_INTERVAL_MS) {
-          void refreshColdTier();
-        }
+        void refreshAll();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearTimeout(initialHotTimer);
-      clearTimeout(initialColdTimer);
-      if (hotRefreshIntervalRef.current !== null) {
-        clearInterval(hotRefreshIntervalRef.current);
-        hotRefreshIntervalRef.current = null;
-      }
-      if (coldRefreshIntervalRef.current !== null) {
-        clearInterval(coldRefreshIntervalRef.current);
-        coldRefreshIntervalRef.current = null;
+      clearTimeout(initialTimer);
+      if (refreshIntervalRef.current !== null) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshHotTier, refreshColdTier]);
+  }, [refreshAll]);
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox
@@ -337,9 +250,9 @@ export default function App() {
             <button
               type="button"
               className="btn"
-              onClick={() => void refreshAll()}
+              onClick={() => void handleManualRefresh()}
               disabled={refreshing}
-              title="Refresh all data now (auto: hot 30s / cold 15m)"
+              title="Refresh all prices now (auto: 30s)"
               style={{
                 minWidth: 40,
                 minHeight: 40,

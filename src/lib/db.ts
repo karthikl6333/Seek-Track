@@ -101,30 +101,19 @@ export async function setMark(symbol: string, price: number): Promise<void> {
 }
 
 export async function refreshQuotes(
-  symbols?: string[],
-  tier?: 'hot' | 'full',
-  chunkOffset?: number,
-  chunkLimit?: number
+  symbols?: string[]
 ): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   error?: string;
   refreshedAt: string;
-  tier?: 'hot' | 'full';
-  remaining?: number;
-  total?: number;
+  total: number;
 }> {
   const body: {
     symbols?: string[];
-    tier?: 'hot' | 'full';
-    chunkOffset?: number;
-    chunkLimit?: number;
   } = {};
   if (symbols?.length) body.symbols = symbols;
-  if (tier) body.tier = tier;
-  if (chunkOffset !== undefined) body.chunkOffset = chunkOffset;
-  if (chunkLimit !== undefined) body.chunkLimit = chunkLimit;
   return api('/api/quotes/refresh', {
     method: 'POST',
     body: JSON.stringify(body),

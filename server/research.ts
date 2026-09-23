@@ -869,6 +869,10 @@ export async function discoverMapsForUniverse(): Promise<{ discovered: string[] 
   return { discovered };
 }
 
+/**
+ * Research quotes now use unified quote service
+ * This function delegates to the central refreshAllPrices which includes research symbols
+ */
 export async function refreshResearchQuotes(): Promise<{
   ok: boolean;
   updated: string[];
@@ -879,33 +883,18 @@ export async function refreshResearchQuotes(): Promise<{
     await researchRefreshInFlight;
   }
 
+  const { forceRefresh } = await import('./quote-service.js');
+
   const run = (async () => {
     await ensureResearchSeeded();
-    const universe = await listUniverse();
-    const maps = await listMaps();
-    const symbols = Array.from(
-      new Set([...universe.map((u) => u.symbol), ...maps.map((m) => m.etf)]),
-    );
-    const updated: string[] = [];
-    const failed: string[] = [];
-
-    for (const symbol of symbols) {
-      try {
-        const q = await fetchYahooQuoteFull(symbol);
-        await upsertMark(symbol, q.price, 'yahoo', q.dayPct);
-        updated.push(symbol);
-        await new Promise((r) => setTimeout(r, 80));
-      } catch {
-        failed.push(symbol);
-      }
-    }
-
-    lastResearchRefreshAt = new Date().toISOString();
+    // Unified refresh automatically includes research universe + ETFs
+    const result = await forceRefresh([]);
+    lastResearchRefreshAt = result.refreshedAt;
     return {
-      ok: updated.length > 0,
-      updated,
-      failed,
-      refreshedAt: lastResearchRefreshAt,
+      ok: result.ok,
+      updated: result.updated,
+      failed: result.failed,
+      refreshedAt: result.refreshedAt,
     };
   })();
 
@@ -920,28 +909,24 @@ export async function refreshResearchQuotes(): Promise<{
   }>;
 }
 
+/**
+ * Refresh specific symbols using unified quote service
+ */
 export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
 }> {
-  const unique = Array.from(new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean)));
-  const updated: string[] = [];
-  const failed: string[] = [];
-  for (const symbol of unique) {
-    try {
-      const q = await fetchYahooQuoteFull(symbol);
-      await upsertMark(symbol, q.price, 'yahoo', q.dayPct);
-      updated.push(symbol);
-      await new Promise((r) => setTimeout(r, 80));
-    } catch {
-      failed.push(symbol);
-    }
-  }
-  const refreshedAt = new Date().toISOString();
-  if (updated.length) lastResearchRefreshAt = refreshedAt;
-  return { ok: updated.length > 0, updated, failed, refreshedAt };
+  const { forceRefresh } = await import('./quote-service.js');
+  const result = await forceRefresh(symbols);
+  if (result.updated.length) lastResearchRefreshAt = result.refreshedAt;
+  return {
+    ok: result.ok,
+    updated: result.updated,
+    failed: result.failed,
+    refreshedAt: result.refreshedAt,
+  };
 }
 
 export async function fetchChartSeries(

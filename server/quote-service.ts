@@ -471,9 +471,8 @@ export async function refreshQuoteService(
     const tier = hotOnly ? 'hot' : 'full';
     const total = fullUniverse.length;
     
-    // For full tier on Workers, apply chunking to avoid subrequest limits
-    const isWorkers = typeof process === 'undefined';
-    const shouldChunk = !hotOnly && isWorkers && chunkLimit !== undefined;
+    // For full tier, apply chunking to avoid subrequest limits (hot tier stays unchunked)
+    const shouldChunk = !hotOnly && chunkLimit !== undefined && chunkLimit > 0;
     
     let universe = fullUniverse;
     let remaining = 0;

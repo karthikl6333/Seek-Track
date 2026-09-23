@@ -139,11 +139,10 @@ export async function refreshQuotesHandler(c: Context) {
     hotOnly = true;
   }
   
-  // For full/cold tier on Workers, default to chunking to avoid subrequest limits
-  const isWorkers = typeof process === 'undefined';
-  if (!hotOnly && isWorkers && chunkLimit === undefined) {
-    // Default chunk size: 25 symbols per request (conservative for ~50 subrequests limit)
-    chunkLimit = 25;
+  // For full/cold tier, always default to chunking to avoid subrequest limits
+  // Hot tier stays unchunked (chunkLimit remains undefined)
+  if (!hotOnly && chunkLimit === undefined) {
+    chunkLimit = 25; // Default chunk size: 25 symbols per request
   }
   
   const result = await forceRefresh(extra, hotOnly, chunkOffset, chunkLimit);

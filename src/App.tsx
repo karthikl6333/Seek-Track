@@ -73,22 +73,24 @@ export default function App() {
     autoRefreshingRef.current = true;
     
     try {
-      // First chunk: fetch with tier='full' to get total and remaining
-      const firstResult = await store.refreshLiveQuotes([], 'full');
+      const CHUNK_SIZE = 25;
+      let offset = 0;
+      let remaining = 1; // Start with non-zero to enter loop
+      let total = 0;
       
-      let offset = firstResult.updated.length;
-      let remaining = firstResult.remaining ?? 0;
-      const total = firstResult.total ?? firstResult.updated.length;
-      
-      console.log(`[App] Cold refresh chunk 1: ${firstResult.updated.length} updated, ${remaining} remaining (${total} total)`);
-      
-      // Continue fetching chunks until remaining === 0
+      // Loop through chunks until remaining === 0
       while (remaining > 0) {
-        const chunkResult = await store.refreshLiveQuotes([], 'full', offset, 25);
-        offset += chunkResult.updated.length;
-        remaining = chunkResult.remaining ?? 0;
+        const result = await store.refreshLiveQuotes([], 'full', offset, CHUNK_SIZE);
         
-        console.log(`[App] Cold refresh chunk: ${chunkResult.updated.length} updated, ${remaining} remaining`);
+        remaining = result.remaining ?? 0;
+        total = result.total ?? result.updated.length;
+        
+        console.log(
+          `[App] Cold refresh chunk (offset ${offset}): ${result.updated.length} updated, ${remaining} remaining (${total} total)`
+        );
+        
+        // Advance offset by chunk size (not by updated.length, since failed symbols still consume universe slots)
+        offset += CHUNK_SIZE;
         
         // Small delay between chunks to avoid hammering the server
         if (remaining > 0) {
@@ -96,7 +98,7 @@ export default function App() {
         }
       }
       
-      console.log(`[App] Cold refresh complete: ${total} symbols updated`);
+      console.log(`[App] Cold refresh complete: ${total} symbols processed`);
       
       // Re-read all client state from shared store
       await Promise.allSettled([

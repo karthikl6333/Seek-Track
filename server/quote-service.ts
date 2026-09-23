@@ -431,48 +431,23 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
 }
 
 /**
- * Refresh a single chunk of symbols (internal, used by refreshAllPrices)
- */
-async function refreshChunk(symbols: string[]): Promise<{
-  updated: string[];
-  failed: string[];
-}> {
-  const updated: string[] = [];
-  const failed: string[] = [];
-
-  const quotes = await fetchQuotesBatch(symbols);
-
-  for (const [symbol, quote] of quotes.entries()) {
-    if (quote) {
-      updated.push(symbol);
-    } else {
-      failed.push(symbol);
-    }
-  }
-
-  // Only persist successful quotes
-  const successQuotes = new Map(
-    Array.from(quotes.entries()).filter(([, q]) => q !== null) as [string, QuoteData][]
-  );
-  await persistQuotes(successQuotes);
-
-  return { updated, failed };
-}
-
-/**
  * THE refresh function - everything goes through here
  * 
- * Automatically chunks symbols to stay under CF Workers subrequest limits:
- * - Universe build: 5 Neon queries
- * - Per chunk: N Yahoo fetches + 3 Neon queries
- * - Total per chunk: 8 + N < 50 (CF Workers limit)
- * - Safe chunk size: 10 symbols (8 + 10 = 18 subrequests)
+ * Designed for CF Workers subrequest limits:
+ * - If symbols provided: refresh ONLY those (caller handles chunking)
+ * - If no symbols: build universe and refresh all (for small universes only)
  * 
- * @param extraSymbols - Additional symbols to include (e.g., user added to watchlist)
+ * Subrequest budget per invocation:
+ * - Universe build (when no symbols): 1 Neon query
+ * - Yahoo fetches: N (where N = symbols.length, typically ≤10)
+ * - Persist: 2 Neon queries (marks + watchlist_quotes)
+ * Total: 1 + N + 2 = 3 + N subrequests (N≤10 → ≤13 subrequests)
+ * 
+ * @param symbols - Specific symbols to refresh (if empty, builds universe)
  * @returns Refresh result with explicit success/failure per symbol
  */
 export async function refreshAllPrices(
-  extraSymbols: string[] = []
+  symbols?: string[]
 ): Promise<{
   ok: boolean;
   updated: string[];
@@ -493,17 +468,34 @@ export async function refreshAllPrices(
   }
 
   isRefreshing = true;
-  const allUpdated: string[] = [];
-  const allFailed: string[] = [];
+  const updated: string[] = [];
+  const failed: string[] = [];
   let error: string | undefined;
 
   try {
-    const baseUniverse = await buildSymbolUniverse();
-    const extraNormalized = extraSymbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
-    const universe = Array.from(new Set([...baseUniverse, ...extraNormalized])).sort();
-    const total = universe.length;
+    // Determine which symbols to refresh
+    let universe: string[];
+    if (symbols && symbols.length > 0) {
+      // Caller provided symbols - use those directly
+      universe = Array.from(
+        new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0))
+      ).sort();
+      console.log(`[QuoteService] Refreshing ${universe.length} symbols (caller-specified)`);
+    } else {
+      // No symbols provided - build full universe
+      universe = await buildSymbolUniverse();
+      console.log(`[QuoteService] Refreshing ${universe.length} symbols (full universe)`);
+      
+      // Warn if universe is too large for one invocation
+      if (universe.length > MAX_SYMBOLS_PER_REFRESH) {
+        console.warn(
+          `[QuoteService] Universe has ${universe.length} symbols (max ${MAX_SYMBOLS_PER_REFRESH} per invocation). ` +
+          `Caller should chunk via GET /api/quotes/universe + multiple POST /api/quotes/refresh calls.`
+        );
+      }
+    }
     
-    console.log(`[QuoteService] Refreshing ${total} symbols (chunked: ${MAX_SYMBOLS_PER_REFRESH} per batch)`);
+    const total = universe.length;
 
     if (universe.length === 0) {
       lastRefreshAt = new Date().toISOString();
@@ -517,35 +509,35 @@ export async function refreshAllPrices(
     }
 
     const startTime = Date.now();
-
-    // Process in chunks to stay under CF Workers subrequest limits
-    for (let i = 0; i < universe.length; i += MAX_SYMBOLS_PER_REFRESH) {
-      const chunk = universe.slice(i, i + MAX_SYMBOLS_PER_REFRESH);
-      const { updated, failed } = await refreshChunk(chunk);
-      allUpdated.push(...updated);
-      allFailed.push(...failed);
-      
-      console.log(
-        `[QuoteService] Chunk ${Math.floor(i / MAX_SYMBOLS_PER_REFRESH) + 1}/${Math.ceil(universe.length / MAX_SYMBOLS_PER_REFRESH)}: ` +
-        `${updated.length}/${chunk.length} updated` +
-        (failed.length > 0 ? `, ${failed.length} failed` : '')
-      );
-    }
-
+    const quotes = await fetchQuotesBatch(universe);
     const fetchTime = Date.now() - startTime;
 
+    for (const [symbol, quote] of quotes.entries()) {
+      if (quote) {
+        updated.push(symbol);
+      } else {
+        failed.push(symbol);
+      }
+    }
+
+    // Only persist successful quotes
+    const successQuotes = new Map(
+      Array.from(quotes.entries()).filter(([, q]) => q !== null) as [string, QuoteData][]
+    );
+    await persistQuotes(successQuotes);
+
     lastRefreshAt = new Date().toISOString();
-    lastRefreshError = allFailed.length > 0 && allUpdated.length === 0 ? 'All quotes failed' : null;
+    lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
 
     console.log(
-      `[QuoteService] Refreshed ${allUpdated.length}/${universe.length} symbols in ${fetchTime}ms` +
-      (allFailed.length > 0 ? ` (${allFailed.length} failed)` : '')
+      `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms` +
+      (failed.length > 0 ? ` (${failed.length} failed)` : '')
     );
 
     return {
-      ok: allUpdated.length > 0 || universe.length === 0,
-      updated: allUpdated,
-      failed: allFailed,
+      ok: updated.length > 0 || universe.length === 0,
+      updated,
+      failed,
       refreshedAt: lastRefreshAt,
       error: lastRefreshError ?? undefined,
       total,
@@ -557,15 +549,24 @@ export async function refreshAllPrices(
     console.error('[QuoteService] Refresh failed:', e);
     return {
       ok: false,
-      updated: allUpdated,
-      failed: allFailed,
+      updated,
+      failed,
       refreshedAt: lastRefreshAt,
       error,
-      total: allUpdated.length + allFailed.length,
+      total: updated.length + failed.length,
     };
   } finally {
     isRefreshing = false;
   }
+}
+
+/**
+ * Get the symbol universe without refreshing
+ * Used by clients to chunk refresh across multiple HTTP calls
+ */
+export async function getSymbolUniverse(): Promise<string[]> {
+  markActivity();
+  return buildSymbolUniverse();
 }
 
 /**
@@ -632,9 +633,9 @@ export function markActivity(): void {
 /**
  * Force refresh on demand (for user-triggered refreshes and external callers)
  * 
- * @param extraSymbols - Additional symbols to include beyond universe
+ * @param symbols - Specific symbols to refresh (if empty/undefined, builds universe)
  */
-export async function forceRefresh(extraSymbols?: string[]): Promise<{
+export async function forceRefresh(symbols?: string[]): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
@@ -643,5 +644,5 @@ export async function forceRefresh(extraSymbols?: string[]): Promise<{
   total: number;
 }> {
   markActivity();
-  return refreshAllPrices(extraSymbols ?? []);
+  return refreshAllPrices(symbols);
 }

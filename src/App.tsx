@@ -11,7 +11,7 @@ import { Positions } from './components/Positions';
 import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
-import { refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
+import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
 import type { ResearchRef } from './components/Research';
 
@@ -27,7 +27,8 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds - refresh ALL symbols
+const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds
+const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
 
 export default function App() {
   const store = useStore();
@@ -39,15 +40,29 @@ export default function App() {
   const autoRefreshingRef = useRef(false);
 
   /**
-   * Unified refresh: ALL symbols (holdings + watchlist + research)
+   * Chunked refresh at HTTP boundary to stay under CF Workers subrequest limits
+   * 
+   * 1. GET /api/quotes/universe (1 Neon query)
+   * 2. POST /api/quotes/refresh with ≤10 symbols (N Yahoo + 2 Neon per request)
+   * 3. Repeat for each chunk
    */
   const refreshAll = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Refresh ALL prices through unified service
-      await store.refreshLiveQuotes([]);
+      // Get full symbol universe (1 HTTP request, 1 Neon query)
+      const { symbols: universe } = await getQuoteUniverse();
+      console.log(`[App] Refreshing ${universe.length} symbols in chunks of ${CHUNK_SIZE}`);
+      
+      // Refresh in chunks (multiple HTTP requests, each stays under CF limit)
+      for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
+        const chunk = universe.slice(i, i + CHUNK_SIZE);
+        await store.refreshLiveQuotes(chunk);
+        console.log(
+          `[App] Chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
+        );
+      }
       
       // Re-read all client state from shared store
       await Promise.allSettled([

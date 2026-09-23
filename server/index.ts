@@ -12,6 +12,7 @@ import {
 import {
   getMarksHandler,
   putMarksHandler,
+  getUniverseHandler,
   refreshQuotesHandler,
 } from './quotes.js';
 import {
@@ -98,6 +99,7 @@ app.post('/api/import', importCsvHandler);
 
 app.get('/api/marks', getMarksHandler);
 app.put('/api/marks', putMarksHandler);
+app.get('/api/quotes/universe', getUniverseHandler);
 app.post('/api/quotes/refresh', refreshQuotesHandler);
 app.get('/api/quotes/refresh', refreshQuotesHandler);
 

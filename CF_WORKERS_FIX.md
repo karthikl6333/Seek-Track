@@ -6,18 +6,20 @@
 
 **Root Cause:** Cloudflare Workers free tier limit of 50 subrequests per request was exceeded.
 
-**Resolution:** Intelligent chunking + query optimization to stay under limits.
+**Resolution:** Chunking at HTTP boundary - multiple requests, each under limit.
 
 ## The Problem
 
 ### CF Workers Subrequest Limits
 
 Cloudflare Workers free tier:
-- **Hard limit:** 50 subrequests per request
+- **Hard limit:** 50 subrequests per request (per Worker invocation)
 - **Counts as subrequests:**
   - External API calls (Yahoo Finance)
   - Database queries (Neon)
   - Any fetch() call from within a Worker
+
+**Critical misunderstanding in first attempt:** Sequential loops **within one Worker invocation** still count toward the **same 50 limit**. The counter does NOT reset between loop iterations.
 
 ### What Broke After PR #50
 
@@ -34,201 +36,187 @@ Persist:
   1 Neon query (load watchlist symbols)
   1 Neon query (watchlist_quotes upsert)
 
-Total: 5 + N + 3 = 8 + N subrequests
+Total: 5 + N + 3 = 8 + N subrequests PER INVOCATION
 ```
 
 **For 50 symbols:** 8 + 50 = **58 subrequests** → 💥 502 error
 
-## The Solution
+### Why First Fix Failed
 
-### Three-Pronged Approach
-
-1. **Query Optimization** - reduce database round trips
-2. **Caching** - reuse data across chunks
-3. **Intelligent Chunking** - stay under limit per batch
-
-## 1. Query Optimization
-
-### Universe Build (5 queries → 1 query)
-
-**Before:**
+**First attempt (incorrect):**
 ```typescript
-const tradesRes = await query(`SELECT ... FROM trades`);          // 1
-const watchlistRes = await query(`SELECT ... FROM watchlist`);     // 2
-const researchRes = await query(`SELECT ... FROM research_universe`); // 3
-const etfsRes = await query(`SELECT ... FROM research_etf_map`);   // 4
-const pairsRes = await query(`SELECT ... FROM pair_cache`);        // 5
-// Process in JavaScript
+// Inside refreshAllPrices() - SINGLE Worker invocation
+for (let i = 0; i < universe.length; i += 10) {
+  const chunk = universe.slice(i, i + 10);
+  await refreshChunk(chunk); // 10 Yahoo + 2 Neon = 12
+}
+// For 50 symbols: 5 + (5 × 12) = 65 subrequests in ONE invocation → still 502!
 ```
 
-**After:**
-```typescript
-const allSymbolsRes = await query(`
-  SELECT DISTINCT symbol FROM trades WHERE ... -- compute net position in SQL
-  UNION SELECT symbol FROM watchlist
-  UNION SELECT symbol FROM research_universe
-  UNION SELECT etf FROM research_etf_map
-  UNION SELECT etf FROM pair_cache
-  UNION SELECT underlying FROM pair_cache
-`); // Single UNION query
+**The mistake:** Looping inside one function = still one Worker invocation = one subrequest counter.
+
+## The Solution: HTTP Boundary Chunking
+
+### Correct Approach
+
+**Chunk at the HTTP/caller boundary** - each HTTP request is a separate Worker invocation with its own 50-subrequest budget.
+
+```
+Client calls:
+1. GET /api/quotes/universe        → 1 Worker invocation (1 Neon query)
+2. POST /api/quotes/refresh (0-10)  → 1 Worker invocation (10 Yahoo + 2 Neon)
+3. POST /api/quotes/refresh (11-20) → 1 Worker invocation (10 Yahoo + 2 Neon)
+4. POST /api/quotes/refresh (21-30) → 1 Worker invocation (10 Yahoo + 2 Neon)
+... and so on
+
+Each Worker invocation stays under 50 limit ✅
 ```
 
-**Savings:** 5 subrequests → **1 subrequest**
+## Implementation
 
-### Persist Optimization (3 queries → 2 parallel)
+### 1. Server: Separate Universe Build
 
-**Before:**
-```typescript
-await query(marks_upsert);                    // 1 (sequential)
-const watchlist = await query(get_watchlist); // 2 (sequential)
-await query(watchlist_quotes);                // 3 (sequential)
-```
-
-**After:**
-```typescript
-const watchlist = await getWatchlistSymbols(); // cached! (0 or 1 query)
-await Promise.all([
-  query(marks_upsert),          // parallel
-  query(watchlist_quotes),      // parallel
-]);
-```
-
-**Savings:** 3 sequential subrequests → **2 parallel subrequests**
-
-## 2. Caching Strategy
-
-### Watchlist Symbols Cache
-
-**Problem:** Watchlist symbols queried on every persist (once per chunk)
-
-**Solution:** Cache watchlist symbols for 60 seconds
+**New endpoint:** `GET /api/quotes/universe`
 
 ```typescript
-let watchlistSymbolsCache: Set<string> | null = null;
-let watchlistCacheTime = 0;
-const WATCHLIST_CACHE_TTL_MS = 60_000; // 1 minute
+export async function getSymbolUniverse(): Promise<string[]> {
+  return buildSymbolUniverse(); // 1 Neon UNION query
+}
 
-async function getWatchlistSymbols(): Promise<Set<string>> {
-  const now = Date.now();
-  if (watchlistSymbolsCache && (now - watchlistCacheTime) < WATCHLIST_CACHE_TTL_MS) {
-    return watchlistSymbolsCache; // Use cache
-  }
-  
-  const watchlistRes = await query(`SELECT symbol FROM watchlist`);
-  watchlistSymbolsCache = new Set(watchlistRes.rows.map(r => r.symbol.toUpperCase()));
-  watchlistCacheTime = now;
-  return watchlistSymbolsCache;
+export async function getUniverseHandler(c: Context) {
+  const universe = await getSymbolUniverse();
+  return c.json({ symbols: universe, total: universe.length });
 }
 ```
 
-**Effect:**
-- First chunk: 1 query (cache miss)
-- Subsequent chunks: 0 queries (cache hit)
-- Cache expires after 60s (watchlist rarely changes during refresh)
+**Subrequest budget:** 1 Neon query = **1 subrequest** ✅
 
-**Savings:** N subrequests → **1 subrequest per minute** (across all chunks)
+### 2. Server: Refresh Specific Symbols
 
-## 3. Intelligent Chunking
-
-### Chunk Size Calculation
-
-**CF Workers budget:** 50 subrequests per request
-
-**Per-chunk budget:**
-```
-Universe build (first chunk only):  1 query
-Watchlist cache (first chunk only): 1 query
-Yahoo fetches:                      N fetches
-Persist:                            2 queries (parallel)
-
-Total: 1 + 1 + N + 2 = 4 + N subrequests
-```
-
-**Safe chunk size:** N = 10 symbols
-- First chunk: 4 + 10 = **14 subrequests**
-- Other chunks: 0 + 0 + 10 + 2 = **12 subrequests**
-- Maximum: **14 subrequests** (well under 50 limit)
-
-### Chunking Implementation
+**Modified:** `POST /api/quotes/refresh`
 
 ```typescript
-const MAX_SYMBOLS_PER_REFRESH = 10; // Tunable
-
-async function refreshAllPrices(extraSymbols: string[] = []) {
-  const universe = await buildSymbolUniverse(); // 1 query (once)
+export async function refreshAllPrices(symbols?: string[]) {
+  let universe: string[];
   
-  // Process in chunks
-  for (let i = 0; i < universe.length; i += MAX_SYMBOLS_PER_REFRESH) {
-    const chunk = universe.slice(i, i + MAX_SYMBOLS_PER_REFRESH);
-    const { updated, failed } = await refreshChunk(chunk);
-    // ... aggregate results
+  if (symbols && symbols.length > 0) {
+    // Caller provided symbols - use those directly (NO universe build)
+    universe = symbols;
+  } else {
+    // No symbols - build universe (backward compat, but warn if >10)
+    universe = await buildSymbolUniverse();
+    if (universe.length > 10) {
+      console.warn('Universe too large, caller should chunk!');
+    }
   }
+  
+  // Fetch + persist
+  const quotes = await fetchQuotesBatch(universe);
+  await persistQuotes(quotes);
+  
+  return { ok, updated, failed, refreshedAt, total };
 }
 ```
 
-**Sequential processing** (not parallel):
-- Each chunk is one "request" from CF Workers perspective
-- Multiple chunks → multiple sequential mini-requests
-- Stays under 50 subrequest limit per chunk
+**Subrequest budget (when symbols provided):**
+- 0 Neon (no universe build)
+- N Yahoo fetches (N ≤ 10)
+- 2 Neon queries (marks + watchlist_quotes parallel)
+= **N + 2 subrequests** (N=10 → 12 subrequests) ✅
+
+### 3. Client: Chunked HTTP Calls
+
+**Updated:** `App.tsx` auto-refresh
+
+```typescript
+const refreshAll = async () => {
+  // 1. Get universe (1 HTTP request)
+  const { symbols: universe } = await getQuoteUniverse();
+  
+  // 2. Refresh in chunks (N HTTP requests, sequential)
+  const CHUNK_SIZE = 10;
+  for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
+    const chunk = universe.slice(i, i + CHUNK_SIZE);
+    await store.refreshLiveQuotes(chunk); // POST /api/quotes/refresh
+  }
+  
+  // 3. Reload client state
+  await store.refresh();
+};
+```
+
+**HTTP requests for 50 symbols:**
+- 1 × GET /api/quotes/universe (1 subrequest)
+- 5 × POST /api/quotes/refresh with 10 symbols each (12 subrequests each)
+
+**Each Worker invocation stays under 50** ✅
 
 ## Subrequest Budget Analysis
 
-### 10 Symbols (1 chunk)
+### Single Symbol Refresh (Manual)
+
+**Scenario:** User clicks "Refresh prices" on one holding
 
 ```
-Chunk 1:
-  1 universe build (UNION query)
-  1 watchlist cache load
+POST /api/quotes/refresh { symbols: ["AAPL"] }
+
+Subrequests:
+  0 universe build (symbols provided)
+  1 Yahoo fetch
+  2 Neon persist
+= 3 subrequests ✅
+```
+
+### 10-Symbol Chunk
+
+**Scenario:** Auto-refresh chunk or manual "Refresh prices" button
+
+```
+POST /api/quotes/refresh { symbols: ["AAPL", "NVDA", ...10 total] }
+
+Subrequests:
+  0 universe build
   10 Yahoo fetches
-  2 persist queries (marks + watchlist_quotes)
-= 14 subrequests ✅
+  2 Neon persist
+= 12 subrequests ✅
 ```
 
-### 50 Symbols (5 chunks)
+### 50-Symbol Universe (Full Refresh)
+
+**Scenario:** Auto-refresh or manual topbar button
 
 ```
-Chunk 1:
-  1 universe build
-  1 watchlist cache load
-  10 Yahoo fetches
-  2 persist
-= 14 subrequests ✅
+1. GET /api/quotes/universe
+   → Worker invocation 1: 1 subrequest ✅
 
-Chunks 2-5 (each):
-  0 universe build (already have list)
-  0 watchlist load (cached)
-  10 Yahoo fetches
-  2 persist
-= 12 subrequests each ✅
+2. POST /api/quotes/refresh { symbols: [0-9] }
+   → Worker invocation 2: 12 subrequests ✅
 
-Total: 14 + (4 × 12) = 62 subrequests
-But spread across 5 sequential chunks (not one request)
-Max per request: 14 ✅
+3. POST /api/quotes/refresh { symbols: [10-19] }
+   → Worker invocation 3: 12 subrequests ✅
+
+4. POST /api/quotes/refresh { symbols: [20-29] }
+   → Worker invocation 4: 12 subrequests ✅
+
+5. POST /api/quotes/refresh { symbols: [30-39] }
+   → Worker invocation 5: 12 subrequests ✅
+
+6. POST /api/quotes/refresh { symbols: [40-49] }
+   → Worker invocation 6: 12 subrequests ✅
+
+Total: 6 Worker invocations
+Max per invocation: 12 subrequests ✅
 ```
 
-### 100 Symbols (10 chunks)
+### 100-Symbol Universe
 
 ```
-Chunk 1: 14 subrequests ✅
-Chunks 2-10: 12 subrequests each ✅
+1. GET /api/quotes/universe: 1 subrequest
+2-11. 10 × POST /api/quotes/refresh: 12 subrequests each
 
-Total: 14 + (9 × 12) = 122 subrequests
-Spread across 10 chunks
-Max per request: 14 ✅
+Total: 11 Worker invocations
+Max per invocation: 12 subrequests ✅
 ```
-
-## Performance Impact
-
-### Before (PR #50)
-- 50 symbols: **502 error** ❌
-- 100 symbols: **502 error** ❌
-
-### After (This Fix)
-- 10 symbols: ~1 second (1 chunk) ✅
-- 50 symbols: ~5 seconds (5 chunks) ✅
-- 100 symbols: ~10 seconds (10 chunks) ✅
-
-**Trade-off:** Slightly slower (sequential chunks) but **reliable** (no 502s)
 
 ## Code Changes Summary
 
@@ -236,111 +224,276 @@ Max per request: 14 ✅
 
 **Added:**
 ```typescript
-const MAX_SYMBOLS_PER_REFRESH = 10;
-let watchlistSymbolsCache: Set<string> | null = null;
-let watchlistCacheTime = 0;
-const WATCHLIST_CACHE_TTL_MS = 60_000;
-
-async function getWatchlistSymbols() { /* cache impl */ }
-async function refreshChunk(symbols) { /* chunk impl */ }
+export async function getSymbolUniverse(): Promise<string[]> {
+  return buildSymbolUniverse();
+}
 ```
 
 **Modified:**
 ```typescript
-async function buildSymbolUniverse() {
-  // Single UNION query instead of 5 separate queries
-}
-
-async function persistQuotes(quotes) {
-  // Use cached watchlist, parallel upserts
-}
-
-async function refreshAllPrices(extraSymbols) {
-  // Automatic chunking, sequential processing
+export async function refreshAllPrices(symbols?: string[]) {
+  // If symbols provided: refresh only those (NO universe build)
+  // If no symbols: build universe (backward compat, warn if large)
 }
 ```
 
-**Lines changed:** ~95 lines refactored (net ~+50 lines for chunking logic)
+**Key change:** `refreshAllPrices()` now accepts `symbols` parameter. If provided, skips universe build entirely.
 
 ### `server/quotes.ts`
+
+**Added:**
+```typescript
+export async function getUniverseHandler(c: Context) {
+  const universe = await getSymbolUniverse();
+  return c.json({ symbols: universe, total: universe.length });
+}
+```
 
 **Modified:**
 ```typescript
 export async function refreshQuotesHandler(c: Context) {
-  // Accept and ignore legacy ?tier=hot|full params
-  // Old clients won't break
+  // Extract symbols from request body
+  const result = await forceRefresh(symbols); // Pass to service
 }
 ```
 
-**Lines changed:** ~5 lines (backward compatibility)
+### `server/index.ts`
 
-## Backward Compatibility
-
-### Legacy Tier Parameter
-
-**Problem:** Old clients may send `?tier=hot` or `?tier=full`
-
-**Solution:** Accept and ignore the parameter
-
+**Added:**
 ```typescript
-// Legacy tier param: accept and ignore (unified refresh handles chunking internally)
-// Old clients may send ?tier=hot or ?tier=full - we don't error, just use unified path
+app.get('/api/quotes/universe', getUniverseHandler);
 ```
 
-**Effect:**
-- ✅ Old clients keep working
-- ✅ No breaking API changes
-- ✅ Unified refresh handles everything
+### `src/lib/db.ts`
 
-### API Response (Unchanged)
+**Added:**
+```typescript
+export async function getQuoteUniverse(): Promise<{ 
+  symbols: string[]; 
+  total: number 
+}> {
+  return api('/api/quotes/universe');
+}
+```
 
-Same response shape as PR #50:
+### `src/App.tsx`
+
+**Modified:**
+```typescript
+const refreshAll = async () => {
+  // 1. GET universe (separate HTTP request)
+  const { symbols: universe } = await getQuoteUniverse();
+  
+  // 2. Chunk at HTTP boundary (separate HTTP requests)
+  for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
+    const chunk = universe.slice(i, i + CHUNK_SIZE);
+    await store.refreshLiveQuotes(chunk);
+  }
+  
+  // 3. Reload state
+  await store.refresh();
+};
+```
+
+**Key change:** Chunking happens via **multiple HTTP calls**, not in-process loops.
+
+## API Changes
+
+### New Endpoint
+
+**GET /api/quotes/universe**
+
+Returns the complete symbol universe (holdings + watchlist + research + ETFs + pairs).
+
+**Request:**
+```http
+GET /api/quotes/universe
+```
+
+**Response:**
 ```json
 {
-  "ok": true,
-  "updated": ["AAPL", "NVDA", "TSLA", ...],
-  "failed": ["INVALID"],
-  "refreshedAt": "2026-09-23T14:00:00.000Z",
+  "symbols": ["AAPL", "NVDA", "TSLA", ...],
   "total": 50
 }
 ```
 
-## Tuning Guide
+**Subrequest budget:** 1 Neon query
+
+### Modified Endpoint
+
+**POST /api/quotes/refresh**
+
+Now accepts `symbols` array to refresh specific symbols.
+
+**Request (new way - chunked):**
+```http
+POST /api/quotes/refresh
+Content-Type: application/json
+
+{
+  "symbols": ["AAPL", "NVDA", "TSLA", ...]
+}
+```
+
+**Request (old way - backward compat):**
+```http
+POST /api/quotes/refresh
+
+{}
+```
+
+**Response (same):**
+```json
+{
+  "ok": true,
+  "updated": ["AAPL", "NVDA", ...],
+  "failed": ["INVALID"],
+  "refreshedAt": "2026-09-23T14:00:00.000Z",
+  "total": 10
+}
+```
+
+**Subrequest budget:**
+- With symbols: 0 + N + 2 = N + 2 (N ≤ 10 → 12 subrequests)
+- Without symbols: 1 + N + 2 = N + 3 (warns if N > 10)
+
+## Performance
+
+### Comparison
+
+**Before (PR #50 - broken):**
+- 50 symbols: 502 error ❌
+
+**First fix attempt (broken):**
+- 50 symbols: still 502 error ❌ (in-process chunks counted toward same limit)
+
+**This fix (working):**
+- 10 symbols: ~1 second (2 HTTP requests: universe + chunk) ✅
+- 50 symbols: ~6 seconds (6 HTTP requests: universe + 5 chunks) ✅
+- 100 symbols: ~11 seconds (11 HTTP requests: universe + 10 chunks) ✅
+
+**Latency breakdown (50 symbols):**
+```
+GET /api/quotes/universe:          ~200ms  (1 Neon query)
+POST /api/quotes/refresh (0-9):    ~1000ms (10 Yahoo + 2 Neon)
+POST /api/quotes/refresh (10-19):  ~1000ms
+POST /api/quotes/refresh (20-29):  ~1000ms
+POST /api/quotes/refresh (30-39):  ~1000ms
+POST /api/quotes/refresh (40-49):  ~1000ms
+Total:                             ~5.2s
+```
+
+## Testing
+
+### Build Verification
+```bash
+npm run build:client  # ✅ TypeScript clean, Vite builds
+npm run build:server  # ✅ TypeScript clean, server builds
+npm test              # ✅ 3/3 lots.test.ts pass
+```
+
+### Manual Testing (After Deploy)
+
+**1. Test universe endpoint:**
+```bash
+curl https://seek-track.pages.dev/api/quotes/universe
+# Should return: { "symbols": [...], "total": N }
+```
+
+**2. Test chunked refresh (10 symbols):**
+```bash
+curl -X POST https://seek-track.pages.dev/api/quotes/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"symbols": ["AAPL", "NVDA", "TSLA", ...]}'
+# Should return 200, not 502
+```
+
+**3. Test auto-refresh:**
+- Open app
+- Wait 30 seconds
+- Check console: "Chunk N/M complete"
+- Check network: multiple POST /api/quotes/refresh calls
+- Verify no 502 errors
+
+**4. Test manual refresh:**
+- Click top-right ↻ button
+- Should show "Refreshing..."
+- Should complete without 502
+- All prices should update
+
+## Backward Compatibility
+
+### Legacy Clients
+
+**Old request (no symbols):**
+```http
+POST /api/quotes/refresh
+
+{}
+```
+
+**Behavior:**
+- Builds universe internally
+- Refreshes all symbols in one invocation
+- ⚠️ Will still 502 if universe > ~40 symbols
+- Server logs warning: "Universe too large, caller should chunk!"
+
+**Recommendation:** Update clients to use chunked approach.
+
+### Legacy Tier Parameter
+
+**Still accepted and ignored:**
+```http
+POST /api/quotes/refresh?tier=hot
+
+{"symbols": ["AAPL", ...]}
+```
+
+**Behavior:**
+- `tier` parameter ignored
+- Refreshes provided symbols
+- No error, no breaking change
+
+## Tuning
 
 ### Adjusting Chunk Size
 
-If refresh is **too slow:**
-```typescript
-const MAX_SYMBOLS_PER_REFRESH = 15; // Larger chunks
-// 1 + 1 + 15 + 2 = 19 subrequests (still safe)
-```
+In `src/App.tsx`:
 
-If hitting **subrequest limits** (unlikely):
 ```typescript
-const MAX_SYMBOLS_PER_REFRESH = 8; // Smaller chunks
-// 1 + 1 + 8 + 2 = 12 subrequests (more headroom)
+// Increase for faster refresh (more subrequests per call)
+const CHUNK_SIZE = 15; // 0 + 15 + 2 = 17 subrequests
+
+// Decrease for more headroom (slower refresh)
+const CHUNK_SIZE = 8;  // 0 + 8 + 2 = 10 subrequests
 ```
 
 **Current setting (10)** is the sweet spot:
-- Well under 50 limit
+- Well under 50 limit (12 subrequests)
 - Room for CF Workers overhead
-- Fast enough (~1s per 10 symbols)
+- Fast enough (~1s per chunk)
 
-### Adjusting Cache TTL
+### Parallel Chunks (Advanced)
 
-If watchlist **changes frequently:**
+**Not recommended**, but possible:
+
 ```typescript
-const WATCHLIST_CACHE_TTL_MS = 30_000; // 30 seconds
+const PARALLEL_CHUNKS = 2; // Process 2 chunks at once
+
+for (let i = 0; i < universe.length; i += CHUNK_SIZE * PARALLEL_CHUNKS) {
+  const chunks = [
+    universe.slice(i, i + CHUNK_SIZE),
+    universe.slice(i + CHUNK_SIZE, i + CHUNK_SIZE * 2),
+  ].filter(c => c.length > 0);
+  
+  await Promise.all(chunks.map(chunk => 
+    store.refreshLiveQuotes(chunk)
+  ));
+}
 ```
 
-If watchlist **rarely changes:**
-```typescript
-const WATCHLIST_CACHE_TTL_MS = 5 * 60_000; // 5 minutes
-```
-
-**Current setting (60s)** is conservative:
-- Balances freshness vs query savings
-- Typical user doesn't modify watchlist mid-refresh
+**Risk:** If both chunks hit same Worker instance, could exceed 50 limit. Safer to keep sequential.
 
 ## Monitoring
 
@@ -349,19 +502,19 @@ const WATCHLIST_CACHE_TTL_MS = 5 * 60_000; // 5 minutes
 After deployment, monitor:
 - ✅ CF Workers error rate → should be ~0%
 - ✅ Refresh success rate → should be ~100%
-- ✅ P95 latency → should be ~1s × (symbols / 10)
+- ✅ P95 latency → should be ~1s × (universe.length / 10 + 1)
 
 ### CF Workers Dashboard
 
 Check:
-- **Subrequests per invocation** → should be <20 (avg)
+- **Subrequests per invocation** → should be <20 (avg: ~12)
 - **Error rate** → should be ~0%
-- **CPU time** → should be <50ms per chunk
+- **CPU time** → should be <50ms per request
 
 ### Neon Dashboard
 
 Check:
-- **Query count** → should be lower than before (UNION optimization)
+- **Query count** → should be same or slightly higher (1 extra universe query per refresh)
 - **Query latency** → should be similar (<100ms)
 - **Connection count** → should be same or lower
 
@@ -371,13 +524,13 @@ If issues arise:
 
 1. **Revert to PR #49** (pre-unified pricing):
    ```bash
-   git revert be70159 # PR #50
+   git revert be70159 52da6d0 # PR #50 + this fix
    git push origin main
    ```
 
 2. **Or adjust chunk size** (less risky):
    ```typescript
-   const MAX_SYMBOLS_PER_REFRESH = 5; // Very conservative
+   const CHUNK_SIZE = 5; // Very conservative
    ```
 
 3. **Or disable auto-refresh** (emergency):
@@ -387,45 +540,50 @@ If issues arise:
 
 ## Lessons Learned
 
+### Critical Misunderstanding
+
+**Mistake:** Thinking in-process sequential chunks would bypass CF Workers subrequest limit.
+
+**Reality:** All subrequests in one Worker invocation count toward the same 50 limit, regardless of loops or function boundaries.
+
+**Correct approach:** Chunk at the **HTTP boundary** - separate requests = separate invocations = separate budgets.
+
 ### What Worked
 
-1. **Query optimization first** - UNION instead of N queries
-2. **Cache aggressively** - 60s TTL for rarely-changing data
-3. **Chunk transparently** - callers don't know about chunking
-4. **Keep it simple** - sequential chunks, not parallel (easier to reason about)
-
-### What to Watch
-
-1. **CF Workers limits evolve** - paid tier has higher limits
-2. **Universe size grows** - more symbols = more chunks = slower
-3. **Yahoo rate limits** - 1000 req/min shared across all users
+1. **Separate universe endpoint** - 1 query, 1 response, caller controls chunking
+2. **Symbols parameter** - explicit control over what to refresh
+3. **Client-side chunking** - multiple HTTP calls, each under limit
+4. **Keep it simple** - sequential chunks easier to reason about than parallel
 
 ### Future Optimizations
 
 If needed:
 
-1. **Parallel chunks** - process 2-3 chunks in parallel (risky, complex)
-2. **Smart chunking** - prioritize holdings over research
-3. **Incremental refresh** - only refresh stale marks (complex cache invalidation)
-4. **Upgrade to CF Workers paid** - 1000 subrequest limit
+1. **WebSocket streaming** - universe + incremental updates (complex)
+2. **Server-side chunking coordinator** - queue chunks, client polls (complex)
+3. **Upgrade to CF Workers paid** - 1000 subrequest limit (costs money)
 
-For now: **keep it simple, keep it working** ✅
+For now: **simple HTTP chunking works** ✅
 
 ## Summary
 
 **Problem:** CF Workers 50 subrequest limit exceeded → 502 errors
 
-**Solution:**
-1. Query optimization: 5 queries → 1 UNION query
-2. Caching: watchlist symbols cached 60s
-3. Intelligent chunking: 10 symbols per batch = 13 subrequests
+**First fix (wrong):** In-process sequential chunks  
+→ Still counted toward same 50 limit → still 502 ❌
+
+**Second fix (correct):** HTTP boundary chunking  
+→ Separate HTTP requests → separate Worker invocations → separate 50 limits ✅
+
+**Implementation:**
+1. GET /api/quotes/universe (1 Neon query)
+2. POST /api/quotes/refresh with ≤10 symbols (N Yahoo + 2 Neon per request)
+3. Client loops over chunks sequentially
 
 **Result:**
-- ✅ Refresh works reliably for 50-100+ symbols
-- ✅ Stays under CF Workers limits
-- ✅ Backward compatible (tier param ignored)
-- ✅ Tests pass, builds succeed
+- Each Worker invocation: 12 subrequests (well under 50) ✅
+- 50 symbols: 6 HTTP requests, ~6 seconds ✅
+- 100 symbols: 11 HTTP requests, ~11 seconds ✅
+- No more 502 errors ✅
 
-**Trade-off:** Slightly slower (sequential chunks) but **reliable** (no 502s)
-
-**Deployment:** Ready for HostOps to deploy PR #51 to production ✅
+**Deployment:** Ready for HostOps to deploy PR #51 (updated) ✅

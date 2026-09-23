@@ -27,7 +27,8 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const AUTO_REFRESH_INTERVAL_MS = 15_000; // Always-on 15s refresh while portal is open
+const AUTO_REFRESH_HOT_INTERVAL_MS = 30_000; // 30 seconds for hot tier (holdings + watchlist)
+const AUTO_REFRESH_COLD_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes for cold tier (research, etc.)
 
 export default function App() {
   const store = useStore();
@@ -35,37 +36,70 @@ export default function App() {
   const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
-  const autoRefreshIntervalRef = useRef<number | null>(null);
+  const hotRefreshIntervalRef = useRef<number | null>(null);
+  const coldRefreshIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
+  const lastColdRefreshAt = useRef<number>(0);
 
   /**
-   * Unified refresh: triggers server quote service + re-reads all client state
-   * Single server call to avoid double forceRefresh race
+   * Hot tier refresh: holdings + watchlist (30s cadence)
    */
-  const refreshPortalPrices = useCallback(async () => {
+  const refreshHotTier = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Single server refresh call (triggers quote-service forceRefresh)
-      await store.refreshLiveQuotes();
+      // Hot refresh: server will only refresh holdings + watchlist
+      await store.refreshLiveQuotes([], 'hot');
       
       // Re-read all client state from shared store (GET only, no POST)
       await Promise.allSettled([
         store.refresh(), // Re-reads marks, updates holdings/positions
         watchlistRef.current?.reload(), // GET /api/watchlist (re-reads marks join)
-        researchRef.current?.reload(), // GET /api/research (re-reads marks join)
-        // Paper/crypto refresh their own separate data
+      ]);
+    } catch (error) {
+      console.error('[App] Hot tier refresh error:', error);
+    } finally {
+      autoRefreshingRef.current = false;
+    }
+  }, [store]);
+
+  /**
+   * Cold tier refresh: research universe, ETFs, pair cache (15m cadence)
+   */
+  const refreshColdTier = useCallback(async () => {
+    if (autoRefreshingRef.current) return;
+    autoRefreshingRef.current = true;
+    
+    try {
+      // Full refresh: server will refresh entire universe
+      await store.refreshLiveQuotes([], 'full');
+      
+      // Re-read all client state from shared store
+      await Promise.allSettled([
+        store.refresh(),
+        watchlistRef.current?.reload(),
+        researchRef.current?.reload(), // Research benefits from cold tier
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
       ]);
+      
+      lastColdRefreshAt.current = Date.now();
     } catch (error) {
-      console.error('[App] Auto-refresh error:', error);
+      console.error('[App] Cold tier refresh error:', error);
     } finally {
       autoRefreshingRef.current = false;
     }
-  }, [store.refreshLiveQuotes, store.refresh]);
+  }, [store]);
+
+  /**
+   * Unified refresh (hot tier only for fast UI response)
+   */
+  const refreshPortalPrices = useCallback(async () => {
+    // Manual/topbar refresh uses hot tier for fast response
+    return refreshHotTier();
+  }, [refreshHotTier]);
 
   /**
    * Manual refresh button (with animation)
@@ -85,43 +119,70 @@ export default function App() {
   }, [refreshPortalPrices]);
 
   /**
-   * Always-on 15s refresh while portal is open
-   * Pauses when tab is hidden (document.hidden)
+   * Dual-tier refresh system:
+   * - Hot tier (holdings + watchlist): 30s interval
+   * - Cold tier (research, ETFs, pairs): 15m interval
+   * Both pause when tab is hidden
    */
   useEffect(() => {
-    // Initial refresh on mount
-    const initialTimer = setTimeout(() => {
-      void refreshPortalPrices();
+    // Initial hot refresh on mount
+    const initialHotTimer = setTimeout(() => {
+      void refreshHotTier();
     }, 2000); // 2s delay for initial load
 
-    // Set up 15s interval
-    autoRefreshIntervalRef.current = window.setInterval(() => {
+    // Initial cold refresh on mount
+    const initialColdTimer = setTimeout(() => {
+      void refreshColdTier();
+    }, 5000); // 5s delay, after hot
+
+    // Set up 30s hot tier interval
+    hotRefreshIntervalRef.current = window.setInterval(() => {
       // Skip refresh if tab is hidden (save Yahoo quota)
       if (document.hidden) {
-        console.log('[App] Skipping refresh (tab hidden)');
+        console.log('[App] Skipping hot refresh (tab hidden)');
         return;
       }
-      void refreshPortalPrices();
-    }, AUTO_REFRESH_INTERVAL_MS);
+      void refreshHotTier();
+    }, AUTO_REFRESH_HOT_INTERVAL_MS);
+
+    // Set up 15m cold tier interval
+    coldRefreshIntervalRef.current = window.setInterval(() => {
+      if (document.hidden) {
+        console.log('[App] Skipping cold refresh (tab hidden)');
+        return;
+      }
+      void refreshColdTier();
+    }, AUTO_REFRESH_COLD_INTERVAL_MS);
 
     // Resume immediately when tab becomes visible
     const handleVisibilityChange = () => {
       if (!document.hidden && !autoRefreshingRef.current) {
         console.log('[App] Tab visible, triggering refresh');
-        void refreshPortalPrices();
+        void refreshHotTier(); // Always refresh hot tier
+        
+        // Refresh cold tier if it's been >15m since last cold refresh
+        const coldAge = Date.now() - lastColdRefreshAt.current;
+        if (coldAge > AUTO_REFRESH_COLD_INTERVAL_MS) {
+          void refreshColdTier();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearTimeout(initialTimer);
-      if (autoRefreshIntervalRef.current !== null) {
-        clearInterval(autoRefreshIntervalRef.current);
-        autoRefreshIntervalRef.current = null;
+      clearTimeout(initialHotTimer);
+      clearTimeout(initialColdTimer);
+      if (hotRefreshIntervalRef.current !== null) {
+        clearInterval(hotRefreshIntervalRef.current);
+        hotRefreshIntervalRef.current = null;
+      }
+      if (coldRefreshIntervalRef.current !== null) {
+        clearInterval(coldRefreshIntervalRef.current);
+        coldRefreshIntervalRef.current = null;
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshPortalPrices]);
+  }, [refreshHotTier, refreshColdTier]);
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox
@@ -217,6 +278,21 @@ export default function App() {
         <div className="topbar">
           <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {store.lastRefreshError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#e67e22',
+                  maxWidth: 280,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={store.lastRefreshError}
+              >
+                ⚠ {store.lastRefreshError.split('\n')[0].slice(0, 100)}
+              </div>
+            )}
             <button
               type="button"
               className="btn"

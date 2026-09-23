@@ -171,7 +171,7 @@ export function useStore() {
   );
 
   const refreshLiveQuotes = useCallback(
-    async (extra?: string[]) => {
+    async (extra?: string[], tier?: 'hot' | 'full') => {
       setError(null);
       setLastRefreshError(null);
       const symbols = [...(extra ?? [])];
@@ -203,7 +203,7 @@ export function useStore() {
       const unique = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
       // Pass the full unique set to refreshQuotes so the server refreshes ALL relevant symbols
       try {
-        const result = await db.refreshQuotes(unique);
+        const result = await db.refreshQuotes(unique, tier);
         await refreshMarks();
         return result;
       } catch (err) {

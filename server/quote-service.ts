@@ -262,17 +262,20 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
 /**
  * Build the portal universe: all symbols that need pricing
  * Can be augmented with extra symbols for immediate inclusion
+ * 
+ * @param extraSymbols - Additional symbols to include
+ * @param hotOnly - If true, only include hot tier (holdings + watchlist)
  */
-async function buildPortalUniverse(extraSymbols: string[] = []): Promise<string[]> {
+async function buildPortalUniverse(extraSymbols: string[] = [], hotOnly = false): Promise<string[]> {
   const symbols = new Set<string>();
 
   // Add extra symbols first (e.g., newly added watchlist/research items)
   for (const sym of extraSymbols) {
     const normalized = sym.trim().toUpperCase();
-    if (normalized) symbols.add(normalized);
+    if (normalized && normalized.length > 0) symbols.add(normalized);
   }
 
-  // 1. Holdings (open positions from trades)
+  // 1. Holdings (open positions from trades) - HOT TIER
   const tradesRes = await query<{ symbol: string; action: string; quantity: number }>(
     `SELECT symbol, action, quantity FROM trades ORDER BY date ASC, imported_at ASC`
   );
@@ -294,40 +297,52 @@ async function buildPortalUniverse(extraSymbols: string[] = []): Promise<string[
     }
   }
   for (const [sym, qty] of netPositions.entries()) {
-    if (Math.abs(qty) > 1e-8) symbols.add(sym);
+    if (Math.abs(qty) > 1e-8 && sym.trim().length > 0) symbols.add(sym);
   }
 
-  // 2. Watchlist
+  // 2. Watchlist - HOT TIER
   const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
   for (const r of watchlistRes.rows) {
-    symbols.add(r.symbol.toUpperCase());
+    const sym = r.symbol.toUpperCase().trim();
+    if (sym.length > 0) symbols.add(sym);
   }
+
+  // If hot-only, stop here
+  if (hotOnly) {
+    return Array.from(symbols).filter(s => s.length > 0).sort();
+  }
+
+  // COLD TIER: Research universe, ETFs, pair cache
 
   // 3. Research universe
   const researchRes = await query<{ symbol: string }>(`SELECT symbol FROM research_universe`);
   for (const r of researchRes.rows) {
-    symbols.add(r.symbol.toUpperCase());
+    const sym = r.symbol.toUpperCase().trim();
+    if (sym.length > 0) symbols.add(sym);
   }
 
   // 4. Research ETFs
   const etfsRes = await query<{ etf: string }>(`SELECT DISTINCT etf FROM research_etf_map`);
   for (const r of etfsRes.rows) {
-    symbols.add(r.etf.toUpperCase());
+    const sym = r.etf.toUpperCase().trim();
+    if (sym.length > 0) symbols.add(sym);
   }
 
   // 5. Pair cache underlyings (for calculators)
   const pairsRes = await query<{ etf: string; underlying: string }>(`SELECT etf, underlying FROM pair_cache`);
   for (const r of pairsRes.rows) {
-    symbols.add(r.etf.toUpperCase());
-    symbols.add(r.underlying.toUpperCase());
+    const etf = r.etf.toUpperCase().trim();
+    const underlying = r.underlying.toUpperCase().trim();
+    if (etf.length > 0) symbols.add(etf);
+    if (underlying.length > 0) symbols.add(underlying);
   }
 
-  return Array.from(symbols).sort();
+  return Array.from(symbols).filter(s => s.length > 0).sort();
 }
 
 /**
- * Update database with fresh quotes
- * Loads watchlist once to avoid N+1 queries
+ * Update database with fresh quotes using bulk upserts
+ * Reduces subrequests from N to 2 (one for marks, one for watchlist_quotes)
  */
 async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   if (quotes.size === 0) return;
@@ -336,29 +351,66 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
   const watchlistSet = new Set(watchlistRes.rows.map((r) => r.symbol.toUpperCase()));
 
-  // Batch upsert to marks table (all symbols)
+  // Bulk upsert to marks table (all symbols) - single query
+  const marksValues: string[] = [];
+  const marksParams: unknown[] = [];
+  let paramIndex = 1;
+  
   for (const [symbol, quote] of quotes.entries()) {
+    marksValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4})`);
+    marksParams.push(symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct);
+    paramIndex += 5;
+  }
+
+  if (marksValues.length > 0) {
     await query(
       `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES ${marksValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
          price = EXCLUDED.price,
          updated_at = EXCLUDED.updated_at,
          source = EXCLUDED.source,
          day_pct = EXCLUDED.day_pct`,
-      [symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct]
+      marksParams
     );
   }
 
-  // Batch upsert to watchlist_quotes (only watchlist symbols)
+  // Bulk upsert to watchlist_quotes (only watchlist symbols) - single query
+  const watchlistValues: string[] = [];
+  const watchlistParams: unknown[] = [];
+  paramIndex = 1;
+
   for (const [symbol, quote] of quotes.entries()) {
     if (!watchlistSet.has(symbol)) continue;
 
+    watchlistValues.push(
+      `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, ` +
+      `$${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, ` +
+      `$${paramIndex + 10}, $${paramIndex + 11})`
+    );
+    watchlistParams.push(
+      symbol,
+      quote.price,
+      quote.dayPct,
+      quote.valChange,
+      quote.sessionOpen,
+      quote.bid,
+      quote.ask,
+      quote.marketCap,
+      quote.volume,
+      quote.week52High,
+      quote.week52Low,
+      quote.updatedAt
+    );
+    paramIndex += 12;
+  }
+
+  if (watchlistValues.length > 0) {
     await query(
       `INSERT INTO watchlist_quotes
          (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
           week52_high, week52_low, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ${watchlistValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
          last = EXCLUDED.last,
          pct_change = EXCLUDED.pct_change,
@@ -371,33 +423,24 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
          week52_high = EXCLUDED.week52_high,
          week52_low = EXCLUDED.week52_low,
          updated_at = EXCLUDED.updated_at`,
-      [
-        symbol,
-        quote.price,
-        quote.dayPct,
-        quote.valChange,
-        quote.sessionOpen,
-        quote.bid,
-        quote.ask,
-        quote.marketCap,
-        quote.volume,
-        quote.week52High,
-        quote.week52Low,
-        quote.updatedAt,
-      ]
+      watchlistParams
     );
   }
 }
 
 /**
  * Perform one refresh cycle
+ * 
+ * @param extraSymbols - Additional symbols to refresh beyond universe
+ * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
  */
-export async function refreshQuoteService(extraSymbols: string[] = []): Promise<{
+export async function refreshQuoteService(extraSymbols: string[] = [], hotOnly = false): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
+  tier?: 'hot' | 'full';
 }> {
   if (isRefreshing) {
     return {
@@ -415,12 +458,13 @@ export async function refreshQuoteService(extraSymbols: string[] = []): Promise<
   let error: string | undefined;
 
   try {
-    const universe = await buildPortalUniverse(extraSymbols);
-    console.log(`[QuoteService] Refreshing ${universe.length} symbols`);
+    const universe = await buildPortalUniverse(extraSymbols, hotOnly);
+    const tier = hotOnly ? 'hot' : 'full';
+    console.log(`[QuoteService] Refreshing ${universe.length} symbols (${tier} tier)`);
 
     if (universe.length === 0) {
       lastRefreshAt = new Date().toISOString();
-      return { ok: true, updated: [], failed: [], refreshedAt: lastRefreshAt };
+      return { ok: true, updated: [], failed: [], refreshedAt: lastRefreshAt, tier };
     }
 
     const startTime = Date.now();
@@ -442,7 +486,7 @@ export async function refreshQuoteService(extraSymbols: string[] = []): Promise<
     lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
 
     console.log(
-      `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms (${failed.length} failed)`
+      `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms (${failed.length} failed, ${tier} tier)`
     );
 
     return {
@@ -451,6 +495,7 @@ export async function refreshQuoteService(extraSymbols: string[] = []): Promise<
       failed,
       refreshedAt: lastRefreshAt,
       error: lastRefreshError ?? undefined,
+      tier,
     };
   } catch (e) {
     error = String(e);
@@ -463,6 +508,7 @@ export async function refreshQuoteService(extraSymbols: string[] = []): Promise<
       failed,
       refreshedAt: lastRefreshAt,
       error,
+      tier: hotOnly ? 'hot' : 'full',
     };
   } finally {
     isRefreshing = false;
@@ -555,14 +601,18 @@ export function subscribeToUpdates(): () => void {
 
 /**
  * Force refresh on demand (for user-triggered refreshes)
+ * 
+ * @param extraSymbols - Additional symbols to refresh
+ * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
  */
-export async function forceRefresh(extraSymbols?: string[]): Promise<{
+export async function forceRefresh(extraSymbols?: string[], hotOnly = false): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
+  tier?: 'hot' | 'full';
 }> {
   markActivity();
-  return refreshQuoteService(extraSymbols ?? []);
+  return refreshQuoteService(extraSymbols ?? [], hotOnly);
 }

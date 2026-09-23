@@ -433,14 +433,23 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
  * 
  * @param extraSymbols - Additional symbols to refresh beyond universe
  * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
+ * @param chunkOffset - For chunked cold refresh, skip this many symbols
+ * @param chunkLimit - For chunked cold refresh, process at most this many symbols
  */
-export async function refreshQuoteService(extraSymbols: string[] = [], hotOnly = false): Promise<{
+export async function refreshQuoteService(
+  extraSymbols: string[] = [],
+  hotOnly = false,
+  chunkOffset = 0,
+  chunkLimit?: number
+): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
   tier?: 'hot' | 'full';
+  remaining?: number;
+  total?: number;
 }> {
   if (isRefreshing) {
     return {
@@ -458,13 +467,38 @@ export async function refreshQuoteService(extraSymbols: string[] = [], hotOnly =
   let error: string | undefined;
 
   try {
-    const universe = await buildPortalUniverse(extraSymbols, hotOnly);
+    const fullUniverse = await buildPortalUniverse(extraSymbols, hotOnly);
     const tier = hotOnly ? 'hot' : 'full';
-    console.log(`[QuoteService] Refreshing ${universe.length} symbols (${tier} tier)`);
+    const total = fullUniverse.length;
+    
+    // For full tier, apply chunking to avoid subrequest limits (hot tier stays unchunked)
+    const shouldChunk = !hotOnly && chunkLimit !== undefined && chunkLimit > 0;
+    
+    let universe = fullUniverse;
+    let remaining = 0;
+    
+    if (shouldChunk) {
+      // Chunk the universe
+      universe = fullUniverse.slice(chunkOffset, chunkOffset + chunkLimit);
+      remaining = Math.max(0, fullUniverse.length - chunkOffset - universe.length);
+      console.log(
+        `[QuoteService] Chunked refresh: ${universe.length} symbols (offset ${chunkOffset}, ${remaining} remaining, ${total} total)`
+      );
+    } else {
+      console.log(`[QuoteService] Refreshing ${universe.length} symbols (${tier} tier)`);
+    }
 
     if (universe.length === 0) {
       lastRefreshAt = new Date().toISOString();
-      return { ok: true, updated: [], failed: [], refreshedAt: lastRefreshAt, tier };
+      return {
+        ok: true,
+        updated: [],
+        failed: [],
+        refreshedAt: lastRefreshAt,
+        tier,
+        remaining,
+        total: shouldChunk ? total : undefined,
+      };
     }
 
     const startTime = Date.now();
@@ -496,6 +530,8 @@ export async function refreshQuoteService(extraSymbols: string[] = [], hotOnly =
       refreshedAt: lastRefreshAt,
       error: lastRefreshError ?? undefined,
       tier,
+      remaining: shouldChunk ? remaining : undefined,
+      total: shouldChunk ? total : undefined,
     };
   } catch (e) {
     error = String(e);
@@ -604,15 +640,24 @@ export function subscribeToUpdates(): () => void {
  * 
  * @param extraSymbols - Additional symbols to refresh
  * @param hotOnly - If true, only refresh hot tier (holdings + watchlist)
+ * @param chunkOffset - For chunked cold refresh, skip this many symbols
+ * @param chunkLimit - For chunked cold refresh, process at most this many symbols
  */
-export async function forceRefresh(extraSymbols?: string[], hotOnly = false): Promise<{
+export async function forceRefresh(
+  extraSymbols?: string[],
+  hotOnly = false,
+  chunkOffset = 0,
+  chunkLimit?: number
+): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
   error?: string;
   tier?: 'hot' | 'full';
+  remaining?: number;
+  total?: number;
 }> {
   markActivity();
-  return refreshQuoteService(extraSymbols ?? [], hotOnly);
+  return refreshQuoteService(extraSymbols ?? [], hotOnly, chunkOffset, chunkLimit);
 }

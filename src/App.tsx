@@ -66,14 +66,39 @@ export default function App() {
 
   /**
    * Cold tier refresh: research universe, ETFs, pair cache (15m cadence)
+   * Uses chunking to avoid Workers subrequest limits
    */
   const refreshColdTier = useCallback(async () => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
     try {
-      // Full refresh: server will refresh entire universe
-      await store.refreshLiveQuotes([], 'full');
+      const CHUNK_SIZE = 25;
+      let offset = 0;
+      let remaining = 1; // Start with non-zero to enter loop
+      let total = 0;
+      
+      // Loop through chunks until remaining === 0
+      while (remaining > 0) {
+        const result = await store.refreshLiveQuotes([], 'full', offset, CHUNK_SIZE);
+        
+        remaining = result.remaining ?? 0;
+        total = result.total ?? result.updated.length;
+        
+        console.log(
+          `[App] Cold refresh chunk (offset ${offset}): ${result.updated.length} updated, ${remaining} remaining (${total} total)`
+        );
+        
+        // Advance offset by chunk size (not by updated.length, since failed symbols still consume universe slots)
+        offset += CHUNK_SIZE;
+        
+        // Small delay between chunks to avoid hammering the server
+        if (remaining > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      console.log(`[App] Cold refresh complete: ${total} symbols processed`);
       
       // Re-read all client state from shared store
       await Promise.allSettled([
@@ -314,7 +339,7 @@ export default function App() {
               className="btn"
               onClick={() => void refreshAll()}
               disabled={refreshing}
-              title="Refresh all data now (auto-refresh every 15s)"
+              title="Refresh all data now (auto: hot 30s / cold 15m)"
               style={{
                 minWidth: 40,
                 minHeight: 40,

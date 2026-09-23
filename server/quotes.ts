@@ -104,6 +104,8 @@ export async function refreshQuotesHandler(c: Context) {
   markActivity();
   let extra: string[] = [];
   let hotOnly = false;
+  let chunkOffset = 0;
+  let chunkLimit: number | undefined = undefined;
   
   try {
     if (c.req.method === 'POST') {
@@ -116,6 +118,13 @@ export async function refreshQuotesHandler(c: Context) {
       // Accept tier parameter: 'hot' or 'full'/'cold'
       if (body?.tier === 'hot') {
         hotOnly = true;
+      }
+      // Accept chunk parameters (for chunked cold refresh)
+      if (typeof body?.chunkOffset === 'number') {
+        chunkOffset = body.chunkOffset;
+      }
+      if (typeof body?.chunkLimit === 'number') {
+        chunkLimit = body.chunkLimit;
       }
     }
   } catch {
@@ -130,7 +139,13 @@ export async function refreshQuotesHandler(c: Context) {
     hotOnly = true;
   }
   
-  const result = await forceRefresh(extra, hotOnly);
+  // For full/cold tier, always default to chunking to avoid subrequest limits
+  // Hot tier stays unchunked (chunkLimit remains undefined)
+  if (!hotOnly && chunkLimit === undefined) {
+    chunkLimit = 25; // Default chunk size: 25 symbols per request
+  }
+  
+  const result = await forceRefresh(extra, hotOnly, chunkOffset, chunkLimit);
   return c.json(result, result.ok ? 200 : 502);
 }
 

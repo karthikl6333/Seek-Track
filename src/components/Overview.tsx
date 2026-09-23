@@ -303,7 +303,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             </div>
             {lastUpdatedLabel && (
               <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                Marks last updated: {lastUpdatedLabel} (auto-refresh: 15s)
+                Marks last updated: {lastUpdatedLabel} (auto-refresh: hot 30s / cold 15m)
               </p>
             )}
           </div>

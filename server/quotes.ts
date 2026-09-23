@@ -103,6 +103,8 @@ export async function putMarksHandler(c: Context) {
 export async function refreshQuotesHandler(c: Context) {
   markActivity();
   let extra: string[] = [];
+  let hotOnly = false;
+  
   try {
     if (c.req.method === 'POST') {
       const body = await c.req.json().catch(() => ({}));
@@ -111,14 +113,24 @@ export async function refreshQuotesHandler(c: Context) {
       } else if (typeof body?.symbol === 'string') {
         extra = [body.symbol];
       }
+      // Accept tier parameter: 'hot' or 'full'/'cold'
+      if (body?.tier === 'hot') {
+        hotOnly = true;
+      }
     }
   } catch {
     // ignore
   }
+  
   const qSym = c.req.query('symbol');
   if (qSym) extra.push(qSym);
   
-  const result = await forceRefresh(extra);
+  const tierQuery = c.req.query('tier');
+  if (tierQuery === 'hot') {
+    hotOnly = true;
+  }
+  
+  const result = await forceRefresh(extra, hotOnly);
   return c.json(result, result.ok ? 200 : 502);
 }
 

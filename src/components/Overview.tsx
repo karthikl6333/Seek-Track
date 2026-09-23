@@ -197,14 +197,14 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                     setRefreshingQuotes(true);
                     try {
                       const openSymbols = openPositions.map((p) => p.symbol);
-                      await store.refreshLiveQuotes(openSymbols);
+                      await store.refreshLiveQuotes(openSymbols, 'hot');
                     } catch (err) {
                       console.error('Quote refresh failed:', err);
                     } finally {
                       setRefreshingQuotes(false);
                     }
                   }}
-                  title="Refresh prices for all open positions, calculator, and pairs"
+                  title="Refresh prices for all open positions and watchlist"
                   style={{
                     opacity: refreshingQuotes ? 0.6 : 1,
                     transition: 'opacity 0.15s',
@@ -215,11 +215,6 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                 </button>
               </div>
             </div>
-            {store.lastRefreshError && (
-              <p className="muted" style={{ fontSize: 12, marginTop: 0, color: '#e67e22' }}>
-                ⚠ Refresh error: {store.lastRefreshError}. Some prices may be stale.
-              </p>
-            )}
             <div className="table-wrap">
               <table className="data">
                 <thead>

@@ -100,15 +100,17 @@ export async function setMark(symbol: string, price: number): Promise<void> {
   });
 }
 
-export async function refreshQuotes(symbols?: string[]): Promise<{
+export async function refreshQuotes(symbols?: string[], tier?: 'hot' | 'full'): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
   error?: string;
   refreshedAt: string;
+  tier?: 'hot' | 'full';
 }> {
-  const body: { symbols?: string[] } = {};
+  const body: { symbols?: string[]; tier?: 'hot' | 'full' } = {};
   if (symbols?.length) body.symbols = symbols;
+  if (tier) body.tier = tier;
   return api('/api/quotes/refresh', {
     method: 'POST',
     body: JSON.stringify(body),

@@ -138,9 +138,19 @@ export async function refreshQuotesHandler(c: Context) {
   // Legacy tier query param: accept and ignore
   // const tierQuery = c.req.query('tier'); // not used
   
-  // If symbols provided, refresh only those
-  // If no symbols, build universe and refresh all (may exceed subrequest limits for large universes)
   const result = await forceRefresh(symbols);
+  
+  // HTTP status codes:
+  // - needsChunking: 200 (successful "here's the universe, please chunk" response)
+  // - Too many symbols: 400 (client error, must chunk)
+  // - Yahoo/Neon failure: 502 (upstream service error)
+  // - Success: 200
+  if (result.needsChunking) {
+    return c.json(result, 200);
+  }
+  if (result.error && result.error.includes('Too many symbols')) {
+    return c.json(result, 400);
+  }
   return c.json(result, result.ok ? 200 : 502);
 }
 

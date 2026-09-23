@@ -662,6 +662,9 @@ export async function forceRefresh(symbols?: string[]): Promise<{
   refreshedAt: string;
   error?: string;
   total: number;
+  needsChunking?: boolean;
+  universe?: string[];
+  chunkSize?: number;
 }> {
   markActivity();
   return refreshAllPrices(symbols);

@@ -13,6 +13,7 @@ import { useStore } from './hooks/useStore';
 import type { ViewId } from './types';
 import { refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
+import type { ResearchRef } from './components/Research';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -26,117 +27,101 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const WATCH_MODE_INTERVAL_MS = 30_000; // 30 seconds
-const WATCH_MODE_STORAGE_KEY = 'seektrack_watch_mode';
+const AUTO_REFRESH_INTERVAL_MS = 15_000; // Always-on 15s refresh while portal is open
 
 export default function App() {
   const store = useStore();
   const watchlistRef = useRef<WatchlistRef>(null);
+  const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
-  const [watchModeEnabled, setWatchModeEnabled] = useState(() => {
-    try {
-      const stored = localStorage.getItem(WATCH_MODE_STORAGE_KEY);
-      return stored === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const watchModeIntervalRef = useRef<number | null>(null);
-  const watchModeRefreshingRef = useRef(false);
+  const autoRefreshIntervalRef = useRef<number | null>(null);
+  const autoRefreshingRef = useRef(false);
 
-  const refreshAll = useCallback(async () => {
-    setRefreshing(true);
-    setRefreshComplete(false);
+  /**
+   * Unified refresh: triggers server quote service + re-reads all client state
+   * Single server call to avoid double forceRefresh race
+   */
+  const refreshPortalPrices = useCallback(async () => {
+    if (autoRefreshingRef.current) return;
+    autoRefreshingRef.current = true;
+    
     try {
-      // Unified refresh: both holdings and watchlist now share the same quote pipeline
-      // (watchlist refresh delegates to the same refreshQuotes() that holdings uses)
-      // Phase 1: Refresh live quotes for holdings, calculators, pairs, and watchlist
-      // This writes to marks + watchlist_quotes in one batch
-      await store.refreshLiveQuotes().catch((e) => {
-        console.warn('refreshLiveQuotes failed:', e);
-      });
-
-      // Phase 2: Refresh other data in parallel
-      // store.refresh() will re-read marks at the end, getting the fresh data from Phase 1
-      // watchlist refresh is redundant but harmless (in-flight guard prevents duplicate fetches)
-      const results = await Promise.allSettled([
-        store.refresh(),
-        watchlistRef.current?.refreshQuotes(),
+      // Single server refresh call (triggers quote-service forceRefresh)
+      await store.refreshLiveQuotes();
+      
+      // Re-read all client state from shared store (GET only, no POST)
+      await Promise.allSettled([
+        store.refresh(), // Re-reads marks, updates holdings/positions
+        watchlistRef.current?.reload(), // GET /api/watchlist (re-reads marks join)
+        researchRef.current?.reload(), // GET /api/research (re-reads marks join)
+        // Paper/crypto refresh their own separate data
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
       ]);
-
-      // Log any failures for debugging
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          const labels = ['refresh', 'watchlist', 'paper', 'crypto', 'paperFlex'];
-          console.warn(`${labels[index]} failed:`, result.reason);
-        }
-      });
-
-      // Show completion animation
-      setRefreshComplete(true);
-      // Clear completion animation after 1.5 seconds
-      setTimeout(() => setRefreshComplete(false), 1500);
     } catch (error) {
-      console.error('Global refresh error:', error);
+      console.error('[App] Auto-refresh error:', error);
     } finally {
-      setRefreshing(false);
+      autoRefreshingRef.current = false;
     }
   }, [store.refreshLiveQuotes, store.refresh]);
 
-  const refreshWatchMode = useCallback(async () => {
-    if (watchModeRefreshingRef.current) return;
-    watchModeRefreshingRef.current = true;
+  /**
+   * Manual refresh button (with animation)
+   */
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshComplete(false);
     try {
-      await Promise.allSettled([
-        store.refreshLiveQuotes(),
-        watchlistRef.current?.refreshQuotes(),
-      ]);
+      await refreshPortalPrices();
+      setRefreshComplete(true);
+      setTimeout(() => setRefreshComplete(false), 1500);
     } catch (error) {
-      console.error('Watch mode refresh error:', error);
+      console.error('Manual refresh error:', error);
     } finally {
-      watchModeRefreshingRef.current = false;
+      setRefreshing(false);
     }
-  }, [store.refreshLiveQuotes]);
+  }, [refreshPortalPrices]);
 
+  /**
+   * Always-on 15s refresh while portal is open
+   * Pauses when tab is hidden (document.hidden)
+   */
   useEffect(() => {
-    if (watchModeEnabled) {
-      // Immediate refresh on enable
-      void refreshWatchMode();
-      
-      // Then set up interval for subsequent refreshes
-      watchModeIntervalRef.current = window.setInterval(() => {
-        void refreshWatchMode();
-      }, WATCH_MODE_INTERVAL_MS);
-      
-      return () => {
-        if (watchModeIntervalRef.current !== null) {
-          clearInterval(watchModeIntervalRef.current);
-          watchModeIntervalRef.current = null;
-        }
-      };
-    } else {
-      if (watchModeIntervalRef.current !== null) {
-        clearInterval(watchModeIntervalRef.current);
-        watchModeIntervalRef.current = null;
-      }
-    }
-  }, [watchModeEnabled, refreshWatchMode]);
+    // Initial refresh on mount
+    const initialTimer = setTimeout(() => {
+      void refreshPortalPrices();
+    }, 2000); // 2s delay for initial load
 
-  const toggleWatchMode = useCallback(() => {
-    setWatchModeEnabled((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(WATCH_MODE_STORAGE_KEY, String(next));
-      } catch (error) {
-        console.warn('Failed to persist watch mode preference:', error);
+    // Set up 15s interval
+    autoRefreshIntervalRef.current = window.setInterval(() => {
+      // Skip refresh if tab is hidden (save Yahoo quota)
+      if (document.hidden) {
+        console.log('[App] Skipping refresh (tab hidden)');
+        return;
       }
-      return next;
-    });
-  }, []);
+      void refreshPortalPrices();
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    // Resume immediately when tab becomes visible
+    const handleVisibilityChange = () => {
+      if (!document.hidden && !autoRefreshingRef.current) {
+        console.log('[App] Tab visible, triggering refresh');
+        void refreshPortalPrices();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (autoRefreshIntervalRef.current !== null) {
+        clearInterval(autoRefreshIntervalRef.current);
+        autoRefreshIntervalRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshPortalPrices]);
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox
@@ -232,47 +217,6 @@ export default function App() {
         <div className="topbar">
           <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-                fontSize: 13,
-                userSelect: 'none',
-              }}
-              title="Auto-refresh holdings and watchlist every 30 seconds"
-            >
-              <div
-                style={{
-                  position: 'relative',
-                  width: 40,
-                  height: 20,
-                  borderRadius: 10,
-                  background: watchModeEnabled ? 'var(--accent, #3d8bfd)' : 'rgba(255,255,255,0.15)',
-                  transition: 'background 0.2s ease',
-                  cursor: 'pointer',
-                }}
-                onClick={toggleWatchMode}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 2,
-                    left: watchModeEnabled ? 22 : 2,
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transition: 'left 0.2s ease',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                  }}
-                />
-              </div>
-              <span style={{ color: 'var(--text)' }}>
-                Watch{watchModeEnabled ? ' · 30s' : ''}
-              </span>
-            </label>
             <button
               type="button"
               className="btn"
@@ -294,7 +238,7 @@ export default function App() {
               className="btn"
               onClick={() => void refreshAll()}
               disabled={refreshing}
-              title="Refresh all data (quotes, marks, paper, crypto, watchlist)"
+              title="Refresh all data now (auto-refresh every 15s)"
               style={{
                 minWidth: 40,
                 minHeight: 40,
@@ -327,7 +271,7 @@ export default function App() {
         {store.view === 'trades' && <Trades store={store} />}
         {store.view === 'charges' && <Charges store={store} />}
         {store.view === 'charts' && <Charts store={store} />}
-        {store.view === 'research' && <Research />}
+        {store.view === 'research' && <Research researchRef={researchRef} />}
         {store.view === 'paper' && <Paper />}
         {store.view === 'paperFlex' && <PaperFlex />}
         {store.view === 'cryptoPaper' && <CryptoPaper />}

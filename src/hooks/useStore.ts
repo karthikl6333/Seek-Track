@@ -23,8 +23,6 @@ const defaultCalc: CalculatorState = {
 
 type CalcSlot = 'A' | 'B';
 
-const POLL_MS = 5 * 60 * 1000; // 5 minutes fallback when Watch mode is off
-
 const VALID_VIEWS: ViewId[] = [
   'overview',
   'positions',
@@ -134,30 +132,6 @@ export function useStore() {
       setError(String(e));
     });
   }, [refresh]);
-
-  // Client poll every 15 minutes (server also refreshes on cron)
-  useEffect(() => {
-    const id = setInterval(() => {
-      void (async () => {
-        try {
-          const pollSyms: string[] = [];
-          if (calcA.symbol) pollSyms.push(calcA.symbol);
-          if (calcB.symbol) pollSyms.push(calcB.symbol);
-          if (resolvedPairA?.pair) {
-            pollSyms.push(resolvedPairA.pair.etf, resolvedPairA.pair.underlying);
-          }
-          if (resolvedPairB?.pair) {
-            pollSyms.push(resolvedPairB.pair.etf, resolvedPairB.pair.underlying);
-          }
-          await db.refreshQuotes(pollSyms.length ? pollSyms : undefined);
-          await refreshMarks();
-        } catch (e) {
-          console.warn('quote poll failed', e);
-        }
-      })();
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [calcA.symbol, calcB.symbol, refreshMarks, resolvedPairA, resolvedPairB]);
 
   const analysis: LotEngineResult | null = useMemo(() => {
     if (!settings) return null;

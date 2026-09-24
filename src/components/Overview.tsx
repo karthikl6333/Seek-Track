@@ -7,6 +7,7 @@ import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../type
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
+import { NewsRecommendations } from './NewsRecommendations';
 import { TickerLink } from '../lib/yahoo';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
@@ -172,6 +173,8 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           </div>
         </button>
       </div>
+
+      <NewsRecommendations />
 
       <div className="overview-layout">
         <div className="stack calc-main">

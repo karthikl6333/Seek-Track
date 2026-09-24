@@ -85,6 +85,7 @@ export default {
         if (env.RSS_FEEDS) process.env.RSS_FEEDS = env.RSS_FEEDS;
         if (env.LLM_PROVIDER) process.env.LLM_PROVIDER = env.LLM_PROVIDER;
         if (env.LLM_MODEL) process.env.LLM_MODEL = env.LLM_MODEL;
+        if (env.XAI_API_KEY) process.env.XAI_API_KEY = env.XAI_API_KEY;
         if (env.LLM_API_KEY) process.env.LLM_API_KEY = env.LLM_API_KEY;
         if (env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = env.OPENAI_API_KEY;
         if (env.OPENAI_API_BASE) process.env.OPENAI_API_BASE = env.OPENAI_API_BASE;

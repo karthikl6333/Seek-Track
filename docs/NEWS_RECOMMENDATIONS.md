@@ -105,7 +105,7 @@ If the first instance fails, it automatically falls back to the next. This mitig
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `FINNHUB_API_KEY` | **Yes** | Finnhub API key (free tier available) | `abc123...` |
-| `LLM_API_KEY` or `OPENAI_API_KEY` | **Yes** | LLM API key for parsing | `sk-...` |
+| `XAI_API_KEY` | **Yes** | xAI API key for Grok LLM parsing | `xai-...` |
 
 ### Optional Environment Variables
 
@@ -117,9 +117,11 @@ If the first instance fails, it automatically falls back to the next. This mitig
 | `X_BEARER_TOKEN` | (empty) | X API bearer token (for paid API mode) | `AAAA...` |
 | `RSSHUB_URL` | `https://rsshub.app` | RSSHub instance URL (public or self-hosted) | `https://my-rsshub.com` |
 | `RSS_FEEDS` | (empty) | Comma-separated RSS feed URLs (supplementary) | `https://feeds.reuters.com/reuters/businessNews` |
-| `LLM_PROVIDER` | `openai` | LLM provider: `openai` or `anthropic` | `openai` |
-| `LLM_MODEL` | `gpt-4o-mini` | LLM model name | `gpt-4o-mini` |
-| `OPENAI_API_BASE` | `https://api.openai.com/v1/chat/completions` | OpenAI-compatible API endpoint | (custom endpoint) |
+| `LLM_PROVIDER` | `openai` | LLM provider wire format: `openai` (includes xAI) or `anthropic` | `openai` |
+| `LLM_MODEL` | `grok-beta` | LLM model name | `grok-beta` |
+| `LLM_API_KEY` | (empty) | Alternative LLM API key (fallback if XAI_API_KEY not set) | `sk-...` |
+| `OPENAI_API_KEY` | (empty) | OpenAI API key (fallback if XAI_API_KEY and LLM_API_KEY not set) | `sk-...` |
+| `OPENAI_API_BASE` | `https://api.x.ai/v1/chat/completions` | OpenAI-compatible API endpoint (override for OpenAI or other providers) | `https://api.openai.com/v1/chat/completions` |
 
 ### Getting API Keys
 
@@ -134,18 +136,26 @@ If the first instance fails, it automatically falls back to the next. This mitig
 
 **Cost**: Free tier sufficient for this use case
 
-#### OpenAI (Required for LLM Parsing)
+#### xAI Grok (Required for LLM Parsing, Default)
 
-1. Sign up at https://platform.openai.com
-2. Create an API key in Account → API keys
+1. Sign up at https://x.ai or https://console.x.ai
+2. Create an API key
 3. Fund your account (pay-as-you-go)
-4. Set `OPENAI_API_KEY` in Cloudflare environment variables
+4. Set `XAI_API_KEY` in Cloudflare environment variables
 
-**Cost**: ~$0.50-2/day with `gpt-4o-mini` (1 batch call per refresh, ~5 min cadence)
+**Cost**: ~$1-5/day with `grok-beta` (1 batch call per refresh, ~5 min cadence)
 
-**Alternative**: Use Anthropic Claude (`LLM_PROVIDER=anthropic`):
-- Similar cost (~$0.50-2/day)
-- API key from https://console.anthropic.com
+**Model**: `grok-beta` (default) - Fast, cheap, suitable for JSON batch parsing
+
+**Alternative**: Use OpenAI instead by setting:
+- `OPENAI_API_BASE=https://api.openai.com/v1/chat/completions`
+- `OPENAI_API_KEY=sk-...`
+- `LLM_MODEL=gpt-4o-mini`
+
+**Alternative**: Use Anthropic Claude by setting:
+- `LLM_PROVIDER=anthropic`
+- `LLM_API_KEY=<your-anthropic-key>`
+- `LLM_MODEL=claude-3-haiku-20240307`
 
 #### X/Twitter (Optional, Free Tier Limitations)
 
@@ -170,14 +180,14 @@ Add environment variables in Cloudflare Dashboard:
 1. Go to **Workers & Pages** → Your project → **Settings** → **Environment Variables**
 2. Add **Production** variables:
    - `FINNHUB_API_KEY`: Your Finnhub key
-   - `OPENAI_API_KEY`: Your OpenAI key
+   - `XAI_API_KEY`: Your xAI key
    - `X_ACCOUNTS`: Comma-separated X accounts (e.g., `DeItaone,Fxhedgers`)
    - (Optional) `X_SOURCE_MODE`, `LLM_PROVIDER`, `LLM_MODEL`, `RSS_FEEDS`
 
 Or use Wrangler CLI:
 ```bash
 wrangler pages secret put FINNHUB_API_KEY --project-name=seek-track
-wrangler pages secret put OPENAI_API_KEY --project-name=seek-track
+wrangler pages secret put XAI_API_KEY --project-name=seek-track
 wrangler pages secret put X_ACCOUNTS --project-name=seek-track
 ```
 
@@ -256,8 +266,8 @@ POST /api/news/refresh
 ```json
 {
   "status": "unconfigured",
-  "missing": ["FINNHUB_API_KEY", "LLM_API_KEY"],
-  "error": "Missing required env vars: FINNHUB_API_KEY, LLM_API_KEY",
+  "missing": ["FINNHUB_API_KEY", "XAI_API_KEY (or LLM_API_KEY)"],
+  "error": "Missing required env vars: FINNHUB_API_KEY, XAI_API_KEY (or LLM_API_KEY)",
   "refreshedAt": "2026-09-24T04:35:00.000Z"
 }
 ```
@@ -491,7 +501,7 @@ To reduce LLM costs:
 
 **Fix**:
 1. Check Cloudflare Dashboard → Settings → Environment Variables
-2. Ensure `FINNHUB_API_KEY` and `OPENAI_API_KEY` (or `LLM_API_KEY`) are set
+2. Ensure `FINNHUB_API_KEY` and `XAI_API_KEY` are set
 3. Redeploy or wait for propagation (may take 1-2 min)
 
 ### Issue: No signals appearing
@@ -515,12 +525,14 @@ To reduce LLM costs:
 
 ### Issue: LLM parsing failures
 
-**Cause**: OpenAI API rate limit, invalid key, or model downtime
+**Cause**: xAI API rate limit, invalid key, or model downtime
 
 **Fix**:
-1. Check OpenAI API status: https://status.openai.com
+1. Check xAI API status: https://status.x.ai (if available)
 2. Verify API key has sufficient credits
-3. Try alternative provider: set `LLM_PROVIDER=anthropic` and `LLM_API_KEY` (Anthropic key)
+3. Try alternative provider: 
+   - OpenAI: Set `OPENAI_API_BASE=https://api.openai.com/v1/chat/completions`, `OPENAI_API_KEY`, `LLM_MODEL=gpt-4o-mini`
+   - Anthropic: Set `LLM_PROVIDER=anthropic`, `LLM_API_KEY` (Anthropic key), `LLM_MODEL=claude-3-haiku-20240307`
 
 ### Issue: Refresh button stuck on "Refreshing..."
 
@@ -557,11 +569,13 @@ Enable automatic background refresh without manual clicks:
 The News Recommendations feature provides real-time market signals on the Overview page with:
 
 ✅ **Hybrid sources**: X/Twitter (free tier), Finnhub, RSS  
-✅ **LLM parsing**: Extracts ticker, direction, confidence, rationale  
+✅ **LLM parsing**: xAI Grok (default) extracts ticker, direction, confidence, rationale  
 ✅ **Deduplication**: Clusters near-identical signals  
 ✅ **Corroboration**: Cross-checks X against authoritative sources  
 ✅ **Graceful degradation**: Clear errors when API keys missing  
 ✅ **Subrequest budget**: ~15-20 per refresh (well under 50 limit)  
-✅ **Cost-effective**: ~$15-30/mo with free X source, ~$215-260/mo with paid X API  
+✅ **Cost-effective**: ~$5-20/mo with free X source, ~$205-220/mo with paid X API  
 
-**Recommended setup**: Start with Nitter RSS (free) + Finnhub + OpenAI (gpt-4o-mini), then upgrade to paid X API only if you need <1 min latency or broader coverage.
+**Recommended setup**: Start with Nitter RSS (free) + Finnhub + xAI Grok (grok-beta), then upgrade to paid X API only if you need <1 min latency or broader coverage.
+
+**Alternative LLM providers**: OpenAI (set `OPENAI_API_BASE` + `OPENAI_API_KEY`) or Anthropic (set `LLM_PROVIDER=anthropic` + `LLM_API_KEY`) work as drop-in replacements.

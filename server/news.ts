@@ -465,15 +465,26 @@ function parseGenericRSS(xml: string): Array<{ text: string; timestamp: string; 
 
 /**
  * Parse raw signals using LLM to extract structured data.
- * Supports OpenAI-compatible and Anthropic APIs.
+ * 
+ * Default provider: xAI Grok (OpenAI-compatible API)
+ * - Default model: grok-beta (fast, cheap, suitable for JSON parsing)
+ * - Default base URL: https://api.x.ai/v1
+ * 
+ * Alternative providers:
+ * - OpenAI: Set OPENAI_API_BASE + OPENAI_API_KEY + LLM_MODEL
+ * - Anthropic: Set LLM_PROVIDER=anthropic + LLM_API_KEY
  */
 async function parseBatchWithLLM(signals: RawSignal[]): Promise<Map<RawSignal, ParsedSignal>> {
-  const provider = process.env.LLM_PROVIDER || 'openai'; // 'openai' | 'anthropic'
-  const model = process.env.LLM_MODEL || 'gpt-4o-mini';
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+  const provider = process.env.LLM_PROVIDER || 'openai'; // 'openai' wire format (includes xAI) | 'anthropic'
+  
+  // Model selection: default to xAI Grok
+  const model = process.env.LLM_MODEL || 'grok-beta';
+  
+  // API key fallback chain: XAI_API_KEY -> LLM_API_KEY -> OPENAI_API_KEY
+  const apiKey = process.env.XAI_API_KEY || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    console.warn('LLM API key not configured, skipping parsing');
+    console.warn('LLM API key not configured (set XAI_API_KEY or LLM_API_KEY), skipping parsing');
     return new Map();
   }
 
@@ -488,6 +499,7 @@ async function parseBatchWithLLM(signals: RawSignal[]): Promise<Map<RawSignal, P
     if (provider === 'anthropic') {
       parsed = await callAnthropicAPI(apiKey, model, prompt);
     } else {
+      // 'openai' provider includes xAI (OpenAI-compatible wire format)
       parsed = await callOpenAIAPI(apiKey, model, prompt);
     }
 
@@ -523,7 +535,8 @@ Return a JSON array of ${signals.length} objects, one per item in order. ONLY re
 }
 
 async function callOpenAIAPI(apiKey: string, model: string, prompt: string): Promise<ParsedSignal[]> {
-  const url = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1/chat/completions';
+  // Default to xAI endpoint; override with OPENAI_API_BASE for OpenAI or other compatible providers
+  const url = process.env.OPENAI_API_BASE || 'https://api.x.ai/v1/chat/completions';
   
   const response = await fetch(url, {
     method: 'POST',
@@ -542,7 +555,7 @@ async function callOpenAIAPI(apiKey: string, model: string, prompt: string): Pro
 
   if (!response.ok) {
     const error = await response.text().catch(() => 'Unknown error');
-    throw new Error(`OpenAI API error: ${response.status} ${error}`);
+    throw new Error(`OpenAI-compatible API error: ${response.status} ${error}`);
   }
 
   const data = await response.json() as {
@@ -852,7 +865,11 @@ export async function refreshNewsHandler(c: any): Promise<Response> {
   // Check required env vars
   const missing: string[] = [];
   if (!process.env.FINNHUB_API_KEY) missing.push('FINNHUB_API_KEY');
-  if (!process.env.LLM_API_KEY && !process.env.OPENAI_API_KEY) missing.push('LLM_API_KEY or OPENAI_API_KEY');
+  
+  // Check for LLM API key with XAI_API_KEY as primary
+  if (!process.env.XAI_API_KEY && !process.env.LLM_API_KEY && !process.env.OPENAI_API_KEY) {
+    missing.push('XAI_API_KEY (or LLM_API_KEY)');
+  }
 
   if (missing.length > 0) {
     return c.json({

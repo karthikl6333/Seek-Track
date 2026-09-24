@@ -297,3 +297,37 @@ export interface PaperFlexSummary {
     winRate: number | null;
   };
 }
+
+export interface NewsSignal {
+  id: string;
+  ticker: string | null;
+  direction: 'bullish' | 'bearish' | 'neutral';
+  confidence: number;
+  rationale: string;
+  positionImpact: string;
+  corroborationStatus: 'corroborated' | 'unconfirmed';
+  corroborationLink: string | null;
+  sourceCount: number;
+  sourceIds: string;
+  normalizedText: string;
+  originalTexts: string[];
+  createdAt: string;
+  refreshedAt: string;
+}
+
+export interface NewsRefreshResult {
+  status: 'ok' | 'unconfigured' | 'partial' | 'error';
+  signals?: NewsSignal[];
+  missing?: string[];
+  degraded?: string[];
+  error?: string;
+  message?: string;
+  refreshedAt: string;
+  stats?: {
+    xSignals: number;
+    finnhubSignals: number;
+    rssSignals: number;
+    llmCalls: number;
+    duplicatesRemoved: number;
+  };
+}

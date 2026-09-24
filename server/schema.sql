@@ -271,3 +271,36 @@ CREATE TABLE IF NOT EXISTS paper_flex_journal (
 );
 
 CREATE INDEX IF NOT EXISTS paper_flex_journal_created_idx ON paper_flex_journal (created_at DESC);
+
+-- News Recommendations: real-time market signals from X/Twitter + authoritative sources
+CREATE TABLE IF NOT EXISTS news_recommendations (
+  id TEXT PRIMARY KEY,
+  ticker TEXT,
+  direction TEXT NOT NULL CHECK (direction IN ('bullish', 'bearish', 'neutral')),
+  confidence DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  rationale TEXT NOT NULL,
+  position_impact TEXT NOT NULL DEFAULT '',
+  corroboration_status TEXT NOT NULL CHECK (corroboration_status IN ('corroborated', 'unconfirmed')),
+  corroboration_link TEXT,
+  source_count INTEGER NOT NULL DEFAULT 1,
+  source_ids TEXT NOT NULL,
+  normalized_text TEXT NOT NULL,
+  original_texts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS news_recommendations_ticker_idx ON news_recommendations (ticker);
+CREATE INDEX IF NOT EXISTS news_recommendations_created_idx ON news_recommendations (created_at DESC);
+CREATE INDEX IF NOT EXISTS news_recommendations_refreshed_idx ON news_recommendations (refreshed_at DESC);
+
+-- News refresh lock to prevent concurrent refresh stampede
+CREATE TABLE IF NOT EXISTS news_refresh_lock (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  locked_at TIMESTAMPTZ,
+  locked_by TEXT
+);
+
+INSERT INTO news_refresh_lock (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;

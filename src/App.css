@@ -666,3 +666,175 @@ button.linkish:hover { opacity: 0.85; }
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* News Recommendations */
+.news-recommendations-tile {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 0;
+}
+
+.news-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.news-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.news-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.news-error,
+.news-warning {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.news-error {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.news-warning {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.news-loading,
+.news-empty {
+  text-align: center;
+  padding: 30px 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.news-cards-container {
+  overflow-x: auto;
+  overflow-y: visible;
+  margin: 0 -20px;
+  padding: 0 20px;
+}
+
+.news-cards {
+  display: flex;
+  gap: 14px;
+  padding-bottom: 4px;
+}
+
+.news-card {
+  flex: 0 0 auto;
+  width: 320px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.news-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.news-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.news-ticker {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+.news-confidence {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+.news-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.news-rationale {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.news-impact {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.news-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.news-link {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.news-link:hover {
+  text-decoration: underline;
+}
+
+.badge-bullish {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.badge-bearish {
+  background: rgba(244, 67, 54, 0.15);
+  color: #f44336;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.badge-neutral {
+  background: rgba(158, 158, 158, 0.15);
+  color: #9e9e9e;
+  border: 1px solid rgba(158, 158, 158, 0.3);
+}

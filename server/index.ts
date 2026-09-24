@@ -67,6 +67,10 @@ import {
   upsertPaperFlexPositions,
   upsertPaperFlexState,
 } from './paper-flex.js';
+import {
+  getNewsHandler,
+  refreshNewsHandler,
+} from './news.js';
 
 const app = new Hono();
 
@@ -148,6 +152,9 @@ app.post('/api/paper-flex/state', upsertPaperFlexState);
 app.post('/api/paper-flex/positions', upsertPaperFlexPositions);
 app.post('/api/paper-flex/orders', upsertPaperFlexOrders);
 app.post('/api/paper-flex/journal', postPaperFlexJournal);
+
+app.get('/api/news', getNewsHandler);
+app.post('/api/news/refresh', refreshNewsHandler);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations

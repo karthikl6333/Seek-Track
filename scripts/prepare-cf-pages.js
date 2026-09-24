@@ -75,6 +75,21 @@ export default {
         if (env.ALPACA_FLEX_API_KEY) process.env.ALPACA_FLEX_API_KEY = env.ALPACA_FLEX_API_KEY;
         if (env.ALPACA_FLEX_SECRET_KEY) process.env.ALPACA_FLEX_SECRET_KEY = env.ALPACA_FLEX_SECRET_KEY;
         
+        // News Recommendations environment variables
+        if (env.X_SOURCE_MODE) process.env.X_SOURCE_MODE = env.X_SOURCE_MODE;
+        if (env.X_ACCOUNTS) process.env.X_ACCOUNTS = env.X_ACCOUNTS;
+        if (env.X_LIST_IDS) process.env.X_LIST_IDS = env.X_LIST_IDS;
+        if (env.X_BEARER_TOKEN) process.env.X_BEARER_TOKEN = env.X_BEARER_TOKEN;
+        if (env.RSSHUB_URL) process.env.RSSHUB_URL = env.RSSHUB_URL;
+        if (env.FINNHUB_API_KEY) process.env.FINNHUB_API_KEY = env.FINNHUB_API_KEY;
+        if (env.RSS_FEEDS) process.env.RSS_FEEDS = env.RSS_FEEDS;
+        if (env.LLM_PROVIDER) process.env.LLM_PROVIDER = env.LLM_PROVIDER;
+        if (env.LLM_MODEL) process.env.LLM_MODEL = env.LLM_MODEL;
+        if (env.XAI_API_KEY) process.env.XAI_API_KEY = env.XAI_API_KEY;
+        if (env.LLM_API_KEY) process.env.LLM_API_KEY = env.LLM_API_KEY;
+        if (env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = env.OPENAI_API_KEY;
+        if (env.OPENAI_API_BASE) process.env.OPENAI_API_BASE = env.OPENAI_API_BASE;
+        
         // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();
         schemaInitialized = true;

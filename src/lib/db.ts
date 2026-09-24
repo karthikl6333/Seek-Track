@@ -208,3 +208,17 @@ export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: str
     method: 'POST',
   });
 }
+
+export async function loadNewsSignals(): Promise<{
+  ok: boolean;
+  signals: import('../types').NewsSignal[];
+  refreshedAt: string | null;
+}> {
+  return api('/api/news');
+}
+
+export async function refreshNews(): Promise<import('../types').NewsRefreshResult> {
+  return api('/api/news/refresh', {
+    method: 'POST',
+  });
+}

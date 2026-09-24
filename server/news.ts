@@ -467,7 +467,7 @@ function parseGenericRSS(xml: string): Array<{ text: string; timestamp: string; 
  * Parse raw signals using LLM to extract structured data.
  * 
  * Default provider: xAI Grok (OpenAI-compatible API)
- * - Default model: grok-beta (fast, cheap, suitable for JSON parsing)
+ * - Default model: grok-4.3 (stable alias, fast, cheap, suitable for JSON parsing)
  * - Default base URL: https://api.x.ai/v1
  * 
  * Alternative providers:
@@ -478,7 +478,7 @@ async function parseBatchWithLLM(signals: RawSignal[]): Promise<Map<RawSignal, P
   const provider = process.env.LLM_PROVIDER || 'openai'; // 'openai' wire format (includes xAI) | 'anthropic'
   
   // Model selection: default to xAI Grok
-  const model = process.env.LLM_MODEL || 'grok-beta';
+  const model = process.env.LLM_MODEL || 'grok-4.3';
   
   // API key fallback chain: XAI_API_KEY -> LLM_API_KEY -> OPENAI_API_KEY
   const apiKey = process.env.XAI_API_KEY || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;

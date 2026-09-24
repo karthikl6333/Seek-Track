@@ -118,7 +118,7 @@ If the first instance fails, it automatically falls back to the next. This mitig
 | `RSSHUB_URL` | `https://rsshub.app` | RSSHub instance URL (public or self-hosted) | `https://my-rsshub.com` |
 | `RSS_FEEDS` | (empty) | Comma-separated RSS feed URLs (supplementary) | `https://feeds.reuters.com/reuters/businessNews` |
 | `LLM_PROVIDER` | `openai` | LLM provider wire format: `openai` (includes xAI) or `anthropic` | `openai` |
-| `LLM_MODEL` | `grok-beta` | LLM model name | `grok-beta` |
+| `LLM_MODEL` | `grok-4.3` | LLM model name | `grok-4.3` |
 | `LLM_API_KEY` | (empty) | Alternative LLM API key (fallback if XAI_API_KEY not set) | `sk-...` |
 | `OPENAI_API_KEY` | (empty) | OpenAI API key (fallback if XAI_API_KEY and LLM_API_KEY not set) | `sk-...` |
 | `OPENAI_API_BASE` | `https://api.x.ai/v1/chat/completions` | OpenAI-compatible API endpoint (override for OpenAI or other providers) | `https://api.openai.com/v1/chat/completions` |
@@ -143,9 +143,11 @@ If the first instance fails, it automatically falls back to the next. This mitig
 3. Fund your account (pay-as-you-go)
 4. Set `XAI_API_KEY` in Cloudflare environment variables
 
-**Cost**: ~$1-5/day with `grok-beta` (1 batch call per refresh, ~5 min cadence)
+**Cost**: ~$1-5/day with `grok-4.3` (1 batch call per refresh, ~5 min cadence)
 
-**Model**: `grok-beta` (default) - Fast, cheap, suitable for JSON batch parsing
+**Model**: `grok-4.3` (default, stable alias) - Fast, cheap, suitable for JSON batch parsing
+
+**Alternatives**: `grok-4.20-0309-non-reasoning` (non-reasoning variant, better latency)
 
 **Alternative**: Use OpenAI instead by setting:
 - `OPENAI_API_BASE=https://api.openai.com/v1/chat/completions`
@@ -491,7 +493,7 @@ To reduce LLM costs:
 3. Filter signals before LLM parsing (e.g., keyword pre-filter) → reduce tokens
 4. Batch more aggressively (already optimized: 1 call per refresh)
 
-**Recommended**: Start with free tier (Nitter + Finnhub + gpt-4o-mini) for ~$15-30/mo, then upgrade to paid X API only if latency/coverage is insufficient.
+**Recommended**: Start with free tier (Nitter + Finnhub + xAI Grok) for ~$5-20/mo, then upgrade to paid X API only if latency/coverage is insufficient.
 
 ## Troubleshooting
 
@@ -576,6 +578,6 @@ The News Recommendations feature provides real-time market signals on the Overvi
 ✅ **Subrequest budget**: ~15-20 per refresh (well under 50 limit)  
 ✅ **Cost-effective**: ~$5-20/mo with free X source, ~$205-220/mo with paid X API  
 
-**Recommended setup**: Start with Nitter RSS (free) + Finnhub + xAI Grok (grok-beta), then upgrade to paid X API only if you need <1 min latency or broader coverage.
+**Recommended setup**: Start with Nitter RSS (free) + Finnhub + xAI Grok (grok-4.3), then upgrade to paid X API only if you need <1 min latency or broader coverage.
 
 **Alternative LLM providers**: OpenAI (set `OPENAI_API_BASE` + `OPENAI_API_KEY`) or Anthropic (set `LLM_PROVIDER=anthropic` + `LLM_API_KEY`) work as drop-in replacements.

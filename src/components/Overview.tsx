@@ -306,7 +306,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             </div>
             {lastUpdatedLabel && (
               <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                Prices last updated: {lastUpdatedLabel} (auto-refresh: 30s)
+                Prices last updated: {lastUpdatedLabel}
               </p>
             )}
           </div>

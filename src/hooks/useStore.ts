@@ -94,6 +94,21 @@ export function useStore() {
     setLastRefreshError(detailed.lastRefreshError);
   }, []);
 
+  const applyMarksUpdate = useCallback((data: {
+    marks: Record<string, MarkInfo>;
+    lastRefreshAt: string | null;
+    lastRefreshError: string | null;
+  }) => {
+    const flat: Record<string, number> = {};
+    for (const [sym, info] of Object.entries(data.marks)) {
+      flat[sym] = info.price;
+    }
+    setMarks(flat);
+    setMarkDetails(data.marks);
+    setLastRefreshAt(data.lastRefreshAt);
+    setLastRefreshError(data.lastRefreshError);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const [t, s, j, pairCache] = await Promise.all([
@@ -437,6 +452,7 @@ export function useStore() {
     pairBusyB,
     toggleHiddenSymbol,
     hiddenSet,
+    applyMarksUpdate,
   };
 }
 

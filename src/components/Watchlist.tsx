@@ -446,7 +446,7 @@ export function Watchlist(props: WatchlistProps = {}) {
         {compact
           ? 'Bid / ask / market cap hidden until quote source provides them.'
           : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
-        {lastLabel ? ` · Quotes: ${lastLabel}` : ''} · Auto-refresh: 15s (pauses when tab hidden)
+        {lastLabel ? ` · Quotes: ${lastLabel}` : ''}
       </p>
     </div>
   );

@@ -15,6 +15,7 @@ import {
   getUniverseHandler,
   refreshQuotesHandler,
 } from './quotes.js';
+import { handleQuoteStream } from './quote-stream.js';
 import {
   startQuoteServiceLoop,
   stopQuoteServiceLoop,
@@ -106,6 +107,7 @@ app.put('/api/marks', putMarksHandler);
 app.get('/api/quotes/universe', getUniverseHandler);
 app.post('/api/quotes/refresh', refreshQuotesHandler);
 app.get('/api/quotes/refresh', refreshQuotesHandler);
+app.get('/api/quotes/stream', handleQuoteStream);
 
 app.get('/api/pairs', listPairsHandler);
 app.get('/api/pairs/resolve', resolvePairHandler);

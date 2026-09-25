@@ -6,28 +6,44 @@ This PR implements SSE-based live quote streaming with **Cloudflare Workers comp
 
 ## What Changed from PR #55 (Production Fix)
 
-### **Problem on Cloudflare Workers**
-PR #55 used a shared `setInterval` loop outside the ReadableStream. This caused:
-- ❌ CF Workers hang detector killed the request after `connected` event
+### **Problems on Cloudflare Workers**
+
+**PR #55:** Shared `setInterval` loop outside ReadableStream
+- ❌ CF Workers hang detector killed request after `connected` event
 - ❌ No `marks` events ever arrived
 - ❌ Client reconnect-looped every ~3s
 - ❌ Prices only updated on manual refresh
 
-**Root cause:** CF Workers isolate model doesn't keep background timers alive when the HTTP request appears idle. After returning the initial `connected` event, the stream appeared hung until CF killed it (~3s timeout).
+**PR #56:** Per-connection async loop (fixed hang, but hit subrequest limit)
+- ✅ Hang detector fixed (async loop inside stream)
+- ❌ "Too many subrequests" error when refreshing ~97 universe symbols
+- ❌ `fetchMarksUpdate` returned null → only heartbeats, no `marks` events
+- ❌ Prices still didn't tick
 
-### **Solution: Per-Connection Async Loop**
+**Root causes:**
+1. CF Workers isolate model doesn't keep background timers alive (PR #55)
+2. CF Workers 50 subrequest limit per invocation (PR #56):
+   - 97 symbols ÷ 10 per chunk = 10 refresh calls
+   - Each refresh: 10 Yahoo + 2 Neon = 12 subrequests
+   - Total: ~120 subrequests → exceeds limit → error → no marks
+
+### **Solution: Limited Universe + Always Emit Marks**
 New implementation (this PR):
-- ✅ Async `while` loop **inside** `ReadableStream.start()`
-- ✅ Continuously generates response bytes (marks events + heartbeats)
-- ✅ CF Workers sees active response, doesn't trigger hang detector
-- ✅ Each connection has its own refresh loop (CF isolate-safe)
-- ✅ Uses `setTimeout + Promise` for sleep (CF Workers compatible)
-- ✅ Auto teardown when connection closes
+- ✅ Async `while` loop **inside** `ReadableStream.start()` (CF hang detector safe)
+- ✅ **LIMITED universe**: only holdings + watchlist (~20-40 symbols)
+- ✅ **Excludes** full research universe (~50+ symbols)
+- ✅ **ALWAYS emit marks** from DB (even if refresh skipped)
+- ✅ Stays under CF subrequest limits:
+  - 40 symbols ÷ 10 per chunk = 4 refresh calls
+  - Each refresh: 10 Yahoo + 2 Neon = 12 subrequests
+  - Total: ~50 subrequests (at limit, safe for typical usage)
+- ✅ Graceful degradation: if refresh fails, still emit last-known marks
 
-**Tradeoff:** Each connection makes its own Yahoo fetches (not shared across isolates). Mitigated by:
-- 3s interval (conservative quota usage)
-- 10-symbol chunking (stays under CF subrequest limits)
-- Typical deployment = 1-2 concurrent users, not hundreds
+**What users see:**
+- Holdings prices: ✅ Live updates every ~3s
+- Watchlist prices: ✅ Live updates every ~3s
+- Research tab: ⚠️ Updates on manual refresh only (not live streamed)
+- News signals: ✅ Separate ~5 min cadence (unchanged)
 
 ## Architecture
 
@@ -78,17 +94,35 @@ New implementation (this PR):
 **Expected (CF Workers production):**
 - ✅ Status: `200` (not `503` or cancelled)
 - ✅ Type: `text/event-stream`
-- ✅ EventStream tab shows periodic `marks` events every ~3s
+- ✅ **EventStream tab shows `event: marks` every ~3s** ← KEY CHECK
+- ✅ No "Too many subrequests" errors in CF logs
 - ✅ No "hung and would never generate a response" errors
 - ✅ Connection stays open for minutes (not killed after 3s)
+
+**EventStream tab should show:**
+```
+event: connected
+data: {"id":"sse-...","timestamp":"...","refreshInterval":3000}
+
+event: marks
+data: {"marks":{...},"lastRefreshAt":"...","lastRefreshError":null}
+
+: heartbeat 2026-09-25T15:15:01.234Z
+
+event: marks
+data: {"marks":{...},"lastRefreshAt":"...","lastRefreshError":null}
+
+: heartbeat 2026-09-25T15:15:04.567Z
+...
+```
 
 **Server logs (CF Pages Functions):**
 ```
 [QuoteStream] New connection: sse-1234567890-abc123
 [QuoteStream] Starting stream loop for sse-1234567890-abc123
-[QuoteStream] Sent marks update to sse-1234567890-abc123
-[QuoteStream] Sent marks update to sse-1234567890-abc123
-[QuoteStream] Sent marks update to sse-1234567890-abc123
+[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
+[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
+[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
 ...
 [QuoteStream] Connection cancelled: sse-1234567890-abc123
 [QuoteStream] Stream ended for sse-1234567890-abc123
@@ -251,11 +285,14 @@ If issues arise:
 
 ## Scope
 
-✅ **Covered:**
+✅ **Live streaming (SSE):**
 - Overview holdings table
 - Overview watchlist sidebar
-- Research tab quotes
-- All gated by single live toggle
+
+⚠️ **Manual refresh only (not live streamed):**
+- Research tab quotes (too many symbols, hits CF subrequest limits)
+- Reason: Full research universe (~50-97 symbols) exceeds CF 50 subrequest limit
+- Workaround: Click manual refresh button on Research tab
 
 ❌ **Out of scope (unchanged):**
 - News signals (separate ~5 min polling)

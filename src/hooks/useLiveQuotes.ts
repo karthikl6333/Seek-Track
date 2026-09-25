@@ -34,6 +34,12 @@ export function useLiveQuotes(
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  
+  // Use ref to keep latest onUpdate without triggering effect cleanup
+  const onUpdateRef = useRef(onUpdate);
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   useEffect(() => {
     if (!enabled) {
@@ -70,7 +76,7 @@ export function useLiveQuotes(
       es.addEventListener('marks', (e) => {
         try {
           const data = JSON.parse(e.data) as LiveQuotesData;
-          onUpdate(data);
+          onUpdateRef.current(data); // Use ref, not parameter
           setLastUpdate(new Date().toISOString());
           setError(null);
         } catch (err) {
@@ -114,7 +120,7 @@ export function useLiveQuotes(
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [enabled, onUpdate]);
+  }, [enabled]); // Removed onUpdate from deps - using ref instead
 
   return { connected, error, lastUpdate };
 }

@@ -713,16 +713,47 @@ function scoreAndCorroborate(
  * Safely parse JSONB field that may already be parsed by the driver.
  * Postgres JSONB columns are often returned as JS objects/arrays by the driver,
  * but we need to handle both cases (string or already-parsed).
+ * 
+ * Also handles corrupt/malformed data:
+ * - If string parsing fails, returns fallback
+ * - If value is neither string nor expected type, returns fallback
  */
-function parseJSONBField<T>(value: unknown): T {
-  if (typeof value === 'string') {
-    return JSON.parse(value);
+function parseJSONBField<T>(value: unknown, fallback: T): T {
+  // Already parsed by driver
+  if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+    return value as T;
   }
-  return value as T;
+  
+  // String that needs parsing
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (err) {
+      console.warn('Failed to parse JSONB field, using fallback:', err);
+      return fallback;
+    }
+  }
+  
+  // Unexpected type (null, undefined, number, etc.)
+  return fallback;
 }
 
 async function saveSignals(signals: NewsSignal[]): Promise<void> {
   if (signals.length === 0) return;
+  
+  // Self-heal: Delete corrupt rows (those with invalid original_texts)
+  // This catches rows from older code versions or failed writes
+  try {
+    await query(`
+      DELETE FROM news_recommendations 
+      WHERE NOT (
+        original_texts IS NOT NULL 
+        AND jsonb_typeof(original_texts) = 'array'
+      )
+    `);
+  } catch (err) {
+    console.warn('Failed to clean up corrupt news rows:', err);
+  }
   
   // Delete old signals (keep last 24 hours)
   await query(
@@ -786,22 +817,47 @@ async function loadSignals(): Promise<NewsSignal[]> {
      LIMIT 50`
   );
 
-  return result.rows.map(row => ({
-    id: row.id,
-    ticker: row.ticker,
-    direction: row.direction as 'bullish' | 'bearish' | 'neutral',
-    confidence: row.confidence,
-    rationale: row.rationale,
-    positionImpact: row.position_impact,
-    corroborationStatus: row.corroboration_status as 'corroborated' | 'unconfirmed',
-    corroborationLink: row.corroboration_link,
-    sourceCount: row.source_count,
-    sourceIds: row.source_ids,
-    normalizedText: row.normalized_text,
-    originalTexts: parseJSONBField<string[]>(row.original_texts),
-    createdAt: row.created_at,
-    refreshedAt: row.refreshed_at,
-  }));
+  const signals: NewsSignal[] = [];
+  let skippedCount = 0;
+
+  for (const row of result.rows) {
+    try {
+      const signal: NewsSignal = {
+        id: row.id,
+        ticker: row.ticker,
+        direction: row.direction as 'bullish' | 'bearish' | 'neutral',
+        confidence: row.confidence,
+        rationale: row.rationale,
+        positionImpact: row.position_impact,
+        corroborationStatus: row.corroboration_status as 'corroborated' | 'unconfirmed',
+        corroborationLink: row.corroboration_link,
+        sourceCount: row.source_count,
+        sourceIds: row.source_ids,
+        normalizedText: row.normalized_text,
+        originalTexts: parseJSONBField<string[]>(row.original_texts, []),
+        createdAt: row.created_at,
+        refreshedAt: row.refreshed_at,
+      };
+      
+      // Validate essential fields
+      if (!signal.id || !signal.direction || !signal.rationale) {
+        console.warn(`Skipping invalid signal row: ${row.id}`);
+        skippedCount++;
+        continue;
+      }
+      
+      signals.push(signal);
+    } catch (err) {
+      console.error(`Failed to parse signal row ${row.id}:`, err);
+      skippedCount++;
+    }
+  }
+
+  if (skippedCount > 0) {
+    console.log(`Loaded ${signals.length} signals, skipped ${skippedCount} corrupt rows`);
+  }
+
+  return signals;
 }
 
 // ============================================================================

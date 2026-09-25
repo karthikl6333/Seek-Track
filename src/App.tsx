@@ -10,6 +10,7 @@ import { PaperFlex } from './components/PaperFlex';
 import { Positions } from './components/Positions';
 import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
+import { useLiveQuotes } from './hooks/useLiveQuotes';
 import type { ViewId } from './types';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
@@ -29,6 +30,7 @@ const NAV: { id: ViewId; label: string }[] = [
 
 const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds
 const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
+const LIVE_QUOTES_KEY = 'seektrack.liveQuotes';
 
 export default function App() {
   const store = useStore();
@@ -38,6 +40,16 @@ export default function App() {
   const [refreshComplete, setRefreshComplete] = useState(false);
   const refreshIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
+  
+  // Live quotes toggle state
+  const [liveQuotesEnabled, setLiveQuotesEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem(LIVE_QUOTES_KEY);
+      return saved === null ? true : saved === 'true'; // Default ON
+    } catch {
+      return true;
+    }
+  });
 
   /**
    * Chunked refresh at HTTP boundary to stay under CF Workers subrequest limits
@@ -97,12 +109,53 @@ export default function App() {
     }
   }, [refreshAll]);
 
+  const toggleLiveQuotes = useCallback(() => {
+    setLiveQuotesEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(LIVE_QUOTES_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      console.log(`[App] Live quotes ${next ? 'enabled' : 'disabled'}`);
+      return next;
+    });
+  }, []);
+
+  // Live quotes SSE connection
+  const { connected: liveConnected } = useLiveQuotes(
+    liveQuotesEnabled,
+    useCallback((data) => {
+      // Update store with live marks
+      store.applyMarksUpdate(data);
+      
+      // Reload watchlist and research displays
+      void Promise.allSettled([
+        watchlistRef.current?.reload(),
+        researchRef.current?.reload(),
+      ]);
+    }, [store])
+  );
+
   /**
-   * Auto-refresh system:
+   * Auto-refresh system (disabled when live quotes enabled):
    * - 30s interval for ALL symbols
    * - Pauses when tab is hidden
+   * - Only active when live quotes are OFF
    */
   useEffect(() => {
+    // Skip auto-refresh when live quotes are enabled
+    if (liveQuotesEnabled) {
+      console.log('[App] Auto-refresh disabled (live quotes enabled)');
+      if (refreshIntervalRef.current !== null) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+      return;
+    }
+
+    console.log('[App] Auto-refresh enabled (live quotes disabled)');
+    
     // Initial refresh on mount
     const initialTimer = setTimeout(() => {
       void refreshAll();
@@ -135,7 +188,7 @@ export default function App() {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshAll]);
+  }, [refreshAll, liveQuotesEnabled]);
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox
@@ -231,6 +284,51 @@ export default function App() {
         <div className="topbar">
           <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Live/Delayed badge */}
+            <div
+              style={{
+                padding: '4px 10px',
+                borderRadius: 4,
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                background: liveQuotesEnabled
+                  ? (liveConnected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)')
+                  : 'rgba(156, 163, 175, 0.15)',
+                color: liveQuotesEnabled
+                  ? (liveConnected ? '#22c55e' : '#eab308')
+                  : '#9ca3af',
+                border: `1px solid ${liveQuotesEnabled
+                  ? (liveConnected ? '#22c55e' : '#eab308')
+                  : '#9ca3af'}`,
+              }}
+              title={liveQuotesEnabled
+                ? (liveConnected ? 'Live streaming active (~3s refresh)' : 'Connecting to live stream...')
+                : '30-second delayed refresh'}
+            >
+              {liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
+            </div>
+            
+            {/* Live quotes toggle */}
+            <button
+              type="button"
+              className="btn"
+              onClick={toggleLiveQuotes}
+              title={liveQuotesEnabled ? 'Disable live quotes (30s refresh)' : 'Enable live quotes (~3s refresh)'}
+              style={{
+                minWidth: 70,
+                minHeight: 40,
+                height: 40,
+                paddingLeft: 12,
+                paddingRight: 12,
+                fontSize: 13,
+                background: liveQuotesEnabled ? 'var(--accent, #3d8bfd)' : undefined,
+              }}
+            >
+              {liveQuotesEnabled ? 'Live On' : 'Live Off'}
+            </button>
+            
             {store.lastRefreshError && (
               <div
                 style={{

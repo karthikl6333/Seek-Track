@@ -1,31 +1,36 @@
 /**
- * Server-Sent Events (SSE) live quote streaming - Cloudflare Workers compatible
+ * Server-Sent Events (SSE) live quote streaming - CF Workers lifetime budget safe
  * 
- * Design (CF-safe + subrequest-limited):
- * - Per-connection async loop INSIDE the ReadableStream
- * - Each connection continuously writes response bytes (avoids CF hang detector)
- * - LIMITED universe: only holdings + watchlist (not full research universe)
- * - ALWAYS emit marks from DB (even if refresh skipped due to limits)
- * - Async sleep using setTimeout + Promise (CF Workers compatible)
- * - No shared setInterval (incompatible with CF isolate model)
- * - Auto teardown: loop stops when connection closes
+ * Design (CF-safe + lifetime budget aware):
+ * - Per-connection async loop INSIDE ReadableStream (avoids hang detector)
+ * - READ-ONLY: only reads marks from DB (minimal subrequests per tick)
+ * - Background refresh: kicks POST /api/quotes/live-refresh via waitUntil
+ * - Graceful close: after ~40 ticks (~2 min) to avoid budget exhaustion
+ * - Auto-reconnect: client EventSource reconnects with fresh budget
  * 
- * CF Workers subrequest budget per tick:
- * - Typical: 10-20 holdings + 10-20 watchlist = 20-40 symbols
- * - 40 symbols ÷ 10 per chunk = 4 refresh calls
- * - Each refresh: 10 Yahoo + 2 Neon = 12 subrequests
- * - Total: ~50 subrequests (at CF limit, but safe for typical usage)
- * - Fallback: Read-only marks emission if refresh fails (minimal subrequests)
+ * CF Workers subrequest budget (lifetime, not per-tick):
+ * - Each SSE connection = 1 Worker invocation
+ * - All subrequests (across all ticks) count toward SAME 50 limit
+ * - Read-only: ~1 subrequest per tick (listMarksDetailed)
+ * - Background refresh: ~1 subrequest per kick (waitUntil fetch)
+ * - Total: ~40 ticks × 1-2 subrequests = safe under 50 limit
+ * - Graceful close after 40 ticks → client reconnects → fresh budget
  */
 
 import type { Context } from 'hono';
-import { forceRefresh, markActivity } from './quote-service.js';
+import { markActivity } from './quote-service.js';
 import { listMarksDetailed } from './quotes.js';
-import { query } from './db.js';
 
-// SSE refresh cadence: faster than 30s polling, but not excessive for Yahoo quota
-const STREAM_REFRESH_INTERVAL_MS = 3_000; // 3 seconds
-const MAX_SYMBOLS_PER_TICK = 40; // CF subrequest limit safety
+// SSE tick cadence
+const STREAM_TICK_INTERVAL_MS = 3_000; // 3 seconds
+
+// Graceful close after N ticks to avoid lifetime budget exhaustion
+// Budget math: 18 ticks × 2 avg subrequests = 36 total (safe under 50)
+const MAX_TICKS_PER_CONNECTION = 18; // ~54 seconds per connection
+
+// Kick refresh every N ticks (not every tick, to save subrequests)
+// Kicking every tick burns budget fast (stampede skip still costs 1 subrequest)
+const REFRESH_KICK_EVERY_N_TICKS = 3; // Kick every 3rd tick (~9s interval)
 
 /**
  * Generate SSE message format
@@ -42,78 +47,54 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Build LIMITED symbol universe for SSE streaming
- * Only includes: open holdings + watchlist symbols
- * Excludes: full research universe (too many symbols, hits CF subrequest limits)
+ * Kick background refresh via fetch (uses waitUntil for non-blocking)
+ * Returns true if kick was attempted, false if skipped
  */
-async function getLiveStreamUniverse(): Promise<string[]> {
-  const symbols = new Set<string>();
-
+async function kickBackgroundRefresh(c: Context, connectionId: string): Promise<boolean> {
   try {
-    // Holdings: compute net positions (only open positions)
-    const holdingsRes = await query<{ symbol: string }>(
-      `SELECT symbol
-       FROM trades
-       GROUP BY symbol
-       HAVING SUM(
-         CASE 
-           WHEN LOWER(action) LIKE '%short%' THEN -ABS(quantity)
-           WHEN LOWER(action) LIKE '%cover%' THEN ABS(quantity)
-           WHEN LOWER(action) LIKE '%buy%' OR LOWER(action) LIKE 'bought%' THEN ABS(quantity)
-           WHEN LOWER(action) LIKE '%sell%' OR LOWER(action) LIKE 'sold%' THEN -ABS(quantity)
-           ELSE 0
-         END
-       ) <> 0`
-    );
-    for (const r of holdingsRes.rows) {
-      symbols.add(r.symbol.toUpperCase().trim());
+    // Build absolute URL for internal fetch
+    const url = new URL('/api/quotes/live-refresh', c.req.url);
+    
+    // Forward auth headers
+    const authHeader = c.req.header('Authorization');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authHeader) {
+      headers['Authorization'] = authHeader;
     }
 
-    // Watchlist
-    const watchlistRes = await query<{ symbol: string }>(`SELECT symbol FROM watchlist`);
-    for (const r of watchlistRes.rows) {
-      symbols.add(r.symbol.toUpperCase().trim());
+    // Kick refresh in background (non-blocking)
+    // This costs 1 subrequest on the SSE side; the child invocation spends Yahoo budget
+    const refreshPromise = fetch(url.toString(), {
+      method: 'POST',
+      headers,
+    }).then(async (res) => {
+      if (res.ok) {
+        const data = await res.json() as { skipped?: boolean; updated?: string[] };
+        if (data.skipped) {
+          console.log(`[QuoteStream] ${connectionId}: Refresh skipped (recent)`);
+        } else {
+          console.log(`[QuoteStream] ${connectionId}: Refresh completed (${data.updated?.length || 0} symbols)`);
+        }
+      } else {
+        console.warn(`[QuoteStream] ${connectionId}: Refresh failed: ${res.status}`);
+      }
+    }).catch((err) => {
+      console.error(`[QuoteStream] ${connectionId}: Refresh error:`, err);
+    });
+
+    // Use waitUntil if available (CF Workers / Pages)
+    if (c.executionCtx && 'waitUntil' in c.executionCtx) {
+      c.executionCtx.waitUntil(refreshPromise);
+    } else {
+      // Fallback: fire and forget (Node.js dev)
+      void refreshPromise;
     }
 
-    // Note: Research universe NOT included (can be 50+ symbols, causes subrequest limit)
-    // Users see live updates for holdings + watchlist, research updates on manual refresh
-
-  } catch (err) {
-    console.error('[QuoteStream] Failed to get live universe:', err);
-  }
-
-  return Array.from(symbols).filter(s => s.length > 0).sort();
-}
-
-/**
- * Refresh quotes for limited symbol set (CF subrequest aware)
- * Returns true if refresh succeeded, false if skipped/failed
- */
-async function refreshLiveQuotes(universe: string[]): Promise<boolean> {
-  if (universe.length === 0) {
-    return false;
-  }
-
-  // Safety: Cap at MAX_SYMBOLS_PER_TICK to stay under CF limits
-  const symbols = universe.slice(0, MAX_SYMBOLS_PER_TICK);
-  
-  if (symbols.length < universe.length) {
-    console.log(
-      `[QuoteStream] Capping refresh: ${symbols.length}/${universe.length} symbols ` +
-      `(CF subrequest limit safety)`
-    );
-  }
-
-  try {
-    // Chunk refresh to stay under CF Workers limits (10 symbols per call)
-    const CHUNK_SIZE = 10;
-    for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
-      const chunk = symbols.slice(i, i + CHUNK_SIZE);
-      await forceRefresh(chunk);
-    }
     return true;
   } catch (err) {
-    console.error('[QuoteStream] Refresh failed:', err);
+    console.error(`[QuoteStream] ${connectionId}: Failed to kick refresh:`, err);
     return false;
   }
 }
@@ -121,11 +102,11 @@ async function refreshLiveQuotes(universe: string[]): Promise<boolean> {
 /**
  * SSE endpoint handler: GET /api/quotes/stream
  * 
- * CF Workers compatible:
- * - Per-connection async loop inside ReadableStream (avoids hang detector)
- * - Limited universe (holdings + watchlist only, not research)
- * - Always emits marks from DB (even if refresh skipped)
- * - Stays under CF subrequest limits
+ * CF Workers lifetime budget safe:
+ * - Read-only loop: minimal subrequests (~1 per tick)
+ * - Background refresh via waitUntil: doesn't block, uses separate budget
+ * - Graceful close after MAX_TICKS_PER_CONNECTION (~2 min)
+ * - Client EventSource auto-reconnects with fresh budget
  */
 export async function handleQuoteStream(c: Context) {
   markActivity();
@@ -135,11 +116,12 @@ export async function handleQuoteStream(c: Context) {
 
   // Track connection state
   let closed = false;
+  let tickCount = 0;
 
-  // Create SSE stream with per-connection refresh loop
+  // Create SSE stream with read-only loop
   const stream = new ReadableStream({
     async start(controller) {
-      console.log(`[QuoteStream] Starting stream loop for ${connectionId}`);
+      console.log(`[QuoteStream] Starting read-only stream loop for ${connectionId}`);
 
       try {
         // Send initial connected event
@@ -148,69 +130,75 @@ export async function handleQuoteStream(c: Context) {
             sseMessage('connected', {
               id: connectionId,
               timestamp: new Date().toISOString(),
-              refreshInterval: STREAM_REFRESH_INTERVAL_MS,
+              tickInterval: STREAM_TICK_INTERVAL_MS,
+              maxTicks: MAX_TICKS_PER_CONNECTION,
             })
           )
         );
 
-        // Per-connection loop: continuously fetch and broadcast
-        // This keeps the response active and avoids CF hang detector
-        while (!closed) {
-          // Wait before next refresh
-          await sleep(STREAM_REFRESH_INTERVAL_MS);
+        // Read-only loop: continuously read marks from DB and emit
+        while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
+          // Wait before next tick
+          await sleep(STREAM_TICK_INTERVAL_MS);
 
           if (closed) break;
 
-          // Get limited universe (holdings + watchlist only)
-          const universe = await getLiveStreamUniverse();
-          
+          tickCount++;
+
+          // Kick background refresh every Nth tick (rate-limited, non-blocking)
+          if (tickCount % REFRESH_KICK_EVERY_N_TICKS === 1) {
+            await kickBackgroundRefresh(c, connectionId);
+          }
+
           if (closed) break;
 
-          // Attempt to refresh (may skip if too many symbols or fails)
-          const refreshed = await refreshLiveQuotes(universe);
-          
-          if (closed) break;
-
-          // ALWAYS emit marks from DB (even if refresh skipped)
-          // This ensures client gets updates every tick
+          // Read marks from DB (cheap: ~1 subrequest)
           try {
             const data = await listMarksDetailed();
             const message = sseMessage('marks', data);
             controller.enqueue(new TextEncoder().encode(message));
             console.log(
-              `[QuoteStream] Sent marks to ${connectionId} ` +
-              `(${universe.length} symbols, ${refreshed ? 'refreshed' : 'read-only'})`
+              `[QuoteStream] ${connectionId}: Sent marks (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
             );
           } catch (err) {
-            console.error(`[QuoteStream] Failed to send marks to ${connectionId}:`, err);
+            console.error(`[QuoteStream] ${connectionId}: Failed to read/send marks:`, err);
             // Don't break - try again next tick
           }
 
-          // Send periodic heartbeat comment (keeps connection alive)
+          // Send heartbeat comment
           try {
             controller.enqueue(
               new TextEncoder().encode(`: heartbeat ${new Date().toISOString()}\n\n`)
             );
           } catch (err) {
-            console.error(`[QuoteStream] Failed to send heartbeat to ${connectionId}:`, err);
+            console.error(`[QuoteStream] ${connectionId}: Failed to send heartbeat:`, err);
             break;
           }
         }
+
+        // Graceful close after max ticks
+        if (tickCount >= MAX_TICKS_PER_CONNECTION) {
+          console.log(
+            `[QuoteStream] ${connectionId}: Gracefully closing after ${tickCount} ticks ` +
+            `(lifetime budget preservation)`
+          );
+        }
+
       } catch (err) {
-        console.error(`[QuoteStream] Stream error for ${connectionId}:`, err);
+        console.error(`[QuoteStream] ${connectionId}: Stream error:`, err);
       } finally {
         try {
           controller.close();
         } catch {
           // Already closed
         }
-        console.log(`[QuoteStream] Stream ended for ${connectionId}`);
+        console.log(`[QuoteStream] ${connectionId}: Stream ended (${tickCount} ticks)`);
       }
     },
     cancel() {
       // Connection closed by client
       closed = true;
-      console.log(`[QuoteStream] Connection cancelled: ${connectionId}`);
+      console.log(`[QuoteStream] ${connectionId}: Connection cancelled by client`);
     },
   });
 

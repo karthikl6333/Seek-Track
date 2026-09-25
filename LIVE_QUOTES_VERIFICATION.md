@@ -2,48 +2,55 @@
 
 ## Overview
 
-This PR implements SSE-based live quote streaming with **Cloudflare Workers compatibility**, replacing the 15-30 second polling refresh with real-time updates (~3s latency).
+This PR implements SSE-based live quote streaming with **Cloudflare Workers lifetime budget safety**, replacing the 15-30 second polling refresh with real-time updates (~3s latency).
 
-## What Changed from PR #55 (Production Fix)
+## What Changed from PR #57 (Production Fix)
 
-### **Problems on Cloudflare Workers**
+### **Problem: CF Workers Lifetime Subrequest Budget**
 
-**PR #55:** Shared `setInterval` loop outside ReadableStream
-- ❌ CF Workers hang detector killed request after `connected` event
-- ❌ No `marks` events ever arrived
-- ❌ Client reconnect-looped every ~3s
-- ❌ Prices only updated on manual refresh
+**Critical misunderstanding in PR #55, #56, #57:**
+- CF Workers subrequest budget is **per Worker invocation for entire lifetime**
+- NOT reset per tick/loop iteration
+- Long-lived SSE = 1 Worker invocation = ALL ticks share SAME 50 subrequest budget
 
-**PR #56:** Per-connection async loop (fixed hang, but hit subrequest limit)
-- ✅ Hang detector fixed (async loop inside stream)
-- ❌ "Too many subrequests" error when refreshing ~97 universe symbols
-- ❌ `fetchMarksUpdate` returned null → only heartbeats, no `marks` events
-- ❌ Prices still didn't tick
+**PR #57 failure on production (4bb8bf6):**
+```
+Tick 1: Sent marks (22 symbols, refreshed) ← works
+Tick 2-3: Sent marks (22 symbols, refreshed) ← works
+Tick 4+: Too many subrequests → NeonDbError → Failed to send marks
+Client reconnect storm every ~3-4s
+```
 
-**Root causes:**
-1. CF Workers isolate model doesn't keep background timers alive (PR #55)
-2. CF Workers 50 subrequest limit per invocation (PR #56):
-   - 97 symbols ÷ 10 per chunk = 10 refresh calls
-   - Each refresh: 10 Yahoo + 2 Neon = 12 subrequests
-   - Total: ~120 subrequests → exceeds limit → error → no marks
+**Why it failed:**
+- Each tick: getLiveStreamUniverse + refreshLiveQuotes + listMarksDetailed
+- 22 symbols ÷ 10 = 3 chunks × 12 subrequests = ~36 subrequests per tick
+- Tick 1: 36 used (14 remaining)
+- Tick 2: 36 used (budget exhausted, error)
+- Even "smaller universe" couldn't escape lifetime accumulation
 
-### **Solution: Limited Universe + Always Emit Marks**
+### **Solution: Decouple Refresh from SSE Worker**
+
 New implementation (this PR):
-- ✅ Async `while` loop **inside** `ReadableStream.start()` (CF hang detector safe)
-- ✅ **LIMITED universe**: only holdings + watchlist (~20-40 symbols)
-- ✅ **Excludes** full research universe (~50+ symbols)
-- ✅ **ALWAYS emit marks** from DB (even if refresh skipped)
-- ✅ Stays under CF subrequest limits:
-  - 40 symbols ÷ 10 per chunk = 4 refresh calls
-  - Each refresh: 10 Yahoo + 2 Neon = 12 subrequests
-  - Total: ~50 subrequests (at limit, safe for typical usage)
-- ✅ Graceful degradation: if refresh fails, still emit last-known marks
 
-**What users see:**
-- Holdings prices: ✅ Live updates every ~3s
-- Watchlist prices: ✅ Live updates every ~3s
-- Research tab: ⚠️ Updates on manual refresh only (not live streamed)
-- News signals: ✅ Separate ~5 min cadence (unchanged)
+**A) Short-lived refresh endpoint** - `POST /api/quotes/live-refresh`
+- Fresh 50 subrequest budget per invocation
+- Stampede guard: skip if last refresh < 3s ago
+- Limited universe: holdings + watchlist (~20-40 symbols)
+- Writes to marks table
+
+**B) Read-only SSE loop** - `GET /api/quotes/stream`
+- Only reads marks from DB (~1 subrequest per tick)
+- Kicks refresh every 3rd tick (~1/3 subrequest avg per tick)
+- Total: ~1.33 subrequests per tick × 18 ticks = ~24 subrequests
+- Graceful close after 18 ticks (~54 seconds)
+- Client EventSource auto-reconnects with fresh budget
+
+**Why it works:**
+1. ✅ Yahoo refresh in separate Worker (fresh 50 budget each POST)
+2. ✅ SSE only reads DB + occasional kick (cheap: ~1.33 subrequests per tick)
+3. ✅ Graceful close after 18 ticks (~54s) → auto-reconnect → fresh budget
+4. ✅ No "Too many subrequests" errors
+5. ✅ Stable streaming with controlled reconnects (~every minute)
 
 ## Architecture
 
@@ -82,7 +89,7 @@ New implementation (this PR):
 
 ## Verification Steps
 
-### 1. Stream Works on Cloudflare Workers
+### 1. Stream Works Without "Too Many Subrequests"
 
 **CF-specific checks:**
 ```bash
@@ -92,41 +99,62 @@ New implementation (this PR):
 ```
 
 **Expected (CF Workers production):**
-- ✅ Status: `200` (not `503` or cancelled)
+- ✅ Status: `200`
 - ✅ Type: `text/event-stream`
-- ✅ **EventStream tab shows `event: marks` every ~3s** ← KEY CHECK
-- ✅ No "Too many subrequests" errors in CF logs
-- ✅ No "hung and would never generate a response" errors
-- ✅ Connection stays open for minutes (not killed after 3s)
+- ✅ **EventStream tab shows many `event: marks`** (~18 over ~54 seconds)
+- ✅ **NO "Too many subrequests" errors** in CF logs ← KEY FIX
+- ✅ **Controlled reconnect** after ~54s (graceful, not error storm)
+- ✅ After reconnect: stream continues with fresh budget
 
 **EventStream tab should show:**
 ```
 event: connected
-data: {"id":"sse-...","timestamp":"...","refreshInterval":3000}
+data: {"id":"sse-...","timestamp":"...","tickInterval":3000,"maxTicks":18}
 
 event: marks
-data: {"marks":{...},"lastRefreshAt":"...","lastRefreshError":null}
+data: {"marks":{...},"lastRefreshAt":"..."}
 
-: heartbeat 2026-09-25T15:15:01.234Z
+: heartbeat ...
 
 event: marks
-data: {"marks":{...},"lastRefreshAt":"...","lastRefreshError":null}
+...
 
-: heartbeat 2026-09-25T15:15:04.567Z
+(repeats ~18 times over ~54 seconds)
+
+[Stream closes gracefully]
+[EventSource auto-reconnects]
+
+event: connected
+data: {"id":"sse-..."}
+
+event: marks
 ...
 ```
 
 **Server logs (CF Pages Functions):**
 ```
-[QuoteStream] New connection: sse-1234567890-abc123
-[QuoteStream] Starting stream loop for sse-1234567890-abc123
-[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
-[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
-[QuoteStream] Sent marks to sse-1234567890-abc123 (25 symbols, refreshed)
+[QuoteStream] New connection: sse-abc123
+[QuoteStream] Starting read-only stream loop for sse-abc123
+[QuoteStream] sse-abc123: Refresh completed (22 symbols)
+[QuoteStream] sse-abc123: Sent marks (tick 1/18)
+[QuoteStream] sse-abc123: Sent marks (tick 2/18)
+[QuoteStream] sse-abc123: Sent marks (tick 3/18)
+[QuoteStream] sse-abc123: Refresh skipped (recent)
+[QuoteStream] sse-abc123: Sent marks (tick 4/18)
 ...
-[QuoteStream] Connection cancelled: sse-1234567890-abc123
-[QuoteStream] Stream ended for sse-1234567890-abc123
+[QuoteStream] sse-abc123: Sent marks (tick 18/18)
+[QuoteStream] sse-abc123: Gracefully closing after 18 ticks (lifetime budget preservation)
+[QuoteStream] sse-abc123: Stream ended (18 ticks)
+
+[LiveRefresh] Refreshing 22 symbols
+[LiveRefresh] Completed: 22 updated, 0 failed
 ```
+
+**NOT expected:**
+- ❌ "Too many subrequests" errors
+- ❌ NeonDbError after a few ticks
+- ❌ Reconnect storm every 3-4s (error-driven)
+- ❌ Only 1-2 marks events then silence
 
 ### 2. Prices Update Every ~3s (No Manual Refresh)
 

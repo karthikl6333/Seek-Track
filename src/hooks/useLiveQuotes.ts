@@ -34,6 +34,12 @@ export function useLiveQuotes(
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  
+  // Stabilize onUpdate with ref to prevent effect cleanup on every render
+  const onUpdateRef = useRef(onUpdate);
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   useEffect(() => {
     if (!enabled) {
@@ -70,7 +76,7 @@ export function useLiveQuotes(
       es.addEventListener('marks', (e) => {
         try {
           const data = JSON.parse(e.data) as LiveQuotesData;
-          onUpdate(data);
+          onUpdateRef.current(data);
           setLastUpdate(new Date().toISOString());
           setError(null);
         } catch (err) {
@@ -114,7 +120,7 @@ export function useLiveQuotes(
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [enabled, onUpdate]);
+  }, [enabled]);
 
   return { connected, error, lastUpdate };
 }

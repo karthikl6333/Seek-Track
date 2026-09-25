@@ -709,6 +709,18 @@ function scoreAndCorroborate(
 // DATABASE OPERATIONS
 // ============================================================================
 
+/**
+ * Safely parse JSONB field that may already be parsed by the driver.
+ * Postgres JSONB columns are often returned as JS objects/arrays by the driver,
+ * but we need to handle both cases (string or already-parsed).
+ */
+function parseJSONBField<T>(value: unknown): T {
+  if (typeof value === 'string') {
+    return JSON.parse(value);
+  }
+  return value as T;
+}
+
 async function saveSignals(signals: NewsSignal[]): Promise<void> {
   if (signals.length === 0) return;
   
@@ -786,7 +798,7 @@ async function loadSignals(): Promise<NewsSignal[]> {
     sourceCount: row.source_count,
     sourceIds: row.source_ids,
     normalizedText: row.normalized_text,
-    originalTexts: JSON.parse(row.original_texts),
+    originalTexts: parseJSONBField<string[]>(row.original_texts),
     createdAt: row.created_at,
     refreshedAt: row.refreshed_at,
   }));

@@ -62,7 +62,7 @@ export function NewsRecommendations() {
   const [degraded, setDegraded] = useState<string[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeSentiments, setActiveSentiments] = useState<Set<'bullish' | 'bearish' | 'neutral'>>(new Set());
+  const [activeSentiments, setActiveSentiments] = useState<Set<'bullish' | 'bearish' | 'neutral'>>(new Set(['bearish']));
 
   const handleDismiss = useCallback((signalId: string) => {
     setDismissedIds((prev) => {

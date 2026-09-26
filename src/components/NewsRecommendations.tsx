@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { NewsSignal, NewsRefreshResult } from '../types';
 import { loadNewsSignals, refreshNews } from '../lib/db';
 
+const DISMISSED_STORAGE_KEY = 'seektrack_dismissed_news';
+
 function timeSince(timestamp: string): string {
   const now = Date.now();
   const then = new Date(timestamp).getTime();
@@ -33,6 +35,23 @@ function directionBadgeClass(direction: string): string {
   }
 }
 
+function getDismissedIds(): Set<string> {
+  try {
+    const stored = localStorage.getItem(DISMISSED_STORAGE_KEY);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissedIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Silent fail
+  }
+}
+
 export function NewsRecommendations() {
   const [signals, setSignals] = useState<NewsSignal[]>([]);
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
@@ -41,6 +60,21 @@ export function NewsRecommendations() {
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState<string[]>([]);
   const [degraded, setDegraded] = useState<string[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const handleDismiss = useCallback((signalId: string) => {
+    setDismissedIds((prev) => {
+      const updated = new Set(prev);
+      updated.add(signalId);
+      saveDismissedIds(updated);
+      return updated;
+    });
+  }, []);
+
+  const handleToggleExpand = useCallback((signalId: string) => {
+    setExpandedId((prev) => (prev === signalId ? null : signalId));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -147,64 +181,138 @@ export function NewsRecommendations() {
       ) : (
         <div className="news-cards-container">
           <div className="news-cards">
-            {signals.map((signal) => (
-              <div key={signal.id} className="news-card">
-                <div className="news-card-header">
-                  {signal.ticker && (
-                    <span className="news-ticker">{signal.ticker}</span>
-                  )}
-                  <span className={`badge ${directionBadgeClass(signal.direction)}`}>
-                    {signal.direction}
-                  </span>
-                  <span
-                    className="news-confidence"
-                    style={{
-                      color: signal.confidence >= 0.7 ? '#4caf50' : signal.confidence >= 0.5 ? '#ff9800' : '#999',
-                    }}
+            {signals
+              .filter((signal) => !dismissedIds.has(signal.id))
+              .map((signal) => {
+                const isExpanded = expandedId === signal.id;
+                const sentimentClass =
+                  signal.direction === 'bullish'
+                    ? 'news-card-bullish'
+                    : signal.direction === 'bearish'
+                      ? 'news-card-bearish'
+                      : '';
+
+                return (
+                  <div
+                    key={signal.id}
+                    className={`news-card ${sentimentClass} ${isExpanded ? 'news-card-expanded' : ''}`}
                   >
-                    {formatConfidence(signal.confidence)}
-                  </span>
-                </div>
-
-                <div className="news-card-body">
-                  <p className="news-rationale">{signal.rationale}</p>
-                  {signal.positionImpact && (
-                    <p className="news-impact muted">{signal.positionImpact}</p>
-                  )}
-                </div>
-
-                <div className="news-card-footer">
-                  <div className="news-meta">
-                    {signal.corroborationStatus === 'corroborated' ? (
-                      <span className="badge" style={{ backgroundColor: '#4caf50', color: 'white', fontSize: 10 }}>
-                        Confirmed
+                    <div className="news-card-header">
+                      {signal.ticker && (
+                        <span className="news-ticker">{signal.ticker}</span>
+                      )}
+                      <span className={`badge ${directionBadgeClass(signal.direction)}`}>
+                        {signal.direction}
                       </span>
-                    ) : (
-                      <span className="badge" style={{ backgroundColor: '#999', color: 'white', fontSize: 10 }}>
-                        Unconfirmed
+                      <span
+                        className="news-confidence"
+                        style={{
+                          color: signal.confidence >= 0.7 ? '#4caf50' : signal.confidence >= 0.5 ? '#ff9800' : '#999',
+                        }}
+                      >
+                        {formatConfidence(signal.confidence)}
                       </span>
-                    )}
-                    <span className="muted" style={{ fontSize: 11 }}>
-                      {signal.sourceCount} source{signal.sourceCount > 1 ? 's' : ''}
-                    </span>
-                    <span className="muted" style={{ fontSize: 11 }}>
-                      {timeSince(signal.createdAt)}
-                    </span>
-                  </div>
-                  {signal.corroborationLink && (
-                    <a
-                      href={signal.corroborationLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="news-link"
-                      style={{ fontSize: 11 }}
+                      <button
+                        type="button"
+                        className="news-dismiss-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDismiss(signal.id);
+                        }}
+                        title="Dismiss this news tile"
+                        aria-label="Dismiss"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div
+                      className="news-card-body"
+                      onClick={() => handleToggleExpand(signal.id)}
+                      style={{ cursor: 'pointer' }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleToggleExpand(signal.id);
+                        }
+                      }}
                     >
-                      Source →
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
+                      <p className="news-rationale">{signal.rationale}</p>
+                      {signal.positionImpact && (
+                        <p className="news-impact muted">{signal.positionImpact}</p>
+                      )}
+                    </div>
+
+                    {isExpanded && (
+                      <div className="news-expanded-content">
+                        <div className="news-expanded-section">
+                          <div className="news-expanded-label">Analysis</div>
+                          <p className="news-expanded-text">{signal.rationale}</p>
+                        </div>
+                        {signal.positionImpact && (
+                          <div className="news-expanded-section">
+                            <div className="news-expanded-label">Impact</div>
+                            <p className="news-expanded-text">{signal.positionImpact}</p>
+                          </div>
+                        )}
+                        {signal.originalTexts && signal.originalTexts.length > 0 && (
+                          <div className="news-expanded-section">
+                            <div className="news-expanded-label">
+                              Original Sources ({signal.originalTexts.length})
+                            </div>
+                            {signal.originalTexts.map((text, idx) => (
+                              <p key={idx} className="news-expanded-text news-source-text">
+                                {text}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {signal.corroborationLink && (
+                          <a
+                            href={signal.corroborationLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="news-link news-expanded-link"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            View original article →
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="news-card-footer">
+                      <div className="news-meta">
+                        {signal.corroborationStatus === 'corroborated' ? (
+                          <span className="badge" style={{ backgroundColor: '#4caf50', color: 'white', fontSize: 10 }}>
+                            Confirmed
+                          </span>
+                        ) : (
+                          <span className="badge" style={{ backgroundColor: '#999', color: 'white', fontSize: 10 }}>
+                            Unconfirmed
+                          </span>
+                        )}
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {signal.sourceCount} source{signal.sourceCount > 1 ? 's' : ''}
+                        </span>
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {timeSince(signal.createdAt)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="news-expand-toggle"
+                        onClick={() => handleToggleExpand(signal.id)}
+                        title={isExpanded ? 'Collapse' : 'Expand to see details'}
+                      >
+                        {isExpanded ? 'Collapse ▲' : 'Expand ▼'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

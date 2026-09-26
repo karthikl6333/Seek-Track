@@ -745,7 +745,8 @@ button.linkish:hover { opacity: 0.85; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+  position: relative;
 }
 
 .news-card:hover {
@@ -753,11 +754,62 @@ button.linkish:hover { opacity: 0.85; }
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.news-card-bullish {
+  background: rgba(76, 175, 80, 0.05);
+  border-color: rgba(76, 175, 80, 0.25);
+}
+
+.news-card-bullish:hover {
+  border-color: rgba(76, 175, 80, 0.5);
+  box-shadow: 0 2px 12px rgba(76, 175, 80, 0.15);
+}
+
+.news-card-bearish {
+  background: rgba(244, 67, 54, 0.05);
+  border-color: rgba(244, 67, 54, 0.25);
+}
+
+.news-card-bearish:hover {
+  border-color: rgba(244, 67, 54, 0.5);
+  box-shadow: 0 2px 12px rgba(244, 67, 54, 0.15);
+}
+
+.news-card-expanded {
+  width: 440px;
+}
+
 .news-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  position: relative;
+  padding-right: 24px;
+}
+
+.news-dismiss-btn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: rgba(158, 158, 158, 0.2);
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, color 0.15s;
+  padding: 0;
+}
+
+.news-dismiss-btn:hover {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
 }
 
 .news-ticker {
@@ -819,6 +871,83 @@ button.linkish:hover { opacity: 0.85; }
 
 .news-link:hover {
   text-decoration: underline;
+}
+
+.news-expand-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.news-expand-toggle:hover {
+  opacity: 0.8;
+}
+
+.news-expanded-content {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+.news-expanded-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.news-expanded-label {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.news-expanded-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.news-source-text {
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.15);
+  border-left: 2px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.news-expanded-link {
+  font-size: 12px;
+  margin-top: 4px;
+  display: inline-block;
 }
 
 .badge-bullish {

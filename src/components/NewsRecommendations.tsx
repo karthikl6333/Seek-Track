@@ -62,6 +62,7 @@ export function NewsRecommendations() {
   const [degraded, setDegraded] = useState<string[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeSentiments, setActiveSentiments] = useState<Set<'bullish' | 'bearish' | 'neutral'>>(new Set(['bearish']));
 
   const handleDismiss = useCallback((signalId: string) => {
     setDismissedIds((prev) => {
@@ -74,6 +75,18 @@ export function NewsRecommendations() {
 
   const handleToggleExpand = useCallback((signalId: string) => {
     setExpandedId((prev) => (prev === signalId ? null : signalId));
+  }, []);
+
+  const handleToggleSentiment = useCallback((sentiment: 'bullish' | 'bearish' | 'neutral') => {
+    setActiveSentiments((prev) => {
+      const updated = new Set(prev);
+      if (updated.has(sentiment)) {
+        updated.delete(sentiment);
+      } else {
+        updated.add(sentiment);
+      }
+      return updated;
+    });
   }, []);
 
   const load = useCallback(async () => {
@@ -128,6 +141,16 @@ export function NewsRecommendations() {
     ? new Date(refreshedAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
     : null;
 
+  const filteredSignals = signals.filter((signal) => {
+    if (!dismissedIds.has(signal.id)) {
+      if (activeSentiments.size === 0) {
+        return true;
+      }
+      return activeSentiments.has(signal.direction);
+    }
+    return false;
+  });
+
   return (
     <div className="news-recommendations-tile">
       <div className="news-header">
@@ -148,6 +171,33 @@ export function NewsRecommendations() {
             {refreshing ? '⟳ Refreshing...' : '↻ Refresh'}
           </button>
         </div>
+      </div>
+
+      <div className="news-sentiment-filters">
+        <button
+          type="button"
+          className={`news-sentiment-toggle news-sentiment-toggle-bullish ${activeSentiments.has('bullish') ? 'active' : ''}`}
+          onClick={() => handleToggleSentiment('bullish')}
+          title="Filter by bullish signals"
+        >
+          Bullish
+        </button>
+        <button
+          type="button"
+          className={`news-sentiment-toggle news-sentiment-toggle-bearish ${activeSentiments.has('bearish') ? 'active' : ''}`}
+          onClick={() => handleToggleSentiment('bearish')}
+          title="Filter by bearish signals"
+        >
+          Bearish
+        </button>
+        <button
+          type="button"
+          className={`news-sentiment-toggle news-sentiment-toggle-neutral ${activeSentiments.has('neutral') ? 'active' : ''}`}
+          onClick={() => handleToggleSentiment('neutral')}
+          title="Filter by neutral signals"
+        >
+          Neutral
+        </button>
       </div>
 
       {error && (
@@ -181,9 +231,7 @@ export function NewsRecommendations() {
       ) : (
         <div className="news-cards-container">
           <div className="news-cards">
-            {signals
-              .filter((signal) => !dismissedIds.has(signal.id))
-              .map((signal) => {
+            {filteredSignals.map((signal) => {
                 const isExpanded = expandedId === signal.id;
                 const sentimentClass =
                   signal.direction === 'bullish'

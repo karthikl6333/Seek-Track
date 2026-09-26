@@ -694,6 +694,51 @@ button.linkish:hover { opacity: 0.85; }
   gap: 12px;
 }
 
+.news-sentiment-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.news-sentiment-toggle {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.news-sentiment-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.news-sentiment-toggle-bullish.active {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: rgba(76, 175, 80, 0.5);
+  color: #4caf50;
+}
+
+.news-sentiment-toggle-bearish.active {
+  background: rgba(244, 67, 54, 0.15);
+  border-color: rgba(244, 67, 54, 0.5);
+  color: #f44336;
+}
+
+.news-sentiment-toggle-neutral.active {
+  background: rgba(158, 158, 158, 0.15);
+  border-color: rgba(158, 158, 158, 0.5);
+  color: #9e9e9e;
+}
+
 .news-error,
 .news-warning {
   display: flex;

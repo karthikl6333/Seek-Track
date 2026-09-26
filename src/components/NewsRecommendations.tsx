@@ -61,7 +61,7 @@ export function NewsRecommendations() {
   const [unconfigured, setUnconfigured] = useState<string[]>([]);
   const [degraded, setDegraded] = useState<string[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [activeSentiments, setActiveSentiments] = useState<Set<'bullish' | 'bearish' | 'neutral'>>(new Set(['bearish']));
 
   const handleDismiss = useCallback((signalId: string) => {
@@ -74,7 +74,15 @@ export function NewsRecommendations() {
   }, []);
 
   const handleToggleExpand = useCallback((signalId: string) => {
-    setExpandedId((prev) => (prev === signalId ? null : signalId));
+    setExpandedIds((prev) => {
+      const updated = new Set(prev);
+      if (updated.has(signalId)) {
+        updated.delete(signalId);
+      } else {
+        updated.add(signalId);
+      }
+      return updated;
+    });
   }, []);
 
   const handleToggleSentiment = useCallback((sentiment: 'bullish' | 'bearish' | 'neutral') => {
@@ -88,6 +96,25 @@ export function NewsRecommendations() {
       return updated;
     });
   }, []);
+
+  const handleClearAll = useCallback(() => {
+    setDismissedIds((prev) => {
+      const updated = new Set(prev);
+      signals
+        .filter((signal) => {
+          if (!prev.has(signal.id)) {
+            if (activeSentiments.size === 0) {
+              return true;
+            }
+            return activeSentiments.has(signal.direction);
+          }
+          return false;
+        })
+        .forEach((signal) => updated.add(signal.id));
+      saveDismissedIds(updated);
+      return updated;
+    });
+  }, [signals, activeSentiments]);
 
   const load = useCallback(async () => {
     try {
@@ -198,6 +225,16 @@ export function NewsRecommendations() {
         >
           Neutral
         </button>
+        {filteredSignals.length > 0 && (
+          <button
+            type="button"
+            className="news-clear-all-btn"
+            onClick={handleClearAll}
+            title="Dismiss all currently visible news recommendations"
+          >
+            Clear all
+          </button>
+        )}
       </div>
 
       {error && (
@@ -232,7 +269,7 @@ export function NewsRecommendations() {
         <div className="news-cards-container">
           <div className="news-cards">
             {filteredSignals.map((signal) => {
-                const isExpanded = expandedId === signal.id;
+                const isExpanded = expandedIds.has(signal.id);
                 const sentimentClass =
                   signal.direction === 'bullish'
                     ? 'news-card-bullish'

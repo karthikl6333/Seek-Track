@@ -335,6 +335,7 @@ table.data tr:hover td {
   border-radius: 8px;
   padding: 8px 12px;
   transition: border-color 0.15s, background 0.15s;
+  min-height: 32px;
 }
 
 .btn:hover {
@@ -355,6 +356,35 @@ table.data tr:hover td {
 .btn.small {
   padding: 4px 8px;
   font-size: 12px;
+}
+
+/* Mobile button improvements for better touch targets */
+@media (max-width: 768px) {
+  .btn {
+    min-height: 40px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  
+  .btn.small {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .btn {
+    min-height: 36px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  
+  .btn.small {
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
 }
 
 .field {
@@ -387,6 +417,35 @@ table.data tr:hover td {
   border-color: var(--accent);
 }
 
+/* Mobile-friendly form inputs */
+@media (max-width: 768px) {
+  .field input,
+  .field select,
+  .field textarea {
+    padding: 10px 12px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  
+  .field label {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .field {
+    margin-bottom: 8px;
+  }
+  
+  .field input,
+  .field select,
+  .field textarea {
+    padding: 8px 10px;
+    font-size: 13px;
+    min-height: 36px;
+  }
+}
+
 .badge {
   display: inline-block;
   padding: 2px 8px;
@@ -407,6 +466,21 @@ table.data tr:hover td {
   margin: 8px 0 12px;
 }
 
+/* Mobile caveat improvements */
+@media (max-width: 768px) {
+  .caveat {
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .caveat {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+}
+
 .stat-value {
   font-family: var(--mono);
   font-size: 22px;
@@ -416,6 +490,27 @@ table.data tr:hover td {
 .stat-label {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* Mobile stat-value improvements */
+@media (max-width: 768px) {
+  .stat-value {
+    font-size: 20px;
+  }
+  
+  .stat-label {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stat-value {
+    font-size: 18px;
+  }
+  
+  .stat-label {
+    font-size: 10px;
+  }
 }
 
 
@@ -480,16 +575,69 @@ button.stat-card-link:focus-visible,
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .overview-stats-grid {
     grid-template-columns: 1fr 1fr !important;
+    gap: 10px;
+  }
+  
+  /* Adjust stat tile typography for tablets/small laptops */
+  .overview-stats-grid .card {
+    padding: 10px;
+  }
+  
+  .overview-stats-grid .card h3 {
+    font-size: 10px;
+    margin: 0 0 6px;
+  }
+  
+  .overview-stats-grid .stat-value {
+    font-size: 16px;
+    padding: 2px 8px;
+  }
+  
+  .overview-stats-grid .stat-label {
+    font-size: 9px;
+  }
+  
+  .overview-stats-grid .trading-mode-badge {
+    font-size: 8px;
+    padding: 2px 5px;
+    margin-bottom: 3px;
   }
 }
 
 @media (max-width: 480px) {
   .overview-stats-grid {
     grid-template-columns: 1fr !important;
+    gap: 8px;
   }
+  
+  /* Single column layout - slightly larger tiles */
+  .overview-stats-grid .card {
+    padding: 12px;
+  }
+  
+  .overview-stats-grid .card h3 {
+    font-size: 11px;
+    margin: 0 0 8px;
+  }
+  
+  .overview-stats-grid .stat-value {
+    font-size: 18px;
+    padding: 3px 10px;
+  }
+  
+  .overview-stats-grid .stat-label {
+    font-size: 10px;
+  }
+  
+  .overview-stats-grid .trading-mode-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    margin-bottom: 4px;
+  }
+  
   .overview-refresh-btn {
     width: 100%;
     border-radius: 8px;

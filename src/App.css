@@ -82,6 +82,28 @@
   font-size: 20px;
 }
 
+/* Mobile topbar improvements */
+@media (max-width: 768px) {
+  .topbar {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  
+  .topbar h2 {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar {
+    gap: 8px;
+  }
+  
+  .topbar h2 {
+    font-size: 16px;
+  }
+}
+
 .content-split {
   display: grid;
   grid-template-columns: 1.4fr 0.9fr;
@@ -118,6 +140,49 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+/* Mobile calculator improvements */
+@media (max-width: 768px) {
+  .calc-layout .calc-main > .card {
+    padding: 14px 16px;
+  }
+  
+  .calc-layout .calc-main .leverage-headline {
+    font-size: 16px;
+  }
+  
+  .calc-layout .calc-main .leverage-panel {
+    padding: 12px 14px;
+    margin-top: 12px;
+  }
+  
+  .calc-layout .calc-main .stat-value {
+    font-size: 24px;
+  }
+  
+  .calc-layout .calc-side {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .calc-layout .calc-main > .card {
+    padding: 10px 12px;
+  }
+  
+  .calc-layout .calc-main .leverage-headline {
+    font-size: 14px;
+  }
+  
+  .calc-layout .calc-main .leverage-panel {
+    padding: 10px 12px;
+    margin-top: 10px;
+  }
+  
+  .calc-layout .calc-main .stat-value {
+    font-size: 20px;
+  }
 }
 
 
@@ -197,6 +262,28 @@
   padding: 1px 4px;
   white-space: nowrap;
   line-height: 1.05;
+}
+
+/* Mobile watchlist table improvements */
+@media (max-width: 768px) {
+  .watchlist-side table.data {
+    font-size: 10px;
+  }
+  
+  .watchlist-side th,
+  .watchlist-side td {
+    padding: 2px 3px;
+  }
+}
+
+@media (max-width: 480px) {
+  .watchlist-side {
+    padding: 6px;
+  }
+  
+  .watchlist-side table.data {
+    font-size: 10px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -302,6 +389,235 @@
   }
 }
 
+/* Mobile-specific Overview improvements */
+@media (max-width: 768px) {
+  /* Reduce card padding on mobile */
+  .card {
+    padding: 12px;
+  }
+  
+  /* Adjust stack gap for tighter mobile spacing */
+  .stack {
+    gap: 12px;
+  }
+  
+  /* Holdings table improvements */
+  .overview-layout .card h3 {
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  
+  /* Improve button sizing and spacing for touch targets */
+  .row-actions {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  
+  .btn.small {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 60px;
+  }
+  
+  /* Table improvements for mobile */
+  table.data {
+    font-size: 12px;
+  }
+  
+  table.data th,
+  table.data td {
+    padding: 6px 8px;
+  }
+  
+  table.data th {
+    font-size: 10px;
+  }
+  
+  /* Dual calculator spacing */
+  .dual-calculator-container {
+    gap: 12px;
+  }
+  
+  /* News cards container adjustments */
+  .news-cards-container {
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  
+  .news-cards {
+    gap: 12px;
+  }
+  
+  .news-card {
+    width: 280px;
+    padding: 12px 14px;
+  }
+  
+  .news-card-expanded {
+    width: 340px;
+  }
+}
+
+/* Extra small screens (mobile portrait) */
+@media (max-width: 480px) {
+  .main {
+    padding: 12px 10px 24px;
+  }
+  
+  /* Further reduce card padding */
+  .card {
+    padding: 10px;
+  }
+  
+  /* Tighter spacing */
+  .stack {
+    gap: 10px;
+  }
+  
+  /* Smaller headings */
+  .card h3 {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  
+  /* Compact row actions */
+  .row-actions {
+    gap: 4px;
+  }
+  
+  /* Smaller buttons on very small screens */
+  .btn.small {
+    min-height: 32px;
+    padding: 5px 8px;
+    font-size: 11px;
+    min-width: 50px;
+  }
+  
+  /* Table adjustments */
+  table.data {
+    font-size: 11px;
+  }
+  
+  table.data th,
+  table.data td {
+    padding: 5px 6px;
+  }
+  
+  table.data th {
+    font-size: 9px;
+  }
+  
+  /* Compact badges and labels */
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+  
+  .stat-label,
+  .muted {
+    font-size: 11px;
+  }
+  
+  /* News cards for small screens */
+  .news-cards-container {
+    margin: 0 -10px;
+    padding: 0 10px;
+  }
+  
+  .news-card {
+    width: 260px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  
+  .news-card-expanded {
+    width: 300px;
+  }
+  
+  .news-ticker {
+    font-size: 12px;
+  }
+  
+  .news-rationale {
+    font-size: 12px;
+  }
+  
+  .news-confidence {
+    font-size: 11px;
+  }
+  
+  /* Watchlist toolbar improvements */
+  .watchlist-toolbar {
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  
+  .watchlist-toolbar-controls {
+    gap: 4px;
+  }
+  
+  .watchlist-toolbar-controls input {
+    min-height: 36px;
+    height: 36px;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  
+  .watchlist-toolbar-controls .btn {
+    min-height: 36px;
+    height: 36px;
+    min-width: 60px;
+    font-size: 12px;
+  }
+}
+
+/* Additional mobile improvements for news section */
+@media (max-width: 768px) {
+  .news-recommendations-tile {
+    padding: 14px 16px;
+  }
+  
+  .news-header {
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .news-header h3 {
+    font-size: 14px;
+  }
+  
+  .news-header-actions {
+    gap: 8px;
+  }
+  
+  .news-sentiment-filters {
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  
+  .news-sentiment-toggle {
+    padding: 5px 12px;
+    font-size: 11px;
+  }
+  
+  .news-clear-all-btn {
+    padding: 5px 12px;
+    font-size: 11px;
+  }
+  
+  .btn {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  
+  .btn.primary {
+    min-height: 36px;
+  }
+}
+
 .table-wrap {
   overflow: auto;
   max-height: 520px;
@@ -320,6 +636,21 @@
 .import-drop.drag {
   border-color: var(--accent);
   background: rgba(61, 139, 253, 0.08);
+}
+
+/* Mobile improvements for CSV import and forms */
+@media (max-width: 768px) {
+  .import-drop {
+    padding: 12px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .import-drop {
+    padding: 10px;
+    font-size: 12px;
+  }
 }
 
 .stack {
@@ -349,6 +680,29 @@
   line-height: 1.35;
 }
 
+/* Mobile leverage panel improvements */
+@media (max-width: 768px) {
+  .leverage-panel {
+    padding: 10px;
+    margin-top: 10px;
+  }
+  
+  .leverage-headline {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .leverage-panel {
+    padding: 8px;
+    margin-top: 8px;
+  }
+  
+  .leverage-headline {
+    font-size: 13px;
+  }
+}
+
 .toggle-row {
   display: flex;
   gap: 10px;
@@ -360,6 +714,26 @@
 
 .toggle-row input {
   margin-top: 3px;
+}
+
+/* Mobile toggle row improvements */
+@media (max-width: 768px) {
+  .toggle-row {
+    font-size: 14px;
+    gap: 12px;
+  }
+  
+  .toggle-row input {
+    margin-top: 4px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .toggle-row {
+    font-size: 13px;
+  }
 }
 
 

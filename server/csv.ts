@@ -85,13 +85,24 @@ const HEADER_MAP: Record<string, keyof ParsedRow> = {
 };
 
 
-/** Skip cancel / cash / interest / journal / empty-symbol rows — same rules as lot engine. */
+/**
+ * Identify interest/credit interest rows for special handling.
+ * These are imported for Charges but never affect lots/positions.
+ */
+function isInterestRow(action: string): boolean {
+  const a = action.toLowerCase().trim();
+  return /margin\s*interest/i.test(a) || /credit\s*interest/i.test(a);
+}
+
+/**
+ * Skip cancel / wire / journal / transfer rows that should not be imported.
+ * Interest rows ARE imported (for Charges) but NOT used in lot calculations.
+ */
 function isNonTradeAction(action: string): boolean {
   const a = action.toLowerCase().trim();
   if (!a) return true;
   if (/\bcancell?ed?\b/i.test(action) || a.includes('cancel')) return true;
   if (a.includes('wire')) return true;
-  if (a.includes('interest')) return true;
   if (a === 'journal' || a.startsWith('journal ') || a.includes('journal ')) return true;
   if (a.includes('funds received') || a.includes('funds sent')) return true;
   if (a.includes('transfer')) return true;
@@ -156,7 +167,15 @@ export function parseSchwabCsv(
       amount = -(signedQty * price) - fees;
     }
 
-    if (!symbol || isNonTradeAction(action)) {
+    // Skip non-trade actions (wires, journals, cancels, etc.)
+    if (isNonTradeAction(action)) {
+      skipped++;
+      continue;
+    }
+
+    // Interest rows (Margin/Credit Interest) can have blank symbols;
+    // import them for Charges page, but skip all other blank-symbol rows
+    if (!symbol && !isInterestRow(action)) {
       skipped++;
       continue;
     }

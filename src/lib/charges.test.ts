@@ -3,6 +3,7 @@ import { summarizeCharges, listChargeRows } from './charges';
 import type { Trade } from '../types';
 
 describe('summarizeCharges', () => {
+  // Tests from main branch (PR #65 - AVL/AVGO dividend coverage)
   it('should count NRA Tax Adj as fee charge', () => {
     const trades: Trade[] = [
       {
@@ -182,9 +183,149 @@ describe('summarizeCharges', () => {
     expect(result.dividendIncome).toBe(2377.08);
     expect(result.totalCharges).toBe(-1663.96);
   });
+
+  // Tests from PR #67 - Margin/Credit Interest coverage
+  it('should count margin interest from imported rows', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -12.34,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-08-28',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -8.50,
+        importedAt: '2026-08-28T10:00:00Z',
+      },
+    ];
+
+    const summary = summarizeCharges(trades);
+
+    expect(summary.marginInterest).toBe(20.84); // 12.34 + 8.50
+    expect(summary.creditInterest).toBe(0);
+    expect(summary.fees).toBe(0);
+    expect(summary.totalCharges).toBe(20.84);
+  });
+
+  it('should count credit interest from imported rows', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Credit Interest',
+        symbol: '',
+        description: 'Credit Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: 5.67,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+    ];
+
+    const summary = summarizeCharges(trades);
+
+    expect(summary.marginInterest).toBe(0);
+    expect(summary.creditInterest).toBe(5.67);
+    expect(summary.fees).toBe(0);
+    expect(summary.totalCharges).toBe(0); // credit interest doesn't add to charges
+  });
+
+  it('should sum fees from trade fees column', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'AAPL',
+        description: 'Buy AAPL',
+        quantity: 100,
+        price: 150,
+        fees: 1.5,
+        amount: -15001.5,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-09-30',
+        action: 'Sell',
+        symbol: 'AAPL',
+        description: 'Sell AAPL',
+        quantity: 100,
+        price: 155,
+        fees: 1.5,
+        amount: 15498.5,
+        importedAt: '2026-09-30T11:00:00Z',
+      },
+    ];
+
+    const summary = summarizeCharges(trades);
+
+    expect(summary.fees).toBe(3); // 1.5 + 1.5
+    expect(summary.marginInterest).toBe(0);
+    expect(summary.creditInterest).toBe(0);
+    expect(summary.totalCharges).toBe(3);
+  });
+
+  it('should combine fees and margin interest', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'AAPL',
+        description: 'Buy AAPL',
+        quantity: 100,
+        price: 150,
+        fees: 2.0,
+        amount: -15002,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-09-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -10.50,
+        importedAt: '2026-09-30T12:00:00Z',
+      },
+    ];
+
+    const summary = summarizeCharges(trades);
+
+    expect(summary.fees).toBe(2);
+    expect(summary.marginInterest).toBe(10.50);
+    expect(summary.totalCharges).toBe(12.50);
+  });
 });
 
 describe('listChargeRows', () => {
+  // Tests from main branch (PR #65 - AVL/AVGO dividend coverage)
   it('should include AVL dividend and tax, exclude AVGO', () => {
     const trades: Trade[] = [
       // AVL - should appear
@@ -258,5 +399,217 @@ describe('listChargeRows', () => {
     
     // AVGO rows should NOT appear
     expect(rows.find(r => r.symbol === 'AVGO')).toBeUndefined();
+  });
+
+  // Tests from PR #67 - Margin/Credit Interest coverage
+  it('should include margin interest rows', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -12.34,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-08-28',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -8.50,
+        importedAt: '2026-08-28T10:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].kind).toBe('margin_interest');
+    expect(rows[0].chargeAbs).toBe(12.34);
+    expect(rows[1].kind).toBe('margin_interest');
+    expect(rows[1].chargeAbs).toBe(8.50);
+  });
+
+  it('should include credit interest rows', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Credit Interest',
+        symbol: '',
+        description: 'Credit Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: 5.67,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe('credit_interest');
+    expect(rows[0].chargeAbs).toBe(5.67);
+  });
+
+  it('should include trades with fees', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'AAPL',
+        description: 'Buy AAPL',
+        quantity: 100,
+        price: 150,
+        fees: 1.5,
+        amount: -15001.5,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe('fee');
+    expect(rows[0].chargeAbs).toBe(1.5);
+  });
+
+  it('should sort by date descending (newest first)', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-08-28',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -8.50,
+        importedAt: '2026-08-28T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-09-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -12.34,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '3',
+        rowHash: 'hash3',
+        date: '2026-07-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -6.00,
+        importedAt: '2026-07-30T10:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(3);
+    expect(rows[0].date).toBe('2026-09-30');
+    expect(rows[1].date).toBe('2026-08-28');
+    expect(rows[2].date).toBe('2026-07-30');
+  });
+
+  it('should exclude regular trades without fees', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'AAPL',
+        description: 'Buy AAPL',
+        quantity: 100,
+        price: 150,
+        fees: 0,
+        amount: -15000,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('should combine all charge types in one list', () => {
+    const trades: Trade[] = [
+      {
+        id: '1',
+        rowHash: 'hash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'MUZ',
+        description: 'Buy MUZ',
+        quantity: 100,
+        price: 25.50,
+        fees: 1.0,
+        amount: -2551,
+        importedAt: '2026-09-30T10:00:00Z',
+      },
+      {
+        id: '2',
+        rowHash: 'hash2',
+        date: '2026-09-30',
+        action: 'Margin Interest',
+        symbol: '',
+        description: 'Margin Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -12.34,
+        importedAt: '2026-09-30T12:00:00Z',
+      },
+      {
+        id: '3',
+        rowHash: 'hash3',
+        date: '2026-09-30',
+        action: 'Credit Interest',
+        symbol: '',
+        description: 'Credit Interest',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: 5.67,
+        importedAt: '2026-09-30T13:00:00Z',
+      },
+    ];
+
+    const rows = listChargeRows(trades);
+
+    expect(rows).toHaveLength(3);
+    expect(rows.some(r => r.kind === 'fee')).toBe(true);
+    expect(rows.some(r => r.kind === 'margin_interest')).toBe(true);
+    expect(rows.some(r => r.kind === 'credit_interest')).toBe(true);
   });
 });

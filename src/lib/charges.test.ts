@@ -151,4 +151,68 @@ describe('listChargeRows', () => {
     expect(rows[0].kind).toBe('other_charge');
     expect(rows[0].chargeAbs).toBe(713.12);
   });
+
+  it('should handle exact live data from user report', () => {
+    const trades: Trade[] = [
+      {
+        id: 'live1',
+        rowHash: 'livehash1',
+        date: '2026-09-30',
+        action: 'Buy',
+        symbol: 'MUZ',
+        description: 'GRANITESHARES 2X SHORT MU',
+        quantity: 3000,
+        price: 6.70,
+        fees: 0,
+        amount: -20100,
+        importedAt: '2026-09-30T12:37:35.503Z',
+      },
+      {
+        id: 'live2',
+        rowHash: 'livehash2',
+        date: '2026-09-29',
+        action: 'NRA Tax Adj',
+        symbol: 'AVL',
+        description: '',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: -713.12,
+        importedAt: '2026-09-30T12:37:35.503Z',
+      },
+      {
+        id: 'live3',
+        rowHash: 'livehash3',
+        date: '2026-09-29',
+        action: 'Cash Dividend',
+        symbol: 'AVL',
+        description: '',
+        quantity: 0,
+        price: 0,
+        fees: 0,
+        amount: 2377.08,
+        importedAt: '2026-09-30T12:37:35.503Z',
+      },
+    ];
+
+    const summary = summarizeCharges(trades);
+    const rows = listChargeRows(trades);
+    
+    // Summary: Only NRA Tax Adj should be counted
+    expect(summary.fees).toBe(713.12);
+    expect(summary.totalCharges).toBe(713.12);
+    
+    // Rows: Only NRA Tax Adj should appear
+    expect(rows).toHaveLength(1);
+    expect(rows[0].action).toBe('NRA Tax Adj');
+    expect(rows[0].symbol).toBe('AVL');
+    expect(rows[0].amount).toBe(-713.12);
+    expect(rows[0].chargeAbs).toBe(713.12);
+    
+    // Verify Buy trade doesn't appear (has qty/price)
+    expect(rows.find(r => r.action === 'Buy')).toBeUndefined();
+    
+    // Verify Cash Dividend doesn't appear (is income)
+    expect(rows.find(r => r.action === 'Cash Dividend')).toBeUndefined();
+  });
 });

@@ -23,7 +23,8 @@ export interface ChargeRow {
 
 const MARGIN_INTEREST = /margin\s*interest/i;
 const CREDIT_INTEREST = /credit\s*interest/i;
-const FEE_LIKE = /\b(fee|commission|charge)\b/i;
+const FEE_LIKE = /\b(fee|commission|charge|tax)\b/i;
+const DIVIDEND = /dividend/i;
 
 /**
  * Sum broker charges & interest from the transaction log.
@@ -52,7 +53,7 @@ export function summarizeCharges(trades: Trade[]): ChargesSummary {
     const qty = Number(t.quantity) || 0;
     const price = Number(t.price) || 0;
     const hay = `${action} ${t.description ?? ''}`;
-    if (FEE_LIKE.test(hay) && qty === 0 && price === 0 && feeAbs === 0) {
+    if (FEE_LIKE.test(hay) && qty === 0 && price === 0 && feeAbs === 0 && !DIVIDEND.test(hay)) {
       fees += Math.abs(Number(t.amount) || 0);
     }
   }
@@ -95,7 +96,7 @@ export function listChargeRows(trades: Trade[]): ChargeRow[] {
       const qty = Number(t.quantity) || 0;
       const price = Number(t.price) || 0;
       const hay = `${action} ${t.description ?? ''}`;
-      if (FEE_LIKE.test(hay) && qty === 0 && price === 0 && amount !== 0) {
+      if (FEE_LIKE.test(hay) && qty === 0 && price === 0 && amount !== 0 && !DIVIDEND.test(hay)) {
         kind = 'other_charge';
         chargeAbs = Math.abs(amount);
       }

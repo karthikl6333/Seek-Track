@@ -7,6 +7,7 @@ const KIND_LABEL: Record<ChargeKind, string> = {
   fee: 'Fee',
   margin_interest: 'Margin interest',
   credit_interest: 'Credit interest',
+  dividend_income: 'Dividend income',
   other_charge: 'Other charge',
 };
 
@@ -51,12 +52,14 @@ export function Charges({ store }: { store: Store }) {
         <div className="card">
           <h3>Total charges</h3>
           <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(summary.totalCharges)}</div>
-          <div className="stat-label">Fees + margin interest</div>
+          <div className="stat-label">
+            Fees + margin − dividends (excl. AVGO)
+          </div>
         </div>
         <div className="card">
           <h3>Fees</h3>
           <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(summary.fees)}</div>
-          <div className="stat-label">Fees &amp; commissions</div>
+          <div className="stat-label">Fees, commissions, taxes</div>
         </div>
         <div className="card">
           <h3>Margin interest</h3>
@@ -64,9 +67,9 @@ export function Charges({ store }: { store: Store }) {
           <div className="stat-label">Debit interest</div>
         </div>
         <div className="card">
-          <h3>Credit interest</h3>
-          <div className={`stat-value ${moneyTone('stat')}`}>{fmtMoney(summary.creditInterest)}</div>
-          <div className="stat-label">Credit / cash interest</div>
+          <h3>Dividend income</h3>
+          <div className={`stat-value ${moneyTone('stat')}`}>{fmtMoney(summary.dividendIncome)}</div>
+          <div className="stat-label">After-tax (excl. AVGO)</div>
         </div>
       </div>
 

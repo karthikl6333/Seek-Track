@@ -120,6 +120,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           <div className={`stat-value ${moneyTone('fee')}`}>{fmtMoney(charges.totalCharges)}</div>
           <div className="stat-label">
             Fees {fmtMoney(charges.fees)} · Margin {fmtMoney(charges.marginInterest)}
+            {charges.dividendIncome !== 0 && ` · Div ${fmtMoney(charges.dividendIncome)}`}
           </div>
           {charges.creditInterest !== 0 && (
             <div className="stat-label" style={{ marginTop: 2 }}>

@@ -23,10 +23,11 @@ describe('summarizeCharges', () => {
     const result = summarizeCharges(trades);
     
     expect(result.fees).toBe(713.12);
+    expect(result.dividendIncome).toBe(0);
     expect(result.totalCharges).toBe(713.12);
   });
 
-  it('should exclude Cash Dividend from charges', () => {
+  it('should count dividend income and reduce total charges', () => {
     const trades: Trade[] = [
       {
         id: '1',
@@ -46,10 +47,11 @@ describe('summarizeCharges', () => {
     const result = summarizeCharges(trades);
     
     expect(result.fees).toBe(0);
-    expect(result.totalCharges).toBe(0);
+    expect(result.dividendIncome).toBe(2377.08);
+    expect(result.totalCharges).toBe(-2377.08);
   });
 
-  it('should handle mixed trades with tax, dividends, and regular fees', () => {
+  it('should net dividend income with tax to reduce total charges', () => {
     const trades: Trade[] = [
       {
         id: '1',
@@ -107,14 +109,22 @@ describe('summarizeCharges', () => {
 
     const result = summarizeCharges(trades);
     
-    expect(result.fees).toBe(5.00 + 713.12);
+    // Fees: 5.00 (AAPL) + 713.12 (NRA Tax) = 718.12
+    expect(result.fees).toBe(718.12);
+    
+    // Margin interest: 25.50
     expect(result.marginInterest).toBe(25.50);
-    expect(result.totalCharges).toBe(5.00 + 713.12 + 25.50);
+    
+    // Dividend income: 2377.08 (reduces charges)
+    expect(result.dividendIncome).toBe(2377.08);
+    
+    // Total: 718.12 + 25.50 - 2377.08 = -1633.46
+    expect(result.totalCharges).toBe(718.12 + 25.50 - 2377.08);
   });
 });
 
 describe('listChargeRows', () => {
-  it('should include NRA Tax Adj but exclude dividends', () => {
+  it('should include both NRA Tax Adj and dividends as separate rows', () => {
     const trades: Trade[] = [
       {
         id: '1',
@@ -146,13 +156,20 @@ describe('listChargeRows', () => {
 
     const rows = listChargeRows(trades);
     
-    expect(rows).toHaveLength(1);
-    expect(rows[0].action).toBe('NRA Tax Adj');
-    expect(rows[0].kind).toBe('other_charge');
-    expect(rows[0].chargeAbs).toBe(713.12);
+    expect(rows).toHaveLength(2);
+    
+    const taxRow = rows.find(r => r.action === 'NRA Tax Adj');
+    expect(taxRow).toBeDefined();
+    expect(taxRow?.kind).toBe('other_charge');
+    expect(taxRow?.chargeAbs).toBe(713.12);
+    
+    const divRow = rows.find(r => r.action === 'Cash Dividend');
+    expect(divRow).toBeDefined();
+    expect(divRow?.kind).toBe('dividend_income');
+    expect(divRow?.chargeAbs).toBe(2377.08);
   });
 
-  it('should handle exact live data from user report', () => {
+  it('should handle exact live data with net after-tax dividend', () => {
     const trades: Trade[] = [
       {
         id: 'live1',
@@ -198,21 +215,31 @@ describe('listChargeRows', () => {
     const summary = summarizeCharges(trades);
     const rows = listChargeRows(trades);
     
-    // Summary: Only NRA Tax Adj should be counted
+    // Summary: Net after-tax dividend
+    // Fees: 713.12 (NRA Tax)
+    // Dividend income: 2377.08
+    // Total: 713.12 - 2377.08 = -1663.96 (net credit)
     expect(summary.fees).toBe(713.12);
-    expect(summary.totalCharges).toBe(713.12);
+    expect(summary.dividendIncome).toBe(2377.08);
+    expect(summary.totalCharges).toBe(713.12 - 2377.08);
+    expect(summary.totalCharges).toBe(-1663.96);
     
-    // Rows: Only NRA Tax Adj should appear
-    expect(rows).toHaveLength(1);
-    expect(rows[0].action).toBe('NRA Tax Adj');
-    expect(rows[0].symbol).toBe('AVL');
-    expect(rows[0].amount).toBe(-713.12);
-    expect(rows[0].chargeAbs).toBe(713.12);
+    // Rows: Both NRA Tax Adj and Cash Dividend appear
+    expect(rows).toHaveLength(2);
+    
+    const taxRow = rows.find(r => r.action === 'NRA Tax Adj');
+    expect(taxRow).toBeDefined();
+    expect(taxRow?.symbol).toBe('AVL');
+    expect(taxRow?.amount).toBe(-713.12);
+    expect(taxRow?.kind).toBe('other_charge');
+    
+    const divRow = rows.find(r => r.action === 'Cash Dividend');
+    expect(divRow).toBeDefined();
+    expect(divRow?.symbol).toBe('AVL');
+    expect(divRow?.amount).toBe(2377.08);
+    expect(divRow?.kind).toBe('dividend_income');
     
     // Verify Buy trade doesn't appear (has qty/price)
     expect(rows.find(r => r.action === 'Buy')).toBeUndefined();
-    
-    // Verify Cash Dividend doesn't appear (is income)
-    expect(rows.find(r => r.action === 'Cash Dividend')).toBeUndefined();
   });
 });

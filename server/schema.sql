@@ -304,3 +304,20 @@ CREATE TABLE IF NOT EXISTS news_refresh_lock (
 INSERT INTO news_refresh_lock (id)
 VALUES (1)
 ON CONFLICT (id) DO NOTHING;
+
+-- Price alerts: user-configured price alerts for portfolio symbols
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  target_price DOUBLE PRECISION NOT NULL,
+  condition TEXT NOT NULL CHECK (condition IN ('above', 'below')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'triggered', 'deleted')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  triggered_at TIMESTAMPTZ,
+  last_price DOUBLE PRECISION,
+  notified_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS price_alerts_symbol_idx ON price_alerts (symbol);
+CREATE INDEX IF NOT EXISTS price_alerts_status_idx ON price_alerts (status);
+CREATE INDEX IF NOT EXISTS price_alerts_created_idx ON price_alerts (created_at DESC);

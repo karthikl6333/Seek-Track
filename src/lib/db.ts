@@ -222,3 +222,24 @@ export async function refreshNews(): Promise<import('../types').NewsRefreshResul
     method: 'POST',
   });
 }
+
+export async function loadAlerts(): Promise<{ alerts: import('../types').PriceAlert[] }> {
+  return api('/api/alerts');
+}
+
+export async function createAlert(input: {
+  symbol: string;
+  targetPrice: number;
+  condition: 'above' | 'below';
+}): Promise<{ alert: import('../types').PriceAlert }> {
+  return api('/api/alerts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAlert(id: string): Promise<{ ok: boolean }> {
+  return api(`/api/alerts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}

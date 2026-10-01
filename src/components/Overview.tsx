@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
-import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary } from '../lib/db';
+import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../lib/db';
 import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../types';
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 import { NewsRecommendations } from './NewsRecommendations';
+import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { TickerLink } from '../lib/yahoo';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
@@ -17,6 +18,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
   const [cryptoSummary, setCryptoSummary] = useState<CryptoPaperSummary | null>(null);
   const [paperFlexSummary, setPaperFlexSummary] = useState<PaperFlexSummary | null>(null);
+  const alertManagerRef = useRef<AlertManagerRef>(null);
 
   const loadPaperAndCrypto = useCallback(async () => {
     try {
@@ -87,6 +89,28 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   const paperPnl = paperSummary?.scoreboard.totalPnl ?? 0;
   const cryptoPnl = cryptoSummary?.scoreboard.totalPnl ?? 0;
   const paperFlexPnl = paperFlexSummary?.scoreboard.totalPnl ?? 0;
+
+  const handleAddAlert = useCallback(async (symbol: string, targetPrice: number) => {
+    try {
+      // Default condition: above (user can adjust in Alert Manager)
+      await createAlert({
+        symbol: symbol.toUpperCase(),
+        targetPrice,
+        condition: 'above',
+      });
+
+      // Refresh alert manager
+      if (alertManagerRef.current) {
+        await alertManagerRef.current.refreshAlerts();
+      }
+
+      // Show brief success feedback
+      alert(`Alert created for ${symbol} @ ${fmtMoney(targetPrice, 4)}`);
+    } catch (err) {
+      console.error('[Overview] Failed to add alert:', err);
+      alert(`Failed to create alert: ${String(err)}`);
+    }
+  }, []);
 
   return (
     <div className="stack">
@@ -324,6 +348,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
               marks={store.marks}
               settingsPairs={settings?.pairs ?? []}
               onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              onAddAlert={handleAddAlert}
               compact
               slot="A"
             />
@@ -338,6 +363,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
               marks={store.marks}
               settingsPairs={settings?.pairs ?? []}
               onRefreshQuotes={() => void store.refreshLiveQuotes()}
+              onAddAlert={handleAddAlert}
               compact
               slot="B"
             />
@@ -385,6 +411,12 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             watchlistRef={watchlistRef}
             openSymbols={visibleOpen.map((p) => p.symbol)}
             pairs={settings?.pairs ?? []}
+          />
+          <AlertManager
+            ref={alertManagerRef}
+            compact
+            openSymbols={visibleOpen.map((p) => p.symbol)}
+            watchlistSymbols={[]}
           />
           <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
         </div>

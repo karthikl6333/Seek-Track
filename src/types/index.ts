@@ -331,3 +331,15 @@ export interface NewsRefreshResult {
     duplicatesRemoved: number;
   };
 }
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  targetPrice: number;
+  condition: 'above' | 'below';
+  status: 'active' | 'triggered' | 'deleted';
+  createdAt: string;
+  triggeredAt: string | null;
+  lastPrice: number | null;
+  notifiedAt: string | null;
+}

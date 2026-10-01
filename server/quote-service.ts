@@ -316,6 +316,11 @@ async function buildSymbolUniverse(): Promise<string[]> {
     
     -- Pair cache underlyings
     SELECT underlying as symbol, 'pair_underlying' as source FROM pair_cache
+    
+    UNION
+    
+    -- Active price alerts
+    SELECT symbol, 'price_alert' as source FROM price_alerts WHERE status = 'active'
     `
   );
 
@@ -548,6 +553,19 @@ export async function refreshAllPrices(
 
     lastRefreshAt = new Date().toISOString();
     lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
+
+    // Evaluate price alerts after marks are updated
+    if (updated.length > 0) {
+      try {
+        const { evaluateAlerts } = await import('./alerts.js');
+        const alertResult = await evaluateAlerts();
+        if (alertResult.triggered.length > 0) {
+          console.log(`[QuoteService] Triggered ${alertResult.triggered.length} alerts`);
+        }
+      } catch (err) {
+        console.error('[QuoteService] Alert evaluation failed:', err);
+      }
+    }
 
     console.log(
       `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms` +

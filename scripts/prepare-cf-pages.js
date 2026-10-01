@@ -90,6 +90,12 @@ export default {
         if (env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = env.OPENAI_API_KEY;
         if (env.OPENAI_API_BASE) process.env.OPENAI_API_BASE = env.OPENAI_API_BASE;
         
+        // Price Alert environment variables
+        if (env.ALERT_EMAIL_TO) process.env.ALERT_EMAIL_TO = env.ALERT_EMAIL_TO;
+        if (env.RESEND_API_KEY) process.env.RESEND_API_KEY = env.RESEND_API_KEY;
+        if (env.ALERT_EMAIL_FROM) process.env.ALERT_EMAIL_FROM = env.ALERT_EMAIL_FROM;
+        if (env.ALERT_WEBHOOK_URL) process.env.ALERT_WEBHOOK_URL = env.ALERT_WEBHOOK_URL;
+        
         // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();
         schemaInitialized = true;

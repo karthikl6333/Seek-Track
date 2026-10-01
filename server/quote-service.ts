@@ -549,6 +549,19 @@ export async function refreshAllPrices(
     lastRefreshAt = new Date().toISOString();
     lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
 
+    // Evaluate price alerts after marks are updated
+    if (updated.length > 0) {
+      try {
+        const { evaluateAlerts } = await import('./alerts.js');
+        const alertResult = await evaluateAlerts();
+        if (alertResult.triggered.length > 0) {
+          console.log(`[QuoteService] Triggered ${alertResult.triggered.length} alerts`);
+        }
+      } catch (err) {
+        console.error('[QuoteService] Alert evaluation failed:', err);
+      }
+    }
+
     console.log(
       `[QuoteService] Refreshed ${updated.length}/${universe.length} symbols in ${fetchTime}ms` +
       (failed.length > 0 ? ` (${failed.length} failed)` : '')

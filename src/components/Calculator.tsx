@@ -14,6 +14,7 @@ interface Props {
   marks: Record<string, number>;
   settingsPairs: PairDef[];
   onRefreshQuotes?: () => void;
+  onAddAlert?: (symbol: string, targetPrice: number) => void;
   compact?: boolean;
   slot?: 'A' | 'B';
 }
@@ -56,6 +57,7 @@ export function Calculator({
   marks,
   settingsPairs,
   onRefreshQuotes,
+  onAddAlert,
   compact = false,
   slot = 'A',
 }: Props) {
@@ -241,6 +243,19 @@ export function Calculator({
           <div className={`stat-value ${pnlClass(whatIf.pnlPct)} ${moneyTone("stat")}`}>{fmtPct(whatIf.pnlPct)}</div>
         </div>
       </div>
+
+      {onAddAlert && calc.symbol && calc.targetPrice && (
+        <div style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn small"
+            onClick={() => onAddAlert(calc.symbol, calc.targetPrice)}
+            title="Create a price alert for this target"
+          >
+            🔔 Add alert @ {fmtMoney(calc.targetPrice, 4)}
+          </button>
+        </div>
+      )}
 
       {/* Prominent underlying / ETF implied move */}
       <div className="leverage-panel">

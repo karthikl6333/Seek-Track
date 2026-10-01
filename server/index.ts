@@ -73,6 +73,12 @@ import {
   getNewsHandler,
   refreshNewsHandler,
 } from './news.js';
+import {
+  getAlertsHandler,
+  postAlertsHandler,
+  deleteAlertHandler,
+  postEvaluateAlertsHandler,
+} from './alerts.js';
 
 const app = new Hono();
 
@@ -159,6 +165,11 @@ app.post('/api/paper-flex/journal', postPaperFlexJournal);
 
 app.get('/api/news', getNewsHandler);
 app.post('/api/news/refresh', refreshNewsHandler);
+
+app.get('/api/alerts', getAlertsHandler);
+app.post('/api/alerts', postAlertsHandler);
+app.delete('/api/alerts/:id', deleteAlertHandler);
+app.post('/api/alerts/evaluate', postEvaluateAlertsHandler);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations

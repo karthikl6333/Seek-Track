@@ -220,7 +220,7 @@ async function sendAlertNotifications(alert: {
   });
 }
 
-/** Send email via Gmail MCP (if configured) */
+/** Send email notification via Resend or fallback to console logging */
 async function sendEmailNotification(data: {
   symbol: string;
   targetPrice: number;
@@ -238,7 +238,7 @@ async function sendEmailNotification(data: {
   const conditionText = condition === 'above' ? 'crossed above' : 'dropped below';
   
   const subject = `🚨 Price Alert: ${symbol} ${conditionText} ${targetPrice}`;
-  const body = `Price Alert Triggered
+  const textBody = `Price Alert Triggered
 
 Symbol: ${symbol}
 Condition: Price ${conditionText} ${targetPrice}
@@ -249,13 +249,77 @@ Timestamp: ${istTime} IST
 This alert has been automatically triggered by Seek&Track.
 `;
 
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+    .content { background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px; }
+    .alert-box { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #ef4444; border-radius: 4px; }
+    .label { font-weight: 600; color: #6b7280; }
+    .value { font-size: 18px; font-weight: 700; color: #111827; }
+    .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin: 0;">🚨 Price Alert Triggered</h1>
+    </div>
+    <div class="content">
+      <div class="alert-box">
+        <p><span class="label">Symbol:</span> <span class="value">${symbol}</span></p>
+        <p><span class="label">Condition:</span> Price ${conditionText} target</p>
+        <p><span class="label">Target Price:</span> $${targetPrice.toFixed(4)}</p>
+        <p><span class="label">Last Price:</span> <span class="value">$${lastPrice.toFixed(4)}</span></p>
+        <p><span class="label">Timestamp:</span> ${istTime} IST</p>
+      </div>
+      <div class="footer">
+        <p>This alert was automatically triggered by Seek&Track.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
   try {
-    // Use Gmail MCP to send email
-    // For now, we'll log the email content (Gmail MCP integration would be called here)
-    console.log('[Alerts] Email notification (Gmail MCP):', { recipientEmail, subject, body });
-    
-    // TODO: Integrate with Gmail MCP send_message tool when available
-    // This would require calling the Gmail MCP tool through the proper channel
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const fromEmail = process.env.ALERT_EMAIL_FROM || 'alerts@seek-track.com';
+
+    if (resendApiKey) {
+      // Send via Resend API
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: [recipientEmail],
+          subject,
+          text: textBody,
+          html: htmlBody,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Resend API failed: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('[Alerts] Email sent via Resend:', { id: result.id, to: recipientEmail });
+    } else {
+      // Fallback: log to console
+      console.log('[Alerts] Email notification (RESEND_API_KEY not configured):');
+      console.log('To:', recipientEmail);
+      console.log('Subject:', subject);
+      console.log('Body:', textBody);
+    }
   } catch (err) {
     console.error('[Alerts] Failed to send email:', err);
   }

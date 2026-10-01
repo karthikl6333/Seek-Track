@@ -311,7 +311,7 @@ This alert has been automatically triggered by Seek&Track.
         throw new Error(`Resend API failed: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as { id?: string };
       console.log('[Alerts] Email sent via Resend:', { id: result.id, to: recipientEmail });
     } else {
       // Fallback: log to console

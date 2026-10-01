@@ -316,6 +316,11 @@ async function buildSymbolUniverse(): Promise<string[]> {
     
     -- Pair cache underlyings
     SELECT underlying as symbol, 'pair_underlying' as source FROM pair_cache
+    
+    UNION
+    
+    -- Active price alerts
+    SELECT symbol, 'price_alert' as source FROM price_alerts WHERE status = 'active'
     `
   );
 

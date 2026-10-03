@@ -540,7 +540,7 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
             { theme: 'Real Estate', bull: 'DRN', bullFactor: 3, bear: 'DRV', bearFactor: -3 },
             { theme: 'Financials', bull: 'FAS', bullFactor: 3, bear: 'FAZ', bearFactor: -3 },
             { theme: 'Biotech', bull: 'LABU', bullFactor: 3, bear: 'LABD', bearFactor: -3 },
-            { theme: 'Consumer Disc', bull: 'WANT', bullFactor: 3, bear: 'PASS', bearFactor: -3 },
+            { theme: 'China', bull: 'YINN', bullFactor: 3, bear: 'YANG', bearFactor: -3 },
             { theme: 'Materials', bull: 'UYM', bullFactor: 2, bear: 'SMN', bearFactor: -2 },
           ].map((item) => (
             <div

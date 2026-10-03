@@ -88,6 +88,133 @@ interface ResearchDetail {
 
 const CHART_COLORS = ['#3d8bfd', '#3dd68c', '#f07178', '#e6b450', '#20c997'];
 
+/** Sector theme ETF mappings: verified live sector ETFs only
+ * Each theme shows only real, currently-listed sector products.
+ * Themes with fewer than 5+5 reflect actual market availability.
+ */
+const SECTOR_THEMES: Record<string, {
+  name: string;
+  bull: Array<{ etf: string; factor: number; name: string }>;
+  bear: Array<{ etf: string; factor: number; name: string }>;
+}> = {
+  AI: {
+    name: 'AI',
+    bull: [
+      { etf: 'AIBU', factor: 2, name: 'Direxion Daily AI Bull 2X' },
+    ],
+    bear: [
+      { etf: 'AIBD', factor: -2, name: 'Direxion Daily AI Bear 2X' },
+    ],
+  },
+  Tech: {
+    name: 'Tech',
+    bull: [
+      { etf: 'TECL', factor: 3, name: 'Direxion Daily Technology Bull 3X' },
+      { etf: 'ROM', factor: 2, name: 'ProShares Ultra Technology' },
+    ],
+    bear: [
+      { etf: 'TECS', factor: -3, name: 'Direxion Daily Technology Bear 3X' },
+      { etf: 'REW', factor: -2, name: 'ProShares UltraShort Technology' },
+    ],
+  },
+  Semiconductors: {
+    name: 'Semiconductors',
+    bull: [
+      { etf: 'SOXL', factor: 3, name: 'Direxion Daily Semiconductor Bull 3X' },
+      { etf: 'USD', factor: 2, name: 'ProShares Ultra Semiconductors' },
+    ],
+    bear: [
+      { etf: 'SOXS', factor: -3, name: 'Direxion Daily Semiconductor Bear 3X' },
+      { etf: 'SSG', factor: -2, name: 'ProShares UltraShort Semiconductors' },
+    ],
+  },
+  Energy: {
+    name: 'Energy',
+    bull: [
+      { etf: 'ERX', factor: 2, name: 'Direxion Daily Energy Bull 2X' },
+      { etf: 'NRGU', factor: 2, name: 'MicroSectors U.S. Big Oil Index 2X Leveraged ETNs' },
+      { etf: 'DIG', factor: 2, name: 'ProShares Ultra Oil & Gas' },
+    ],
+    bear: [
+      { etf: 'ERY', factor: -2, name: 'Direxion Daily Energy Bear 2X' },
+      { etf: 'NRGD', factor: -2, name: 'MicroSectors U.S. Big Oil Index -2X Inverse Leveraged ETNs' },
+      { etf: 'DUG', factor: -2, name: 'ProShares UltraShort Oil & Gas' },
+    ],
+  },
+  Power: {
+    name: 'Power',
+    bull: [
+      { etf: 'UTSL', factor: 3, name: 'Direxion Daily Utilities Bull 3X' },
+      { etf: 'UPW', factor: 2, name: 'ProShares Ultra Utilities' },
+    ],
+    bear: [
+      { etf: 'SDP', factor: -2, name: 'ProShares UltraShort Utilities' },
+    ],
+  },
+  'Real Estate': {
+    name: 'Real Estate',
+    bull: [
+      { etf: 'DRN', factor: 3, name: 'Direxion Daily Real Estate Bull 3X' },
+      { etf: 'URE', factor: 2, name: 'ProShares Ultra Real Estate' },
+    ],
+    bear: [
+      { etf: 'DRV', factor: -3, name: 'Direxion Daily Real Estate Bear 3X' },
+      { etf: 'SRS', factor: -2, name: 'ProShares UltraShort Real Estate' },
+    ],
+  },
+  Financials: {
+    name: 'Financials',
+    bull: [
+      { etf: 'FAS', factor: 3, name: 'Direxion Daily Financial Bull 3X' },
+      { etf: 'UYG', factor: 2, name: 'ProShares Ultra Financials' },
+      { etf: 'BNKU', factor: 3, name: 'MicroSectors U.S. Big Banks Index 3X Leveraged ETNs' },
+    ],
+    bear: [
+      { etf: 'FAZ', factor: -3, name: 'Direxion Daily Financial Bear 3X' },
+      { etf: 'SKF', factor: -2, name: 'ProShares UltraShort Financials' },
+      { etf: 'BNKD', factor: -3, name: 'MicroSectors U.S. Big Banks Index -3X Inverse Leveraged ETNs' },
+    ],
+  },
+  Biotech: {
+    name: 'Biotech',
+    bull: [
+      { etf: 'LABU', factor: 3, name: 'Direxion Daily S&P Biotech Bull 3X' },
+      { etf: 'BIB', factor: 2, name: 'ProShares Ultra Nasdaq Biotechnology' },
+      { etf: 'CURE', factor: 3, name: 'Direxion Daily Healthcare Bull 3X' },
+      { etf: 'RXL', factor: 2, name: 'ProShares Ultra Health Care' },
+    ],
+    bear: [
+      { etf: 'LABD', factor: -3, name: 'Direxion Daily S&P Biotech Bear 3X' },
+      { etf: 'BIS', factor: -2, name: 'ProShares UltraShort Nasdaq Biotechnology' },
+      { etf: 'RXD', factor: -2, name: 'ProShares UltraShort Health Care' },
+    ],
+  },
+  China: {
+    name: 'China',
+    bull: [
+      { etf: 'YINN', factor: 3, name: 'Direxion Daily FTSE China Bull 3X' },
+      { etf: 'CWEB', factor: 2, name: 'Direxion Daily CSI China Internet Index Bull 2X' },
+      { etf: 'CHAU', factor: 2, name: 'Direxion Daily CSI 300 China A Share Bull 2X' },
+      { etf: 'FXI', factor: 1, name: 'iShares China Large-Cap ETF' },
+    ],
+    bear: [
+      { etf: 'YANG', factor: -3, name: 'Direxion Daily FTSE China Bear 3X' },
+      { etf: 'CHAD', factor: -1, name: 'Direxion Daily CSI 300 China A Share Bear 1X' },
+      { etf: 'FXP', factor: -2, name: 'ProShares UltraShort FTSE China 50' },
+    ],
+  },
+  Materials: {
+    name: 'Materials',
+    bull: [
+      { etf: 'UYM', factor: 2, name: 'ProShares Ultra Basic Materials' },
+    ],
+    bear: [
+      { etf: 'SMN', factor: -2, name: 'ProShares UltraShort Basic Materials' },
+    ],
+  },
+};
+
+
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) {
@@ -193,10 +320,17 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
   const [addSymbol, setAddSymbol] = useState('');
   const [addName, setAddName] = useState('');
   const [universeBusy, setUniverseBusy] = useState(false);
+  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
 
   const selectUnderlying = useCallback((symbol: string) => {
     setSelected(symbol);
     setFocusSymbol(symbol);
+    setSelectedTheme(null); // Clear theme when selecting an underlying
+  }, []);
+
+  const selectTheme = useCallback((theme: string) => {
+    setSelectedTheme(theme);
+    setSelected(''); // Clear underlying selection
   }, []);
 
   const loadSummary = useCallback(async () => {
@@ -365,6 +499,65 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
 
   /** One row per bull/bear ETF for the currently selected underlying only. */
   const selectedEtfTableRows = useMemo(() => {
+    // If a theme is selected, show sector ETFs for that theme
+    if (selectedTheme && SECTOR_THEMES[selectedTheme]) {
+      const theme = SECTOR_THEMES[selectedTheme];
+      const rows: Array<{
+        underlying: string;
+        etf: string;
+        direction: 'bull' | 'bear';
+        factor: number;
+        source: string;
+        updatedAt: string;
+        underlyingPrice: number | null;
+        underlyingDayPct: number | null;
+        etfPrice: number | null;
+        etfDayPct: number | null;
+        quoteUpdated: string | null;
+      }> = [];
+
+      const quotes = detail?.quotes ?? summary?.quotes ?? {};
+      
+      // Add bull ETFs
+      for (const bull of theme.bull) {
+        const etfQ = quotes[bull.etf];
+        rows.push({
+          underlying: selectedTheme,
+          etf: bull.etf,
+          direction: 'bull',
+          factor: bull.factor,
+          source: 'theme',
+          updatedAt: new Date().toISOString(),
+          underlyingPrice: null,
+          underlyingDayPct: null,
+          etfPrice: etfQ?.price ?? null,
+          etfDayPct: etfQ?.dayPct ?? null,
+          quoteUpdated: etfQ?.updatedAt ?? null,
+        });
+      }
+      
+      // Add bear ETFs
+      for (const bear of theme.bear) {
+        const etfQ = quotes[bear.etf];
+        rows.push({
+          underlying: selectedTheme,
+          etf: bear.etf,
+          direction: 'bear',
+          factor: bear.factor,
+          source: 'theme',
+          updatedAt: new Date().toISOString(),
+          underlyingPrice: null,
+          underlyingDayPct: null,
+          etfPrice: etfQ?.price ?? null,
+          etfDayPct: etfQ?.dayPct ?? null,
+          quoteUpdated: etfQ?.updatedAt ?? null,
+        });
+      }
+      
+      return rows;
+    }
+
+    // Original logic for underlying selection
     const maps =
       detail?.maps?.filter((m) => m.underlying === selected) ??
       summary?.maps?.filter((m) => m.underlying === selected) ??
@@ -389,7 +582,7 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
         quoteUpdated: etfQ?.updatedAt ?? underQ?.updatedAt ?? m.updatedAt ?? null,
       };
     });
-  }, [detail, summary, selected, selectedRow]);
+  }, [detail, summary, selected, selectedRow, selectedTheme]);
 
   const focusInfo = useMemo(() => {
     const sym = (focusSymbol || selected || '').toUpperCase();
@@ -531,29 +724,28 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
       <div className="card">
         <h3 style={{ marginBottom: 12 }}>Inverse ETFs by theme</h3>
         <div className="ticker-row">
-          {[
-            { theme: 'AI', bull: 'AIBU', bullFactor: 2, bear: 'AIBD', bearFactor: -2 },
-            { theme: 'Tech', bull: 'TECL', bullFactor: 3, bear: 'TECS', bearFactor: -3 },
-            { theme: 'Semiconductors', bull: 'SOXL', bullFactor: 3, bear: 'SOXS', bearFactor: -3 },
-            { theme: 'Energy', bull: 'ERX', bullFactor: 2, bear: 'ERY', bearFactor: -2 },
-            { theme: 'Power', bull: 'UPW', bullFactor: 2, bear: 'SDP', bearFactor: -2 },
-            { theme: 'Real Estate', bull: 'DRN', bullFactor: 3, bear: 'DRV', bearFactor: -3 },
-            { theme: 'Financials', bull: 'FAS', bullFactor: 3, bear: 'FAZ', bearFactor: -3 },
-            { theme: 'Biotech', bull: 'LABU', bullFactor: 3, bear: 'LABD', bearFactor: -3 },
-            { theme: 'China', bull: 'YINN', bullFactor: 3, bear: 'YANG', bearFactor: -3 },
-            { theme: 'Materials', bull: 'UYM', bullFactor: 2, bear: 'SMN', bearFactor: -2 },
-          ].map((item) => (
-            <div
-              key={item.theme}
-              className="ticker-chip"
-              style={{ minWidth: 'fit-content' }}
-            >
-              <div className="ticker-main" style={{ padding: '8px 10px', gap: 4 }}>
-                <span className="mono ticker-chip-symbol" style={{ fontSize: 12, fontWeight: 600 }}>
-                  {item.theme}
-                </span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {item.bull && (
+          {Object.entries(SECTOR_THEMES).map(([themeKey, themeData]) => {
+            const primaryBull = themeData.bull[0];
+            const primaryBear = themeData.bear[0];
+            return (
+              <div
+                key={themeKey}
+                className={`ticker-chip${selectedTheme === themeKey ? ' active' : ''}`}
+                style={{ minWidth: 'fit-content' }}
+              >
+                <div className="ticker-main" style={{ padding: '8px 10px', gap: 4 }}>
+                  <button
+                    type="button"
+                    className="ticker-select"
+                    onClick={() => selectTheme(themeKey)}
+                    title={`View ${themeData.name} sector ETFs`}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    <span className="mono ticker-chip-symbol" style={{ fontSize: 12, fontWeight: 600 }}>
+                      {themeData.name}
+                    </span>
+                  </button>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                       type="button"
                       className="linkish mono"
@@ -566,12 +758,10 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
                         textDecoration: 'none',
                         border: '1px solid rgba(61, 214, 140, 0.25)',
                       }}
-                      onClick={() => setFocusSymbol(item.bull!)}
+                      onClick={() => selectTheme(themeKey)}
                     >
-                      {item.bull} {item.bullFactor > 0 ? `+${item.bullFactor}x` : `${item.bullFactor}x`}
+                      {primaryBull.etf} {primaryBull.factor > 0 ? `+${primaryBull.factor}x` : `${primaryBull.factor}x`}
                     </button>
-                  )}
-                  {item.bear && (
                     <button
                       type="button"
                       className="linkish mono"
@@ -584,15 +774,15 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
                         textDecoration: 'none',
                         border: '1px solid rgba(240, 113, 120, 0.25)',
                       }}
-                      onClick={() => setFocusSymbol(item.bear!)}
+                      onClick={() => selectTheme(themeKey)}
                     >
-                      {item.bear} {item.bearFactor}x
+                      {primaryBear.etf} {primaryBear.factor}x
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -605,8 +795,10 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
       <div className="research-layout">
         <div className="research-main">
           <div className="card">
-            <h3><span className="mono">{selected}</span> · linked ETFs</h3>
-            {selectedRow ? (
+            <h3><span className="mono">{selectedTheme || selected}</span> · linked ETFs</h3>
+            {selectedTheme ? (
+              <p className="muted">Theme view selected. Click a ticker in the Universe to see specific ETF mappings.</p>
+            ) : selectedRow ? (
               <div className="stack" style={{ gap: 10 }}>
                 <div className="etf-pill-row">
                   <div className="etf-pill bull">
@@ -707,11 +899,12 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
 
           <div className="card">
             <h3>
-              ETF map · quotes · <span className="mono">{selected}</span>
+              ETF map · quotes · <span className="mono">{selectedTheme || selected}</span>
             </h3>
             <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
-              All known bull and bear single-stock ETFs for the selected underlying (not the full
-              universe). Click a row to focus the info panel.
+              {selectedTheme
+                ? `Sector ETFs for ${selectedTheme} theme`
+                : 'All known bull and bear single-stock ETFs for the selected underlying (not the full universe). Click a row to focus the info panel.'}
             </p>
             <div className="table-wrap">
               <table className="data">
@@ -756,7 +949,9 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
                   {!selectedEtfTableRows.length && (
                     <tr>
                       <td colSpan={9} className="left muted">
-                        No bull/bear ETFs mapped for <span className="mono">{selected}</span> yet. Click Refresh.
+                        {selectedTheme
+                          ? `No ETFs available for ${selectedTheme} theme.`
+                          : `No bull/bear ETFs mapped for ${selected} yet. Click Refresh.`}
                       </td>
                     </tr>
                   )}

@@ -532,16 +532,16 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
         <h3 style={{ marginBottom: 12 }}>Inverse ETFs by theme</h3>
         <div className="ticker-row">
           {[
-            { theme: 'NVDA', bull: 'NVDL', bullFactor: 2, bear: 'NVD', bearFactor: -2 },
-            { theme: 'AVGO', bull: 'AVL', bullFactor: 2, bear: 'AVS', bearFactor: -1 },
-            { theme: 'TSM', bull: 'TSMX', bullFactor: 2, bear: 'TSMZ', bearFactor: -1 },
-            { theme: 'AMD', bull: 'AMDL', bullFactor: 2, bear: 'DAMD', bearFactor: -2 },
-            { theme: 'MU', bull: 'MULL', bullFactor: 2, bear: 'MUZ', bearFactor: -2 },
-            { theme: 'QCOM', bull: 'QCMU', bullFactor: 2, bear: 'QCMD', bearFactor: -1 },
-            { theme: 'SNDK', bull: 'SNXX', bullFactor: 2, bear: 'SNDQ', bearFactor: -2 },
-            { theme: 'TSLA', bull: 'TSLL', bullFactor: 2, bear: 'TSLQ', bearFactor: -2 },
-            { theme: 'COIN', bull: 'CONL', bullFactor: 2, bear: 'CONI', bearFactor: -2 },
-            { theme: 'MSTR', bull: 'MSTU', bullFactor: 2, bear: 'MSTZ', bearFactor: -2 },
+            { theme: 'AI', bull: 'AIBU', bullFactor: 2, bear: 'AIBD', bearFactor: -2 },
+            { theme: 'Tech', bull: 'TECL', bullFactor: 3, bear: 'TECS', bearFactor: -3 },
+            { theme: 'Semiconductors', bull: 'SOXL', bullFactor: 3, bear: 'SOXS', bearFactor: -3 },
+            { theme: 'Energy', bull: 'ERX', bullFactor: 2, bear: 'ERY', bearFactor: -2 },
+            { theme: 'Power', bull: 'UPW', bullFactor: 2, bear: 'SDP', bearFactor: -2 },
+            { theme: 'Real Estate', bull: 'DRN', bullFactor: 3, bear: 'DRV', bearFactor: -3 },
+            { theme: 'Financials', bull: 'FAS', bullFactor: 3, bear: 'FAZ', bearFactor: -3 },
+            { theme: 'Biotech', bull: 'LABU', bullFactor: 3, bear: 'LABD', bearFactor: -3 },
+            { theme: 'China', bull: 'YINN', bullFactor: 3, bear: 'YANG', bearFactor: -3 },
+            { theme: 'Materials', bull: 'UYM', bullFactor: 2, bear: 'SMN', bearFactor: -2 },
           ].map((item) => (
             <div
               key={item.theme}
@@ -566,13 +566,7 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
                         textDecoration: 'none',
                         border: '1px solid rgba(61, 214, 140, 0.25)',
                       }}
-                      onClick={() => {
-                        const underlying = universe.find((u) => u.symbol === item.theme);
-                        if (underlying) {
-                          selectUnderlying(item.theme);
-                          setFocusSymbol(item.bull!);
-                        }
-                      }}
+                      onClick={() => setFocusSymbol(item.bull!)}
                     >
                       {item.bull} {item.bullFactor > 0 ? `+${item.bullFactor}x` : `${item.bullFactor}x`}
                     </button>
@@ -590,13 +584,7 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
                         textDecoration: 'none',
                         border: '1px solid rgba(240, 113, 120, 0.25)',
                       }}
-                      onClick={() => {
-                        const underlying = universe.find((u) => u.symbol === item.theme);
-                        if (underlying) {
-                          selectUnderlying(item.theme);
-                          setFocusSymbol(item.bear!);
-                        }
-                      }}
+                      onClick={() => setFocusSymbol(item.bear!)}
                     >
                       {item.bear} {item.bearFactor}x
                     </button>

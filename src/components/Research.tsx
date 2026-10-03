@@ -537,10 +537,10 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
             { theme: 'TSM', bull: 'TSMX', bullFactor: 2, bear: 'TSMZ', bearFactor: -1 },
             { theme: 'AMD', bull: 'AMDL', bullFactor: 2, bear: 'DAMD', bearFactor: -2 },
             { theme: 'MU', bull: 'MULL', bullFactor: 2, bear: 'MUZ', bearFactor: -2 },
-            { theme: 'QCOM', bull: 'QCML', bullFactor: 2, bear: 'QCMD', bearFactor: -1 },
+            { theme: 'QCOM', bull: 'QCMU', bullFactor: 2, bear: 'QCMD', bearFactor: -1 },
             { theme: 'SNDK', bull: 'SNXX', bullFactor: 2, bear: 'SNDQ', bearFactor: -2 },
             { theme: 'TSLA', bull: 'TSLL', bullFactor: 2, bear: 'TSLQ', bearFactor: -2 },
-            { theme: 'COIN', bull: 'CONL', bullFactor: 2, bear: 'CONZ', bearFactor: -2 },
+            { theme: 'COIN', bull: 'CONL', bullFactor: 2, bear: 'CONI', bearFactor: -2 },
             { theme: 'MSTR', bull: 'MSTU', bullFactor: 2, bear: 'MSTZ', bearFactor: -2 },
           ].map((item) => (
             <div

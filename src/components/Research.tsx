@@ -532,16 +532,16 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
         <h3 style={{ marginBottom: 12 }}>Inverse ETFs by theme</h3>
         <div className="ticker-row">
           {[
+            { theme: 'AI', bull: 'AIBU', bullFactor: 2, bear: 'AIBD', bearFactor: -2 },
+            { theme: 'Tech', bull: 'TECL', bullFactor: 3, bear: 'TECS', bearFactor: -3 },
             { theme: 'Semiconductors', bull: 'SOXL', bullFactor: 3, bear: 'SOXS', bearFactor: -3 },
-            { theme: 'Technology', bull: 'TQQQ', bullFactor: 3, bear: 'SQQQ', bearFactor: -3 },
-            { theme: 'Biotech', bull: 'LABU', bullFactor: 3, bear: 'LABD', bearFactor: -3 },
+            { theme: 'Energy', bull: 'ERX', bullFactor: 2, bear: 'ERY', bearFactor: -2 },
+            { theme: 'Power', bull: 'UPW', bullFactor: 2, bear: 'SDP', bearFactor: -2 },
+            { theme: 'Real Estate', bull: 'DRN', bullFactor: 3, bear: 'DRV', bearFactor: -3 },
             { theme: 'Financials', bull: 'FAS', bullFactor: 3, bear: 'FAZ', bearFactor: -3 },
-            { theme: 'Energy', bull: 'ERX', bullFactor: 3, bear: 'ERY', bearFactor: -3 },
-            { theme: 'Real Estate', bull: 'URE', bullFactor: 3, bear: 'SRS', bearFactor: -2 },
-            { theme: 'Small Cap', bull: 'TNA', bullFactor: 3, bear: 'TZA', bearFactor: -3 },
-            { theme: 'Emerging Markets', bull: 'EDC', bullFactor: 3, bear: 'EDZ', bearFactor: -3 },
-            { theme: 'Gold Miners', bull: 'NUGT', bullFactor: 2, bear: 'DUST', bearFactor: -2 },
-            { theme: 'China', bull: 'YINN', bullFactor: 3, bear: 'YANG', bearFactor: -3 },
+            { theme: 'Biotech', bull: 'LABU', bullFactor: 3, bear: 'LABD', bearFactor: -3 },
+            { theme: 'Consumer Disc', bull: 'WANT', bullFactor: 3, bear: 'PASS', bearFactor: -3 },
+            { theme: 'Materials', bull: 'UYM', bullFactor: 2, bear: 'SMN', bearFactor: -2 },
           ].map((item) => (
             <div
               key={item.theme}

@@ -535,13 +535,13 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
             { theme: 'NVDA', bull: 'NVDL', bullFactor: 2, bear: 'NVD', bearFactor: -2 },
             { theme: 'AVGO', bull: 'AVL', bullFactor: 2, bear: 'AVS', bearFactor: -1 },
             { theme: 'TSM', bull: 'TSMX', bullFactor: 2, bear: 'TSMZ', bearFactor: -1 },
-            { theme: 'AMD', bull: 'AMDL', bullFactor: 2, bear: 'AMDS', bearFactor: -1 },
+            { theme: 'AMD', bull: 'AMDL', bullFactor: 2, bear: 'DAMD', bearFactor: -2 },
             { theme: 'MU', bull: 'MULL', bullFactor: 2, bear: 'MUZ', bearFactor: -2 },
-            { theme: 'ASML', bull: 'ASMG', bullFactor: 2, bear: null, bearFactor: null },
-            { theme: 'INTC', bull: 'INTW', bullFactor: 2, bear: null, bearFactor: null },
             { theme: 'QCOM', bull: 'QCML', bullFactor: 2, bear: 'QCMD', bearFactor: -1 },
-            { theme: 'AMAT', bull: 'AMA', bullFactor: 2, bear: null, bearFactor: null },
-            { theme: 'LRCX', bull: 'LRCU', bullFactor: 2, bear: null, bearFactor: null },
+            { theme: 'SNDK', bull: 'SNXX', bullFactor: 2, bear: 'SNDQ', bearFactor: -2 },
+            { theme: 'TSLA', bull: 'TSLL', bullFactor: 2, bear: 'TSLQ', bearFactor: -2 },
+            { theme: 'COIN', bull: 'CONL', bullFactor: 2, bear: 'CONZ', bearFactor: -2 },
+            { theme: 'MSTR', bull: 'MSTU', bullFactor: 2, bear: 'MSTZ', bearFactor: -2 },
           ].map((item) => (
             <div
               key={item.theme}

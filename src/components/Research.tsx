@@ -528,6 +528,86 @@ export function Research({ researchRef }: { researchRef?: React.RefObject<Resear
         </div>
       </div>
 
+      <div className="card">
+        <h3 style={{ marginBottom: 12 }}>Inverse ETFs by theme</h3>
+        <div className="ticker-row">
+          {[
+            { theme: 'NVDA', bull: 'NVDL', bullFactor: 2, bear: 'NVD', bearFactor: -2 },
+            { theme: 'AVGO', bull: 'AVL', bullFactor: 2, bear: 'AVS', bearFactor: -1 },
+            { theme: 'TSM', bull: 'TSMX', bullFactor: 2, bear: 'TSMZ', bearFactor: -1 },
+            { theme: 'AMD', bull: 'AMDL', bullFactor: 2, bear: 'DAMD', bearFactor: -2 },
+            { theme: 'MU', bull: 'MULL', bullFactor: 2, bear: 'MUZ', bearFactor: -2 },
+            { theme: 'QCOM', bull: 'QCMU', bullFactor: 2, bear: 'QCMD', bearFactor: -1 },
+            { theme: 'SNDK', bull: 'SNXX', bullFactor: 2, bear: 'SNDQ', bearFactor: -2 },
+            { theme: 'TSLA', bull: 'TSLL', bullFactor: 2, bear: 'TSLQ', bearFactor: -2 },
+            { theme: 'COIN', bull: 'CONL', bullFactor: 2, bear: 'CONI', bearFactor: -2 },
+            { theme: 'MSTR', bull: 'MSTU', bullFactor: 2, bear: 'MSTZ', bearFactor: -2 },
+          ].map((item) => (
+            <div
+              key={item.theme}
+              className="ticker-chip"
+              style={{ minWidth: 'fit-content' }}
+            >
+              <div className="ticker-main" style={{ padding: '8px 10px', gap: 4 }}>
+                <span className="mono ticker-chip-symbol" style={{ fontSize: 12, fontWeight: 600 }}>
+                  {item.theme}
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {item.bull && (
+                    <button
+                      type="button"
+                      className="linkish mono"
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: 'rgba(61, 214, 140, 0.12)',
+                        color: '#3dd68c',
+                        textDecoration: 'none',
+                        border: '1px solid rgba(61, 214, 140, 0.25)',
+                      }}
+                      onClick={() => {
+                        const underlying = universe.find((u) => u.symbol === item.theme);
+                        if (underlying) {
+                          selectUnderlying(item.theme);
+                          setFocusSymbol(item.bull!);
+                        }
+                      }}
+                    >
+                      {item.bull} {item.bullFactor > 0 ? `+${item.bullFactor}x` : `${item.bullFactor}x`}
+                    </button>
+                  )}
+                  {item.bear && (
+                    <button
+                      type="button"
+                      className="linkish mono"
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: 'rgba(240, 113, 120, 0.12)',
+                        color: '#f07178',
+                        textDecoration: 'none',
+                        border: '1px solid rgba(240, 113, 120, 0.25)',
+                      }}
+                      onClick={() => {
+                        const underlying = universe.find((u) => u.symbol === item.theme);
+                        if (underlying) {
+                          selectUnderlying(item.theme);
+                          setFocusSymbol(item.bear!);
+                        }
+                      }}
+                    >
+                      {item.bear} {item.bearFactor}x
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {error && (
         <div className="caveat" role="alert">
           {error}

@@ -7,24 +7,11 @@ export function Positions({ store }: { store: Store }) {
   const { hiddenSet } = store;
   const [showHidden, setShowHidden] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedSymbols, setExpandedSymbols] = useState<Set<string>>(new Set());
   const allRows = store.analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const hiddenCount = allRows.filter((p) => hiddenSet.has(p.symbol.toUpperCase())).length;
   const rows = showHidden
     ? allRows
     : allRows.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));
-
-  const toggleLotsExpanded = (symbol: string) => {
-    setExpandedSymbols((prev) => {
-      const next = new Set(prev);
-      if (next.has(symbol)) {
-        next.delete(symbol);
-      } else {
-        next.add(symbol);
-      }
-      return next;
-    });
-  };
 
   const handleRefreshPrices = async () => {
     setRefreshing(true);
@@ -46,7 +33,7 @@ export function Positions({ store }: { store: Store }) {
 
       <div className="card">
         <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Open Positions</h3>
+          <h3 style={{ margin: 0 }}>Open Positions &amp; Lots</h3>
           <div className="row-actions" style={{ gap: 8 }}>
             {hiddenCount > 0 && (
               <button
@@ -87,7 +74,6 @@ export function Positions({ store }: { store: Store }) {
           <table className="data">
             <thead>
               <tr>
-                <th style={{ width: 40 }}></th>
                 <th className="left">Symbol</th>
                 <th className="left">Theme</th>
                 <th>Qty</th>
@@ -103,25 +89,8 @@ export function Positions({ store }: { store: Store }) {
             <tbody>
               {rows.map((p) => {
                 const isHidden = hiddenSet.has(p.symbol.toUpperCase());
-                const isExpanded = expandedSymbols.has(p.symbol);
                 return (
-                  <>
                   <tr key={p.symbol} style={isHidden ? { opacity: 0.55 } : undefined}>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn small"
-                        onClick={() => toggleLotsExpanded(p.symbol)}
-                        title={isExpanded ? 'Hide lots' : 'Show lots'}
-                        style={{
-                          minWidth: 28,
-                          padding: '4px 8px',
-                          fontSize: 12,
-                        }}
-                      >
-                        {isExpanded ? '−' : '+'}
-                      </button>
-                    </td>
                     <td className="left mono">
                       {p.symbol}
                       {isHidden && (
@@ -168,43 +137,11 @@ export function Positions({ store }: { store: Store }) {
                       </div>
                     </td>
                   </tr>
-                  {isExpanded && p.openLots.length > 0 && (
-                    <tr key={`${p.symbol}-lots`}>
-                      <td colSpan={11} style={{ padding: 0, background: 'rgba(0,0,0,0.2)' }}>
-                        <div style={{ padding: '12px 16px' }}>
-                          <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-                            LOTS — {p.symbol} ({p.openLots.length} open)
-                          </div>
-                          <table className="data" style={{ fontSize: 12 }}>
-                            <thead>
-                              <tr>
-                                <th className="left">Opened</th>
-                                <th>Qty</th>
-                                <th>Cost/share</th>
-                                <th>Fees alloc</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {p.openLots.map((l) => (
-                                <tr key={l.id}>
-                                  <td className="left mono">{l.openDate}</td>
-                                  <td className="mono">{fmtQty(l.quantity)}</td>
-                                  <td className="mono">{fmtMoney(l.costPerShare, 4)}</td>
-                                  <td className="mono">{fmtMoney(l.feesAllocated)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  </>
                 );
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td className="left muted" colSpan={11}>
+                  <td className="left muted" colSpan={10}>
                     {allRows.length > 0 && !showHidden
                       ? 'All open positions are hidden. Click “Show hidden”.'
                       : 'No open lots. Import buys/sells or set marks after opening positions.'}
@@ -215,6 +152,36 @@ export function Positions({ store }: { store: Store }) {
           </table>
         </div>
       </div>
+
+      {rows.map((p) => (
+        <div className="card" key={`lots-${p.symbol}`}>
+          <h3>
+            Lots — {p.symbol} <span className="badge">{p.openLots.length} open</span>
+          </h3>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th className="left">Opened</th>
+                  <th>Qty</th>
+                  <th>Cost/share</th>
+                  <th>Fees alloc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.openLots.map((l) => (
+                  <tr key={l.id}>
+                    <td className="left mono">{l.openDate}</td>
+                    <td className="mono">{fmtQty(l.quantity)}</td>
+                    <td className="mono">{fmtMoney(l.costPerShare, 4)}</td>
+                    <td className="mono">{fmtMoney(l.feesAllocated)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -70,10 +70,6 @@ import {
   upsertPaperFlexState,
 } from './paper-flex.js';
 import {
-  getNewsHandler,
-  refreshNewsHandler,
-} from './news.js';
-import {
   getAlertsHandler,
   postAlertsHandler,
   deleteAlertHandler,
@@ -162,9 +158,6 @@ app.post('/api/paper-flex/state', upsertPaperFlexState);
 app.post('/api/paper-flex/positions', upsertPaperFlexPositions);
 app.post('/api/paper-flex/orders', upsertPaperFlexOrders);
 app.post('/api/paper-flex/journal', postPaperFlexJournal);
-
-app.get('/api/news', getNewsHandler);
-app.post('/api/news/refresh', refreshNewsHandler);
 
 app.get('/api/alerts', getAlertsHandler);
 app.post('/api/alerts', postAlertsHandler);

@@ -209,20 +209,6 @@ export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: str
   });
 }
 
-export async function loadNewsSignals(): Promise<{
-  ok: boolean;
-  signals: import('../types').NewsSignal[];
-  refreshedAt: string | null;
-}> {
-  return api('/api/news');
-}
-
-export async function refreshNews(): Promise<import('../types').NewsRefreshResult> {
-  return api('/api/news/refresh', {
-    method: 'POST',
-  });
-}
-
 export async function loadAlerts(): Promise<{ alerts: import('../types').PriceAlert[] }> {
   return api('/api/alerts');
 }

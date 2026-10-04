@@ -203,9 +203,35 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
 
       <div className="overview-layout">
         <div className="stack calc-main">
-          <div className="card">
+          <button
+            type="button"
+            className="card stat-card-link real-money"
+            onClick={() => store.setView('positions')}
+            title="View full positions table with lot details"
+            style={{ textAlign: 'left' }}
+          >
+            <span className="trading-mode-badge live">Live</span>
+            <h3>Holdings summary</h3>
+            <div className="stat-value" style={{ fontSize: 20, marginBottom: 6 }}>
+              {openPositions.length} open {openPositions.length === 1 ? 'position' : 'positions'}
+            </div>
+            <div className="stat-label">
+              Total market value: {fmtMoney(totalsPositions.reduce((s, p) => s + (p.marketValue ?? 0), 0))}
+              {hiddenOpen.length > 0 && ` · ${hiddenOpen.length} hidden`}
+            </div>
+            {lastUpdatedLabel && (
+              <div className="stat-label" style={{ marginTop: 4, fontSize: 11 }}>
+                Prices: {lastUpdatedLabel}
+              </div>
+            )}
+            <div className="stat-label" style={{ marginTop: 8, fontSize: 12, color: 'var(--accent)' }}>
+              → Click to view full positions table with lots
+            </div>
+          </button>
+
+          <div className="card" style={{ display: 'none' }}>
             <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-              <h3 style={{ margin: 0 }}>Holdings (open positions)</h3>
+              <h3 style={{ margin: 0 }}>Holdings (open positions - old version)</h3>
               <div className="row-actions" style={{ gap: 8 }}>
                 {hiddenOpen.length > 0 && (
                   <button

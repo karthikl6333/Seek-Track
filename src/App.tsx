@@ -16,39 +16,17 @@ import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshP
 import type { WatchlistRef } from './components/Watchlist';
 import type { ResearchRef } from './components/Research';
 
-interface NavGroup {
-  label: string;
-  items: Array<{ id: ViewId; label: string }>;
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: 'Ledger',
-    items: [
-      { id: 'overview', label: 'Overview' },
-      { id: 'positions', label: 'Positions' },
-      { id: 'trades', label: 'Trades' },
-      { id: 'charges', label: 'Charges' },
-      { id: 'charts', label: 'Charts' },
-    ],
-  },
-  {
-    label: 'Research',
-    items: [
-      { id: 'research', label: 'Research' },
-    ],
-  },
-  {
-    label: 'Paper Trading',
-    items: [
-      { id: 'paper', label: 'S0 CTRL-LRS' },
-      { id: 'paperFlex', label: 'A1 FLEX ORB' },
-      { id: 'cryptoPaper', label: 'C0 CTRL-SAT' },
-    ],
-  },
+const NAV: { id: ViewId; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'positions', label: 'Positions' },
+  { id: 'trades', label: 'Trades' },
+  { id: 'charges', label: 'Charges' },
+  { id: 'charts', label: 'Charts' },
+  { id: 'research', label: 'Research' },
+  { id: 'paper', label: 'Paper' },
+  { id: 'paperFlex', label: 'Paper Flex' },
+  { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
-
-const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
 const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds
 const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
@@ -62,30 +40,6 @@ export default function App() {
   const [refreshComplete, setRefreshComplete] = useState(false);
   const refreshIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
-
-  // URL hash sync for deep-linking
-  useEffect(() => {
-    const syncFromHash = () => {
-      const hash = window.location.hash.slice(1);
-      if (hash && ALL_NAV_ITEMS.some((item) => item.id === hash)) {
-        store.setView(hash as ViewId);
-      }
-    };
-    
-    syncFromHash();
-    window.addEventListener('hashchange', syncFromHash);
-    return () => window.removeEventListener('hashchange', syncFromHash);
-  }, [store]);
-
-  // Update hash when view changes
-  useEffect(() => {
-    if (store.view) {
-      const currentHash = window.location.hash.slice(1);
-      if (currentHash !== store.view) {
-        window.history.replaceState(null, '', `#${store.view}`);
-      }
-    }
-  }, [store.view]);
   
   // Live quotes toggle state
   const [liveQuotesEnabled, setLiveQuotesEnabled] = useState(() => {
@@ -315,25 +269,20 @@ export default function App() {
           </div>
           <p>Numbers-first trading ledger</p>
         </div>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="nav-group">
-            <div className="nav-group-label">{group.label}</div>
-            {group.items.map((n) => (
-              <button
-                key={n.id}
-                type="button"
-                className={`nav-btn${store.view === n.id ? ' active' : ''}`}
-                onClick={() => store.setView(n.id)}
-              >
-                {n.label}
-              </button>
-            ))}
-          </div>
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            className={`nav-btn${store.view === n.id ? ' active' : ''}`}
+            onClick={() => store.setView(n.id)}
+          >
+            {n.label}
+          </button>
         ))}
       </aside>
       <main className="main">
         <div className="topbar">
-          <h2>{ALL_NAV_ITEMS.find((n) => n.id === store.view)?.label}</h2>
+          <h2>{NAV.find((n) => n.id === store.view)?.label}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {/* Live/Delayed badge */}
             <div

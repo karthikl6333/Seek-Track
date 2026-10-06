@@ -191,10 +191,17 @@ export async function fetchYahooMeta(symbol: string): Promise<{
             post?: { start?: number; end?: number };
           };
         };
+        timestamp?: number[];
+        indicators?: {
+          quote?: Array<{
+            close?: Array<number | null>;
+          }>;
+        };
       }>;
     };
   };
-  const meta = data.chart?.result?.[0]?.meta;
+  const result = data.chart?.result?.[0];
+  const meta = result?.meta;
   if (!meta) throw new Error(`No meta for ${symbol}`);
 
   let price: number | null = null;
@@ -207,12 +214,20 @@ export async function fetchYahooMeta(symbol: string): Promise<{
   if (isRegularHours) {
     price = meta.regularMarketPrice ?? null;
   } else {
-    // Outside regular hours: prioritize fulldayPrice (includes extended-hours data)
-    price = meta.fulldayPrice ?? null;
+    // Outside regular hours: get last extended-hours bar close
+    // Yahoo's fulldayPrice does NOT contain extended-hours data
+    const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    for (let i = closes.length - 1; i >= 0; i--) {
+      const closePrice = closes[i];
+      if (closePrice != null && Number.isFinite(closePrice)) {
+        price = Number(closePrice);
+        break;
+      }
+    }
   }
 
   if (price === null || !Number.isFinite(price)) {
-    price = meta.fulldayPrice ?? meta.regularMarketPrice ?? meta.previousClose ?? null;
+    price = meta.regularMarketPrice ?? meta.previousClose ?? null;
   }
 
   return {

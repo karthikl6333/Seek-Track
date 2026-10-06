@@ -75,6 +75,7 @@ interface YahooChartResponse {
       indicators?: {
         quote?: Array<{
           open?: Array<number | null>;
+          close?: Array<number | null>;
           volume?: Array<number | null>;
         }>;
       };

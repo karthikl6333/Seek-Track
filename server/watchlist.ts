@@ -301,6 +301,12 @@ export async function removeWatchlistSymbol(symbolRaw: string): Promise<Watchlis
 export async function getWatchlistHandler(c: Context) {
   try {
     const data = await getWatchlistPayload();
+    
+    // Prevent caching of watchlist data (always fetch latest prices)
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
+    
     return c.json(data);
   } catch (e) {
     return c.json({ error: String(e) }, 500);
@@ -343,6 +349,12 @@ export async function postWatchlistRefreshHandler(c: Context) {
   try {
     const result = await refreshWatchlistQuotes();
     const payload = await getWatchlistPayload();
+    
+    // Prevent caching of refresh responses
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
+    
     return c.json({ ...result, ...payload }, result.ok ? 200 : 502);
   } catch (e) {
     return c.json({ error: String(e) }, 500);

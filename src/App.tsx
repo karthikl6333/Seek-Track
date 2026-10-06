@@ -138,13 +138,27 @@ export default function App() {
   );
 
   /**
+   * Initial refresh on mount (always runs, regardless of live quotes setting)
+   * This ensures we fetch current prices when the page loads, even if the marks
+   * table has stale data from hours ago.
+   */
+  useEffect(() => {
+    const initialTimer = setTimeout(() => {
+      console.log('[App] Running initial refresh on mount');
+      void refreshAll();
+    }, 1000); // 1s delay for initial load
+
+    return () => clearTimeout(initialTimer);
+  }, [refreshAll]); // Only run once on mount
+
+  /**
    * Auto-refresh system (disabled when live quotes enabled):
    * - 30s interval for ALL symbols
    * - Pauses when tab is hidden
    * - Only active when live quotes are OFF
    */
   useEffect(() => {
-    // Skip auto-refresh when live quotes are enabled
+    // Skip auto-refresh when live quotes are enabled (SSE stream handles it)
     if (liveQuotesEnabled) {
       console.log('[App] Auto-refresh disabled (live quotes enabled)');
       if (refreshIntervalRef.current !== null) {
@@ -155,13 +169,8 @@ export default function App() {
     }
 
     console.log('[App] Auto-refresh enabled (live quotes disabled)');
-    
-    // Initial refresh on mount
-    const initialTimer = setTimeout(() => {
-      void refreshAll();
-    }, 2000); // 2s delay for initial load
 
-    // Set up 30s interval
+    // Set up 30s interval (skip initial delay since we have a separate mount effect)
     refreshIntervalRef.current = window.setInterval(() => {
       // Skip refresh if tab is hidden (save Yahoo quota)
       if (document.hidden) {
@@ -181,7 +190,6 @@ export default function App() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearTimeout(initialTimer);
       if (refreshIntervalRef.current !== null) {
         clearInterval(refreshIntervalRef.current);
         refreshIntervalRef.current = null;

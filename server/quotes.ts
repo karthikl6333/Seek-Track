@@ -73,6 +73,12 @@ export async function getMarksHandler(c: Context) {
   markActivity();
   const detailed = c.req.query('detailed') === '1' || c.req.query('detailed') === 'true';
   const data = await listMarksDetailed();
+  
+  // Prevent caching of quote data (always fetch latest)
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
+  
   if (detailed) {
     return c.json(data);
   }
@@ -104,6 +110,10 @@ export async function getUniverseHandler(c: Context) {
   markActivity();
   try {
     const universe = await getSymbolUniverse();
+    
+    // Short cache for universe (5 seconds) since it doesn't change often
+    c.header('Cache-Control', 'public, max-age=5');
+    
     return c.json({ symbols: universe, total: universe.length });
   } catch (err) {
     return c.json({ error: String(err) }, 500);
@@ -139,6 +149,11 @@ export async function refreshQuotesHandler(c: Context) {
   // const tierQuery = c.req.query('tier'); // not used
   
   const result = await forceRefresh(symbols);
+  
+  // Prevent caching of quote refresh responses
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
   
   // HTTP status codes:
   // - needsChunking: 200 (successful "here's the universe, please chunk" response)

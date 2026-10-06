@@ -141,18 +141,32 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData> {
   const session = determineSession(meta, now);
   const isRegularHours = session === 'regular';
 
-  // Price selection: regular market price during RTH, fulldayPrice in extended hours
+  // Price selection logic
   let price: number | null = null;
+  
   if (isRegularHours) {
+    // During regular hours: use regularMarketPrice
     price = meta.regularMarketPrice ?? null;
-  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    price = meta.fulldayPrice;
+  } else {
+    // Outside regular hours: get last extended-hours bar close
+    // Yahoo's fulldayPrice does NOT contain extended-hours data; it equals regularMarketPrice
+    // The actual extended-hours price is in the last non-null close bar from includePrePost=true
+    const timestamps = result?.timestamp ?? [];
+    const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    
+    // Find the last non-null close price from the bars (includes pre/post market)
+    for (let i = closes.length - 1; i >= 0; i--) {
+      const closePrice = closes[i];
+      if (closePrice != null && Number.isFinite(closePrice)) {
+        price = Number(closePrice);
+        break;
+      }
+    }
   }
 
-  // Fallback cascade
+  // Fallback cascade if no price found yet
   if (price === null || !Number.isFinite(price)) {
     price =
-      meta.fulldayPrice ??
       meta.regularMarketPrice ??
       meta.previousClose ??
       meta.chartPreviousClose ??

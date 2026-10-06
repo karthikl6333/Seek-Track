@@ -206,8 +206,9 @@ export async function fetchYahooMeta(symbol: string): Promise<{
 
   if (isRegularHours) {
     price = meta.regularMarketPrice ?? null;
-  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    price = meta.fulldayPrice;
+  } else {
+    // Outside regular hours: prioritize fulldayPrice (includes extended-hours data)
+    price = meta.fulldayPrice ?? null;
   }
 
   if (price === null || !Number.isFinite(price)) {

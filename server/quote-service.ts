@@ -145,8 +145,11 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData> {
   let price: number | null = null;
   if (isRegularHours) {
     price = meta.regularMarketPrice ?? null;
-  } else if (meta.hasPrePostMarketData && meta.fulldayPrice != null) {
-    price = meta.fulldayPrice;
+  } else {
+    // Outside regular hours: prioritize fulldayPrice (includes extended-hours data)
+    // over regularMarketPrice (previous regular session close).
+    // Don't rely on hasPrePostMarketData flag - fulldayPrice presence is sufficient.
+    price = meta.fulldayPrice ?? null;
   }
 
   // Fallback cascade

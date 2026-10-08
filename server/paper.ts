@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
+import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
 
 export interface PaperState {
   equity: number;
@@ -201,22 +202,18 @@ export async function upsertPaperPositions(c: Context) {
     theme?: string;
   }[];
 
-  await query(`DELETE FROM paper_positions`);
-
-  for (const pos of positions) {
-    await query(
-      `INSERT INTO paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-      [
-        pos.symbol,
-        pos.quantity,
-        pos.avgPrice,
-        pos.marketValue ?? null,
-        pos.unrealizedPnl ?? null,
-        pos.theme ?? '',
-      ],
-    );
-  }
+  // Atomic replace (one D1 batch): upsert current rows, delete only symbols no longer present.
+  await replacePositions(
+    'paper_positions',
+    (Array.isArray(positions) ? positions : []).map((pos) => ({
+      symbol: pos.symbol,
+      quantity: pos.quantity,
+      avgPrice: pos.avgPrice,
+      marketValue: pos.marketValue ?? null,
+      unrealizedPnl: pos.unrealizedPnl ?? null,
+      theme: pos.theme ?? '',
+    })),
+  );
 
   return c.json({ ok: true });
 }
@@ -407,8 +404,6 @@ export async function refreshPaperFromAlpaca(c: Context) {
       ],
     );
 
-    await query(`DELETE FROM paper_positions`);
-
     // Fetch app settings to derive themes from symbol mappings
     const settingsRes = await query<{ data: any }>(
       `SELECT data FROM settings WHERE id = 1`
@@ -434,27 +429,16 @@ export async function refreshPaperFromAlpaca(c: Context) {
       return found?.name || '';
     };
 
-    for (const pos of positions) {
-      const existingPosRes = await query<{ theme: string }>(
-        `SELECT theme FROM paper_positions WHERE symbol = $1`,
-        [pos.symbol],
-      );
-      // Prefer existing theme, fallback to derived theme from settings
-      const theme = existingPosRes.rows[0]?.theme || getTheme(pos.symbol);
-
-      await query(
-        `INSERT INTO paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [
-          pos.symbol,
-          parseFloat(pos.qty) * (pos.side === 'short' ? -1 : 1),
-          parseFloat(pos.avg_entry_price),
-          parseFloat(pos.market_value),
-          parseFloat(pos.unrealized_pl),
-          theme,
-        ],
-      );
-    }
+    // Atomic replace in ONE D1 batch (concurrent refreshes no longer interleave
+    // DELETE/INSERT → no more "UNIQUE constraint failed: paper_positions.symbol").
+    // A non-empty theme already stored for a symbol is kept; otherwise derive it from settings.
+    await replacePositions(
+      'paper_positions',
+      (positions as any[]).map((pos) =>
+        alpacaToPositionRow(pos, getTheme(pos.symbol), { signedByShortSide: true }),
+      ),
+      { preserveExistingTheme: true },
+    );
 
     return c.json({ ok: true, refreshedAt: new Date().toISOString() });
   } catch (err) {

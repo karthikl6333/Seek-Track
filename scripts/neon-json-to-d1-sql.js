@@ -1,274 +1,244 @@
 #!/usr/bin/env node
 /**
- * Convert Neon Postgres JSON exports to D1-compatible SQL INSERT statements
- * 
- * Usage: node scripts/neon-json-to-d1-sql.js <input-dir> [output-file]
- * 
- * Reads: <input-dir>/*.json (per-table arrays of row objects from Neon export)
- * Outputs: <output-file> (default: migration/import.sql) - batched multi-row INSERTs
- * 
- * D1 constraints:
- * - Max 100 bound params per statement
- * - Skip retired tables: news_recommendations, news_refresh_lock
- * - Convert JSONB columns to TEXT (JSON.stringify)
- * - Convert TIMESTAMPTZ to ISO 8601 TEXT strings
+ * Convert Neon Postgres JSON exports (one <table>.json array per table) into a
+ * D1-compatible SQL import file.
+ *
+ * Usage:
+ *   node scripts/neon-json-to-d1-sql.js <input-dir> [output-file] [--export-tz=+05:30]
+ *
+ * Guarantees (fails loudly with a non-zero exit instead of silently dropping data):
+ * - Column list comes from server/schema-d1.sql. Backup columns that no longer exist
+ *   in the schema are dropped ONLY if every value is NULL (legacy columns); otherwise
+ *   the script aborts.
+ * - Each table is emptied (DELETE FROM) and then filled with plain INSERTs, so the
+ *   schema's seed rows (settings id=1 '{}', *_state id=1 defaults) are replaced by the
+ *   backup rows instead of the backup rows being IGNOREd.
+ * - Objects/arrays (JSONB) are written as JSON text; booleans as 1/0.
+ * - Postgres DATE columns that were serialized by a JS Date in a non-UTC export
+ *   timezone (e.g. "2026-10-04T18:30:00.000Z" for DATE 2026-10-05 exported from IST)
+ *   are converted back to YYYY-MM-DD using --export-tz (default +05:30).
+ * - No BEGIN/COMMIT (wrangler d1 remote import rejects them); every statement is
+ *   kept well under D1's 100KB statement limit.
+ * - Retired tables (news_recommendations, news_refresh_lock) are skipped.
  */
 
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join, basename, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RETIRED_TABLES = ['news_recommendations', 'news_refresh_lock'];
+const RETIRED_TABLES = new Set(['news_recommendations', 'news_refresh_lock']);
 
-// Table order respecting dependencies
-const TABLE_ORDER = [
-  'settings',
-  'marks',
-  'trades',
-  'journal',
-  'pair_cache',
-  'research_universe',
-  'research_etf_map',
-  'research_universe_excluded',
-  'watchlist',
-  'watchlist_quotes',
-  'paper_state',
-  'paper_positions',
-  'paper_orders',
-  'paper_journal',
-  'crypto_paper_state',
-  'crypto_paper_positions',
-  'crypto_paper_orders',
-  'crypto_paper_journal',
-  'paper_flex_state',
-  'paper_flex_positions',
-  'paper_flex_orders',
-  'paper_flex_journal',
-  'price_alerts',
-];
-
-// Known JSONB columns that need stringify
-const JSONB_COLUMNS = {
-  settings: ['data'],
+// Postgres DATE columns (stored as YYYY-MM-DD TEXT in D1)
+const DATE_COLUMNS = {
+  paper_state: ['mandate_start', 'mandate_end'],
+  crypto_paper_state: ['mandate_start', 'mandate_end'],
+  paper_flex_state: ['mandate_start', 'mandate_end'],
 };
 
-function sqlEscape(value) {
-  if (value === null || value === undefined) {
-    return 'NULL';
+const MAX_ROWS_PER_INSERT = 50;
+const MAX_STATEMENT_BYTES = 50_000; // D1 limit is 100KB per statement
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SCHEMA_PATH = resolve(here, '..', 'server', 'schema-d1.sql');
+
+function die(msg) {
+  console.error(`ERROR: ${msg}`);
+  process.exit(1);
+}
+
+/** Parse CREATE TABLE blocks from schema-d1.sql -> Map<table, string[] columns> (schema order). */
+function loadSchemaColumns(schemaPath) {
+  const text = readFileSync(schemaPath, 'utf8');
+  const tables = new Map();
+  const re = /CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(([\s\S]*?)\n\);/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const cols = [];
+    for (const rawLine of m[2].split('\n')) {
+      const line = rawLine.replace(/--.*$/, '').trim();
+      if (!line) continue;
+      const first = line.split(/\s+/)[0].replace(/[",]/g, '');
+      if (/^(PRIMARY|UNIQUE|CHECK|FOREIGN|CONSTRAINT)$/i.test(first)) continue;
+      cols.push(first);
+    }
+    tables.set(m[1], cols);
   }
+  if (tables.size === 0) die(`no CREATE TABLE statements parsed from ${schemaPath}`);
+  return tables;
+}
+
+function parseTzOffsetMinutes(s) {
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(s);
+  if (!m) die(`invalid --export-tz "${s}" (expected e.g. +05:30)`);
+  return (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+function toDateOnly(table, col, value, tzOffsetMin) {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'string') die(`${table}.${col}: unexpected non-string DATE value ${JSON.stringify(value)}`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) die(`${table}.${col}: unparseable DATE value ${JSON.stringify(value)}`);
+  const local = new Date(t + tzOffsetMin * 60_000);
+  if (local.getUTCHours() !== 0 || local.getUTCMinutes() !== 0 || local.getUTCSeconds() !== 0 || local.getUTCMilliseconds() !== 0) {
+    die(
+      `${table}.${col}: ${value} is not midnight in export timezone offset ${tzOffsetMin}min; ` +
+        `pass the timezone the backup was exported in via --export-tz`,
+    );
+  }
+  return local.toISOString().slice(0, 10);
+}
+
+/**
+ * SQLite's decimal text->double parser is not always correctly rounded (e.g. sqlite 3.46
+ * reads '37.777393' as 37.777393000000004). To keep every REAL bit-identical, non-integer
+ * doubles are written as an exact ratio m / 2^k (m < 2^53 integer, power-of-two divisors),
+ * which involves only exact integer->double conversions and an exact division.
+ */
+function exactNumberLiteral(v) {
+  if (Number.isInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER) return String(v);
+  let m = v;
+  let k = 0;
+  while (!Number.isInteger(m) && k < 1074) {
+    m *= 2; // exact (power-of-two scaling)
+    k += 1;
+  }
+  if (!Number.isInteger(m) || Math.abs(m) > Number.MAX_SAFE_INTEGER) return v.toPrecision(17);
+  let expr = `CAST(${m} AS REAL)`;
+  while (k > 0) {
+    const step = Math.min(k, 62);
+    expr += ` / ${(2n ** BigInt(step)).toString()}`;
+    k -= step;
+  }
+  return `(${expr})`;
+}
+
+function sqlLiteral(table, col, value) {
+  if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return 'NULL';
-    return String(value);
+    if (!Number.isFinite(value)) die(`${table}.${col}: non-finite number`);
+    return exactNumberLiteral(value);
   }
-  if (typeof value === 'boolean') {
-    return value ? '1' : '0';
-  }
-  if (value instanceof Date) {
-    return `'${value.toISOString()}'`;
-  }
-  // Escape single quotes and wrap in quotes
-  return `'${String(value).replace(/'/g, "''")}'`;
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  if (typeof value === 'object') value = JSON.stringify(value); // JSONB object/array -> JSON text
+  const s = String(value);
+  if (s.includes('\u0000')) die(`${table}.${col}: string contains NUL byte`);
+  return `'${s.replace(/'/g, "''")}'`;
 }
 
-function convertRow(table, row) {
-  const converted = {};
-  const jsonbCols = JSONB_COLUMNS[table] || [];
-
-  for (const [key, value] of Object.entries(row)) {
-    // Convert JSONB columns to JSON strings
-    if (jsonbCols.includes(key)) {
-      if (typeof value === 'object' && value !== null) {
-        converted[key] = JSON.stringify(value);
-      } else if (typeof value === 'string') {
-        // Already a string, keep as-is
-        converted[key] = value;
-      } else {
-        converted[key] = value;
-      }
-    }
-    // Convert Date objects to ISO strings
-    else if (value instanceof Date) {
-      converted[key] = value.toISOString();
-    }
-    // Convert timestamps (strings that look like ISO dates)
-    else if (
-      typeof value === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)
-    ) {
-      converted[key] = value;
-    } else {
-      converted[key] = value;
-    }
-  }
-
-  return converted;
+function quoteIdent(name) {
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
-function generateBatchedInserts(table, rows) {
-  if (!rows || rows.length === 0) {
-    return `-- No data for ${table}\n\n`;
+function buildTableSql(table, rows, schemaCols, tzOffsetMin) {
+  // Union of keys across all rows (don't trust rows[0] alone)
+  const backupCols = new Set();
+  for (const r of rows) for (const k of Object.keys(r)) backupCols.add(k);
+
+  const dropped = [];
+  for (const c of backupCols) {
+    if (schemaCols.includes(c)) continue;
+    const nonNull = rows.filter((r) => r[c] !== null && r[c] !== undefined).length;
+    if (nonNull > 0) die(`${table}.${c} is not in schema-d1.sql but has ${nonNull} non-null values; refusing to drop data`);
+    dropped.push(c);
   }
+  const cols = schemaCols.filter((c) => backupCols.has(c));
+  const dateCols = DATE_COLUMNS[table] || [];
 
-  const keys = Object.keys(rows[0]);
-  const columns = keys.join(', ');
-  const paramsPerRow = keys.length;
+  let sql = `-- ${table}: ${rows.length} rows\nDELETE FROM ${quoteIdent(table)};\n`;
+  if (rows.length === 0) return { sql: sql + '\n', dropped };
 
-  // D1 allows max 100 params per statement
-  const maxRowsPerInsert = Math.floor(100 / paramsPerRow);
-
-  let sql = `-- Insert ${rows.length} rows into ${table}\n`;
-  sql += `-- (${maxRowsPerInsert} rows per INSERT, ${paramsPerRow} params per row)\n`;
-
-  for (let i = 0; i < rows.length; i += maxRowsPerInsert) {
-    const batch = rows.slice(i, i + maxRowsPerInsert);
-    const valueClauses = batch
-      .map((row) => {
-        const values = keys.map((key) => sqlEscape(row[key])).join(', ');
-        return `(${values})`;
-      })
-      .join(',\n  ');
-
-    sql += `INSERT OR IGNORE INTO ${table} (${columns})\nVALUES\n  ${valueClauses};\n\n`;
+  const head = `INSERT INTO ${quoteIdent(table)} (${cols.map(quoteIdent).join(', ')}) VALUES\n`;
+  let batch = [];
+  let batchBytes = head.length;
+  const flush = () => {
+    if (batch.length === 0) return;
+    sql += head + batch.join(',\n') + ';\n';
+    batch = [];
+    batchBytes = head.length;
+  };
+  for (const row of rows) {
+    const vals = cols.map((c) => {
+      let v = row[c];
+      if (dateCols.includes(c)) v = toDateOnly(table, c, v, tzOffsetMin);
+      return sqlLiteral(table, c, v);
+    });
+    const tuple = `(${vals.join(', ')})`;
+    if (head.length + tuple.length + 2 > MAX_STATEMENT_BYTES) die(`${table}: single row exceeds ${MAX_STATEMENT_BYTES} bytes`);
+    if (batch.length >= MAX_ROWS_PER_INSERT || batchBytes + tuple.length + 2 > MAX_STATEMENT_BYTES) flush();
+    batch.push(tuple);
+    batchBytes += tuple.length + 2;
   }
-
-  return sql;
+  flush();
+  return { sql: sql + '\n', dropped };
 }
 
 function main() {
   const args = process.argv.slice(2);
-  
-  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+  const flags = args.filter((a) => a.startsWith('--'));
+  const pos = args.filter((a) => !a.startsWith('--'));
+
+  if (pos.length === 0 || flags.includes('--help') || flags.includes('-h')) {
     console.log(`
-Usage: node scripts/neon-json-to-d1-sql.js <input-dir> [output-file]
+Usage: node scripts/neon-json-to-d1-sql.js <input-dir> [output-file] [--export-tz=+05:30]
 
-Arguments:
-  <input-dir>    Directory containing per-table JSON files (e.g., trades.json, marks.json)
-  [output-file]  Output SQL file (default: migration/import.sql)
-
-Example:
-  node scripts/neon-json-to-d1-sql.js ./neon-export ./migration/import.sql
+  <input-dir>     Directory with per-table JSON arrays (trades.json, marks.json, ...). Read-only.
+  [output-file]   Output SQL file (default: migration/import.sql)
+  --export-tz     UTC offset of the machine that produced the JSON export; used to turn
+                  JS-serialized Postgres DATE values back into YYYY-MM-DD (default +05:30)
 `);
-    process.exit(args.length === 0 ? 1 : 0);
+    process.exit(pos.length === 0 ? 1 : 0);
   }
 
-  const inputDir = args[0];
-  const outputFile = args[1] || join(process.cwd(), 'migration', 'import.sql');
+  const tzFlag = flags.find((f) => f.startsWith('--export-tz='));
+  const tzOffsetMin = parseTzOffsetMinutes(tzFlag ? tzFlag.split('=')[1] : '+05:30');
 
-  if (!existsSync(inputDir)) {
-    console.error(`ERROR: Input directory not found: ${inputDir}`);
-    process.exit(1);
+  const inputDir = pos[0];
+  const outputFile = pos[1] || join(process.cwd(), 'migration', 'import.sql');
+  if (!existsSync(inputDir)) die(`input directory not found: ${inputDir}`);
+  mkdirSync(dirname(resolve(outputFile)), { recursive: true });
+
+  const schema = loadSchemaColumns(SCHEMA_PATH);
+  const files = readdirSync(inputDir).filter((f) => f.endsWith('.json')).map((f) => basename(f, '.json'));
+  if (files.length === 0) die(`no JSON files found in ${inputDir}`);
+
+  for (const f of files) {
+    if (!RETIRED_TABLES.has(f) && !schema.has(f)) die(`backup file ${f}.json has no matching table in schema-d1.sql`);
   }
 
-  const outputDir = join(outputFile, '..');
-  if (!existsSync(outputDir)) {
-    mkdirSync(outputDir, { recursive: true });
-  }
-
-  console.log(`Reading JSON files from: ${inputDir}`);
-  console.log(`Output SQL file: ${outputFile}`);
-  console.log('');
-
-  const files = readdirSync(inputDir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => basename(f, '.json'));
-
-  if (files.length === 0) {
-    console.error(`ERROR: No JSON files found in ${inputDir}`);
-    process.exit(1);
-  }
-
-  let fullSql = `-- D1 Import Script
--- Generated: ${new Date().toISOString()}
--- Source: Neon Postgres JSON export
--- Converter: neon-json-to-d1-sql.js
-
-`;
+  let out = `-- D1 import generated by scripts/neon-json-to-d1-sql.js at ${new Date().toISOString()}\n` +
+    `-- Source: ${resolve(inputDir)}\n` +
+    `-- Apply AFTER server/schema-d1.sql. Replaces the full contents of every table below.\n` +
+    `-- No BEGIN/COMMIT on purpose (wrangler d1 execute --remote rejects them).\n\n`;
 
   const summary = {};
-  let totalRows = 0;
-
-  for (const table of TABLE_ORDER) {
-    if (RETIRED_TABLES.includes(table)) {
-      console.log(`⊘ Skipping retired table: ${table}`);
+  let total = 0;
+  for (const [table, cols] of schema) {
+    const file = join(inputDir, `${table}.json`);
+    if (!existsSync(file)) {
+      console.warn(`⚠ ${table}: no ${table}.json in backup (table left as created by schema)`);
+      summary[table] = 'MISSING';
       continue;
     }
-
-    const jsonFile = join(inputDir, `${table}.json`);
-
-    if (!existsSync(jsonFile)) {
-      console.log(`⚠ Skipping ${table} (no JSON file found)`);
-      continue;
-    }
-
+    let rows;
     try {
-      const rawData = JSON.parse(readFileSync(jsonFile, 'utf8'));
-
-      if (!Array.isArray(rawData)) {
-        console.warn(`⚠ Skipping ${table} (not an array)`);
-        continue;
-      }
-
-      if (rawData.length === 0) {
-        console.log(`○ ${table}: 0 rows (empty)`);
-        summary[table] = 0;
-        fullSql += `-- ${table}: no rows\n\n`;
-        continue;
-      }
-
-      // Convert rows (handle JSONB and timestamps)
-      const convertedRows = rawData.map((row) => convertRow(table, row));
-
-      fullSql += generateBatchedInserts(table, convertedRows);
-      summary[table] = convertedRows.length;
-      totalRows += convertedRows.length;
-      console.log(`✓ ${table}: ${convertedRows.length} rows`);
+      rows = JSON.parse(readFileSync(file, 'utf8'));
     } catch (err) {
-      console.error(`✗ Error processing ${table}:`, err.message);
-      summary[table] = 'ERROR';
+      die(`${table}.json: ${err.message}`);
     }
+    if (!Array.isArray(rows)) die(`${table}.json is not a JSON array`);
+    const { sql, dropped } = buildTableSql(table, rows, cols, tzOffsetMin);
+    if (dropped.length) console.warn(`⚠ ${table}: dropped legacy all-NULL column(s) not in schema: ${dropped.join(', ')}`);
+    out += sql;
+    summary[table] = rows.length;
+    total += rows.length;
+    console.log(`✓ ${table}: ${rows.length} rows`);
   }
+  for (const f of files) if (RETIRED_TABLES.has(f)) console.log(`⊘ skipped retired table: ${f}`);
 
-  // Handle any extra tables not in TABLE_ORDER
-  for (const file of files) {
-    if (RETIRED_TABLES.includes(file) || TABLE_ORDER.includes(file)) {
-      continue;
-    }
-
-    const jsonFile = join(inputDir, `${file}.json`);
-    console.log(`⚠ Unknown table: ${file} (appending to end)`);
-
-    try {
-      const rawData = JSON.parse(readFileSync(jsonFile, 'utf8'));
-
-      if (!Array.isArray(rawData) || rawData.length === 0) {
-        continue;
-      }
-
-      const convertedRows = rawData.map((row) => convertRow(file, row));
-      fullSql += generateBatchedInserts(file, convertedRows);
-      summary[file] = convertedRows.length;
-      totalRows += convertedRows.length;
-      console.log(`✓ ${file}: ${convertedRows.length} rows`);
-    } catch (err) {
-      console.error(`✗ Error processing ${file}:`, err.message);
-    }
-  }
-
-  writeFileSync(outputFile, fullSql);
-
-  console.log('\n' + '='.repeat(60));
-  console.log('Conversion Summary:');
-  console.log(JSON.stringify(summary, null, 2));
-  console.log(`Total rows: ${totalRows}`);
-  console.log('='.repeat(60));
-  console.log(`\nSQL import file generated: ${outputFile}`);
-  console.log('\nNext steps:');
-  console.log('1. Review the SQL file');
-  console.log('2. Create D1 database:');
-  console.log('   wrangler d1 create seek-track-db');
-  console.log('3. Apply schema:');
-  console.log('   wrangler d1 execute seek-track-db --file=server/schema-d1.sql --remote');
-  console.log('4. Import data:');
-  console.log(`   wrangler d1 execute seek-track-db --file=${outputFile} --remote`);
+  writeFileSync(outputFile, out);
+  console.log(`\nTotal rows: ${total}\nWrote ${outputFile}`);
+  console.log(JSON.stringify(summary));
 }
 
 main();

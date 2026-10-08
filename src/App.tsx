@@ -28,7 +28,8 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const AUTO_REFRESH_INTERVAL_MS = 30_000; // 30 seconds
+const HOLDINGS_WATCHLIST_REFRESH_INTERVAL_MS = 30_000; // 30 seconds (holdings + watchlist)
+const FULL_UNIVERSE_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (research + everything else)
 const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
 const LIVE_QUOTES_KEY = 'seektrack.liveQuotes';
 
@@ -38,8 +39,10 @@ export default function App() {
   const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
-  const refreshIntervalRef = useRef<number | null>(null);
+  const holdingsWatchlistIntervalRef = useRef<number | null>(null);
+  const fullUniverseIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
+  const autoRefreshingHoldingsRef = useRef(false);
   
   // Live quotes toggle state
   const [liveQuotesEnabled, setLiveQuotesEnabled] = useState(() => {
@@ -52,14 +55,74 @@ export default function App() {
   });
 
   /**
-   * Chunked refresh at HTTP boundary to stay under CF Workers subrequest limits
-   * 
-   * 1. GET /api/quotes/universe (1 Neon query)
-   * 2. POST /api/quotes/refresh with ≤10 symbols (N Yahoo + 2 Neon per request)
-   * 3. Repeat for each chunk
-   * 
-   * Bug fix: Holdings are included in the universe, so pass includeHoldings: false
-   * to avoid refreshing them 10x per cycle (once per chunk).
+   * Refresh holdings + watchlist only (30s cadence)
+   * Used by: 30s interval (both live and delayed modes), visibilitychange handler
+   */
+  const refreshHoldingsAndWatchlist = useCallback(async () => {
+    if (autoRefreshingHoldingsRef.current) return;
+    autoRefreshingHoldingsRef.current = true;
+    
+    try {
+      // Get holdings symbols (open positions)
+      const holdingsSymbols = (store.analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [])
+        .map((s) => s.toUpperCase().trim())
+        .filter((s) => s.length > 0 && s !== 'TEST');
+      
+      // Get watchlist symbols from store (already loaded)
+      const watchlistSymbols: string[] = [];
+      try {
+        const watchlistRes = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}/api/watchlist`);
+        if (watchlistRes.ok) {
+          const watchlistData = await watchlistRes.json() as Array<{ symbol: string }>;
+          watchlistSymbols.push(...watchlistData.map((w) => w.symbol.toUpperCase().trim()).filter((s) => s.length > 0 && s !== 'TEST'));
+        }
+      } catch (e) {
+        console.warn('[App] Failed to fetch watchlist for refresh:', e);
+      }
+      
+      const symbols = [...new Set([...holdingsSymbols, ...watchlistSymbols])];
+      
+      if (symbols.length === 0) {
+        console.log('[App] No holdings/watchlist symbols to refresh');
+        autoRefreshingHoldingsRef.current = false;
+        return;
+      }
+      
+      console.log(`[App] Refreshing ${symbols.length} holdings/watchlist symbols in chunks of ${CHUNK_SIZE}`);
+      
+      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
+      // Continue on failure (don't abort remaining chunks)
+      for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
+        const chunk = symbols.slice(i, i + CHUNK_SIZE);
+        try {
+          await store.refreshLiveQuotes(chunk, { includeHoldings: false });
+          console.log(
+            `[App] Holdings/watchlist chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(symbols.length / CHUNK_SIZE)} complete`
+          );
+        } catch (chunkError) {
+          console.error(`[App] Holdings/watchlist chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed:`, chunkError);
+          // Continue to next chunk
+        }
+      }
+      
+      // Re-read marks and UI state
+      await Promise.allSettled([
+        store.refresh(),
+        watchlistRef.current?.reload(),
+        refreshPaperData().catch(() => null),
+        refreshCryptoPaperLivePnl().catch(() => null),
+        refreshPaperFlexData().catch(() => null),
+      ]);
+    } catch (error) {
+      console.error('[App] Holdings/watchlist refresh error:', error);
+    } finally {
+      autoRefreshingHoldingsRef.current = false;
+    }
+  }, [store]);
+
+  /**
+   * Refresh full universe (all symbols including Research)
+   * Used by: mount effect (once), 15-min interval
    */
   const refreshAll = useCallback(async () => {
     if (autoRefreshingRef.current) return;
@@ -68,16 +131,21 @@ export default function App() {
     try {
       // Get full symbol universe (1 HTTP request, 1 Neon query)
       const { symbols: universe } = await getQuoteUniverse();
-      console.log(`[App] Refreshing ${universe.length} symbols in chunks of ${CHUNK_SIZE}`);
+      console.log(`[App] Refreshing full universe: ${universe.length} symbols in chunks of ${CHUNK_SIZE}`);
       
-      // Refresh in chunks (multiple HTTP requests, each stays under CF limit)
-      // Pass includeHoldings: false since holdings are already in universe
+      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
+      // Continue on failure (don't abort remaining chunks)
       for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
         const chunk = universe.slice(i, i + CHUNK_SIZE);
-        await store.refreshLiveQuotes(chunk, { includeHoldings: false });
-        console.log(
-          `[App] Chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
-        );
+        try {
+          await store.refreshLiveQuotes(chunk, { includeHoldings: false });
+          console.log(
+            `[App] Full universe chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
+          );
+        } catch (chunkError) {
+          console.error(`[App] Full universe chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed:`, chunkError);
+          // Continue to next chunk
+        }
       }
       
       // Re-read all client state from shared store
@@ -90,7 +158,7 @@ export default function App() {
         refreshPaperFlexData().catch(() => null),
       ]);
     } catch (error) {
-      console.error('[App] Refresh error:', error);
+      console.error('[App] Full universe refresh error:', error);
     } finally {
       autoRefreshingRef.current = false;
     }
@@ -157,44 +225,55 @@ export default function App() {
 
   /**
    * Auto-refresh system:
-   * - When live quotes OFF: 30s interval for ALL symbols
-   * - When live quotes ON: 30s fallback (lighter refresh) in case SSE fails
+   * - Holdings + watchlist: 30s interval (both live and delayed modes)
+   * - Full universe (Research, etc.): 15-min interval
+   * - SSE stream (live mode) pushes marks updates to UI every 3s
    * - Pauses when tab is hidden
    * - Resumes immediately when tab becomes visible
    */
   useEffect(() => {
-    console.log(`[App] Auto-refresh ${liveQuotesEnabled ? '(fallback mode, 30s)' : '(full mode, 30s)'}`);
+    console.log('[App] Auto-refresh enabled: holdings/watchlist 30s, full universe 15m');
 
-    // Set up 30s interval
-    refreshIntervalRef.current = window.setInterval(() => {
-      // Skip refresh if tab is hidden (save Yahoo quota)
+    // 30s interval: holdings + watchlist (both live and delayed modes)
+    holdingsWatchlistIntervalRef.current = window.setInterval(() => {
       if (document.hidden) {
-        console.log('[App] Skipping auto-refresh (tab hidden)');
+        console.log('[App] Skipping holdings/watchlist refresh (tab hidden)');
         return;
       }
-      
-      // In live mode, only refresh holdings+watchlist (SSE handles the rest)
-      // In delayed mode, refresh full universe
+      void refreshHoldingsAndWatchlist();
+    }, HOLDINGS_WATCHLIST_REFRESH_INTERVAL_MS);
+
+    // 15-min interval: full universe (Research, etc.)
+    fullUniverseIntervalRef.current = window.setInterval(() => {
+      if (document.hidden) {
+        console.log('[App] Skipping full universe refresh (tab hidden)');
+        return;
+      }
+      console.log('[App] Running 15-min full universe refresh');
       void refreshAll();
-    }, AUTO_REFRESH_INTERVAL_MS);
+    }, FULL_UNIVERSE_REFRESH_INTERVAL_MS);
 
     // Resume immediately when tab becomes visible
     const handleVisibilityChange = () => {
-      if (!document.hidden && !autoRefreshingRef.current) {
-        console.log('[App] Tab visible, triggering refresh');
-        void refreshAll();
+      if (!document.hidden && !autoRefreshingHoldingsRef.current) {
+        console.log('[App] Tab visible, triggering holdings/watchlist refresh');
+        void refreshHoldingsAndWatchlist();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (refreshIntervalRef.current !== null) {
-        clearInterval(refreshIntervalRef.current);
-        refreshIntervalRef.current = null;
+      if (holdingsWatchlistIntervalRef.current !== null) {
+        clearInterval(holdingsWatchlistIntervalRef.current);
+        holdingsWatchlistIntervalRef.current = null;
+      }
+      if (fullUniverseIntervalRef.current !== null) {
+        clearInterval(fullUniverseIntervalRef.current);
+        fullUniverseIntervalRef.current = null;
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshAll, liveQuotesEnabled]);
+  }, [refreshAll, refreshHoldingsAndWatchlist]);
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox

@@ -25,12 +25,8 @@ import { listMarksDetailed } from './quotes.js';
 const STREAM_TICK_INTERVAL_MS = 3_000; // 3 seconds
 
 // Graceful close after N ticks to avoid lifetime budget exhaustion
-// Budget math: 18 ticks × 2 avg subrequests = 36 total (safe under 50)
-const MAX_TICKS_PER_CONNECTION = 18; // ~54 seconds per connection
-
-// Kick refresh every N ticks (not every tick, to save subrequests)
-// Kicking every tick burns budget fast (stampede skip still costs 1 subrequest)
-const REFRESH_KICK_EVERY_N_TICKS = 3; // Kick every 3rd tick (~9s interval)
+// Budget math: 40 ticks × 1 subrequest (read marks) = 40 total (safe under 50)
+const MAX_TICKS_PER_CONNECTION = 40; // ~2 minutes per connection
 
 /**
  * Generate SSE message format
@@ -44,78 +40,6 @@ function sseMessage(event: string, data: unknown): string {
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Refresh holdings+watchlist symbols in-process (throttled)
- * Avoids same-zone self-fetch issue (Cloudflare error 1042) by calling quote-service directly
- */
-async function refreshInProcess(c: Context, connectionId: string, lastRefreshTick: number, currentTick: number): Promise<number> {
-  // Throttle: only refresh every ~10-15 seconds
-  const REFRESH_THROTTLE_TICKS = Math.ceil(12000 / STREAM_TICK_INTERVAL_MS); // ~12s = 4 ticks
-  
-  if (currentTick - lastRefreshTick < REFRESH_THROTTLE_TICKS) {
-    return lastRefreshTick; // No refresh yet
-  }
-
-  try {
-    // Import quote-service to refresh in-process (avoids HTTP self-fetch)
-    const { forceRefresh } = await import('./quote-service.js');
-    const { query } = await import('./db.js');
-    
-    // Build symbols list: holdings + watchlist (same as buildSymbolUniverse but faster)
-    const symbolsRes = await query<{ symbol: string }>(
-      `
-      SELECT DISTINCT symbol FROM (
-        SELECT symbol FROM trades
-        GROUP BY symbol
-        HAVING SUM(
-          CASE 
-            WHEN LOWER(action) LIKE '%short%' THEN -ABS(quantity)
-            WHEN LOWER(action) LIKE '%cover%' THEN ABS(quantity)
-            WHEN LOWER(action) LIKE '%buy%' OR LOWER(action) LIKE 'bought%' THEN ABS(quantity)
-            WHEN LOWER(action) LIKE '%sell%' OR LOWER(action) LIKE 'sold%' THEN -ABS(quantity)
-            ELSE 0
-          END
-        ) <> 0
-        UNION
-        SELECT symbol FROM watchlist
-      ) t
-      WHERE symbol <> '' AND UPPER(symbol) <> 'TEST'
-      ORDER BY symbol
-      `
-    );
-    
-    const symbols = symbolsRes.rows
-      .map((r) => r.symbol.toUpperCase().trim())
-      .filter((s) => s.length > 0 && s !== 'TEST');
-    
-    if (symbols.length === 0) {
-      console.log(`[QuoteStream] ${connectionId}: No symbols to refresh`);
-      return currentTick;
-    }
-
-    // Chunk to respect subrequest budget (max 10 per chunk, up to ~50 total in this invocation)
-    const CHUNK_SIZE = 10;
-    const MAX_CHUNKS = 4; // Max 40 symbols per SSE tick (leaves budget for other operations)
-    const chunkedSymbols = symbols.slice(0, CHUNK_SIZE * MAX_CHUNKS);
-    
-    console.log(`[QuoteStream] ${connectionId}: Refreshing ${chunkedSymbols.length} symbols (in-process)`);
-    
-    let totalUpdated = 0;
-    for (let i = 0; i < chunkedSymbols.length; i += CHUNK_SIZE) {
-      const chunk = chunkedSymbols.slice(i, i + CHUNK_SIZE);
-      const result = await forceRefresh(chunk);
-      totalUpdated += result.updated.length;
-    }
-    
-    console.log(`[QuoteStream] ${connectionId}: Refreshed ${totalUpdated} symbols`);
-    return currentTick; // Update last refresh tick
-    
-  } catch (err) {
-    console.error(`[QuoteStream] ${connectionId}: In-process refresh error:`, err);
-    return lastRefreshTick; // Don't update on error
-  }
 }
 
 /**
@@ -136,9 +60,8 @@ export async function handleQuoteStream(c: Context) {
   // Track connection state
   let closed = false;
   let tickCount = 0;
-  let lastRefreshTick = -999; // Force refresh on first eligible tick
 
-  // Create SSE stream with read-only loop
+  // Create SSE stream with read-only loop (CLIENT drives refreshes, not SSE)
   const stream = new ReadableStream({
     async start(controller) {
       console.log(`[QuoteStream] Starting read-only stream loop for ${connectionId}`);
@@ -157,6 +80,8 @@ export async function handleQuoteStream(c: Context) {
         );
 
         // Read-only loop: continuously read marks from DB and emit
+        // CLIENT drives refreshes via HTTP (each HTTP request = fresh 50-subrequest budget)
+        // This SSE connection only READS marks (~1 subrequest per tick, 40 ticks = safe under 50)
         while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
           // Wait before next tick
           await sleep(STREAM_TICK_INTERVAL_MS);
@@ -165,14 +90,7 @@ export async function handleQuoteStream(c: Context) {
 
           tickCount++;
 
-          // Refresh holdings+watchlist in-process (throttled to ~every 10-15s)
-          if (tickCount % REFRESH_KICK_EVERY_N_TICKS === 1) {
-            lastRefreshTick = await refreshInProcess(c, connectionId, lastRefreshTick, tickCount);
-          }
-
-          if (closed) break;
-
-          // Read marks from DB (cheap: ~1 subrequest)
+          // Read marks from DB (cheap: ~1 subrequest per tick)
           try {
             const data = await listMarksDetailed();
             const message = sseMessage('marks', data);

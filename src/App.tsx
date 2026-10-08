@@ -12,7 +12,7 @@ import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
 import type { ViewId } from './types';
-import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData } from './lib/db';
+import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
 import type { ResearchRef } from './components/Research';
 
@@ -82,13 +82,10 @@ export default function App() {
         .filter((s) => s.length > 0 && s !== 'TEST');
       
       // Get watchlist symbols from API (fresh data)
-      const watchlistSymbols: string[] = [];
+      // Use shared helper that correctly parses {symbols, rows, lastRefreshAt} response
+      let watchlistSymbols: string[] = [];
       try {
-        const watchlistRes = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}/api/watchlist`);
-        if (watchlistRes.ok) {
-          const watchlistData = await watchlistRes.json() as Array<{ symbol: string }>;
-          watchlistSymbols.push(...watchlistData.map((w) => w.symbol.toUpperCase().trim()).filter((s) => s.length > 0 && s !== 'TEST'));
-        }
+        watchlistSymbols = await loadWatchlistSymbols();
       } catch (e) {
         console.warn('[App] Failed to fetch watchlist for refresh:', e);
       }

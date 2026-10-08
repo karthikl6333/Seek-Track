@@ -75,6 +75,8 @@ export interface MarkInfo {
   price: number;
   updatedAt: string;
   source: string;
+  dayPct?: number | null;
+  session?: 'regular' | 'premarket' | 'afterhours' | 'unknown';
 }
 
 export interface MarkPrice {

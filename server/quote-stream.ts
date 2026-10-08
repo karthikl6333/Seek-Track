@@ -25,12 +25,8 @@ import { listMarksDetailed } from './quotes.js';
 const STREAM_TICK_INTERVAL_MS = 3_000; // 3 seconds
 
 // Graceful close after N ticks to avoid lifetime budget exhaustion
-// Budget math: 18 ticks × 2 avg subrequests = 36 total (safe under 50)
-const MAX_TICKS_PER_CONNECTION = 18; // ~54 seconds per connection
-
-// Kick refresh every N ticks (not every tick, to save subrequests)
-// Kicking every tick burns budget fast (stampede skip still costs 1 subrequest)
-const REFRESH_KICK_EVERY_N_TICKS = 3; // Kick every 3rd tick (~9s interval)
+// Budget math: 40 ticks × 1 subrequest (read marks) = 40 total (safe under 50)
+const MAX_TICKS_PER_CONNECTION = 40; // ~2 minutes per connection
 
 /**
  * Generate SSE message format
@@ -44,59 +40,6 @@ function sseMessage(event: string, data: unknown): string {
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Kick background refresh via fetch (uses waitUntil for non-blocking)
- * Returns true if kick was attempted, false if skipped
- */
-async function kickBackgroundRefresh(c: Context, connectionId: string): Promise<boolean> {
-  try {
-    // Build absolute URL for internal fetch
-    const url = new URL('/api/quotes/live-refresh', c.req.url);
-    
-    // Forward auth headers
-    const authHeader = c.req.header('Authorization');
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (authHeader) {
-      headers['Authorization'] = authHeader;
-    }
-
-    // Kick refresh in background (non-blocking)
-    // This costs 1 subrequest on the SSE side; the child invocation spends Yahoo budget
-    const refreshPromise = fetch(url.toString(), {
-      method: 'POST',
-      headers,
-    }).then(async (res) => {
-      if (res.ok) {
-        const data = await res.json() as { skipped?: boolean; updated?: string[] };
-        if (data.skipped) {
-          console.log(`[QuoteStream] ${connectionId}: Refresh skipped (recent)`);
-        } else {
-          console.log(`[QuoteStream] ${connectionId}: Refresh completed (${data.updated?.length || 0} symbols)`);
-        }
-      } else {
-        console.warn(`[QuoteStream] ${connectionId}: Refresh failed: ${res.status}`);
-      }
-    }).catch((err) => {
-      console.error(`[QuoteStream] ${connectionId}: Refresh error:`, err);
-    });
-
-    // Use waitUntil if available (CF Workers / Pages)
-    if (c.executionCtx && 'waitUntil' in c.executionCtx) {
-      c.executionCtx.waitUntil(refreshPromise);
-    } else {
-      // Fallback: fire and forget (Node.js dev)
-      void refreshPromise;
-    }
-
-    return true;
-  } catch (err) {
-    console.error(`[QuoteStream] ${connectionId}: Failed to kick refresh:`, err);
-    return false;
-  }
 }
 
 /**
@@ -118,7 +61,7 @@ export async function handleQuoteStream(c: Context) {
   let closed = false;
   let tickCount = 0;
 
-  // Create SSE stream with read-only loop
+  // Create SSE stream with read-only loop (CLIENT drives refreshes, not SSE)
   const stream = new ReadableStream({
     async start(controller) {
       console.log(`[QuoteStream] Starting read-only stream loop for ${connectionId}`);
@@ -137,6 +80,8 @@ export async function handleQuoteStream(c: Context) {
         );
 
         // Read-only loop: continuously read marks from DB and emit
+        // CLIENT drives refreshes via HTTP (each HTTP request = fresh 50-subrequest budget)
+        // This SSE connection only READS marks (~1 subrequest per tick, 40 ticks = safe under 50)
         while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
           // Wait before next tick
           await sleep(STREAM_TICK_INTERVAL_MS);
@@ -145,14 +90,7 @@ export async function handleQuoteStream(c: Context) {
 
           tickCount++;
 
-          // Kick background refresh every Nth tick (rate-limited, non-blocking)
-          if (tickCount % REFRESH_KICK_EVERY_N_TICKS === 1) {
-            await kickBackgroundRefresh(c, connectionId);
-          }
-
-          if (closed) break;
-
-          // Read marks from DB (cheap: ~1 subrequest)
+          // Read marks from DB (cheap: ~1 subrequest per tick)
           try {
             const data = await listMarksDetailed();
             const message = sseMessage('marks', data);

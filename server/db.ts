@@ -1,103 +1,48 @@
-import { neon } from '@neondatabase/serverless';
-
-// Use Neon HTTP driver for Cloudflare Workers compatibility
-// HTTP driver works everywhere: Workers and Node.js
-
-let sql: ReturnType<typeof neon> | null = null;
-let isCloudflareEnv = false;
-
-// Detect Cloudflare Workers environment
-if (typeof globalThis !== 'undefined') {
-  // Cloudflare Workers have WebSockets built-in or through cf-socket-polyfill
-  isCloudflareEnv = 
-    (typeof process === 'undefined' || !process.versions?.node) ||
-    typeof (globalThis as any).WebSocketPair !== 'undefined';
-}
-
-// Embedded schema for Cloudflare Workers (injected at build time by prepare-cf-pages.js)
-// @SCHEMA_SQL_PLACEHOLDER@
-let EMBEDDED_SCHEMA: string | null = null;
-
-export function getSQL() {
-  if (!sql) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL is required');
-    }
-
-    // Use Neon HTTP driver with fullResults for proper row metadata
-    sql = neon(connectionString, { fullResults: true });
-  }
-  return sql;
-}
-
 /**
- * Strip SQL line comments (-- ...) before splitting into statements.
- * Prevents false semicolon splits on commented semicolons like "Research; never re-seed"
+ * Database adapter - automatically uses D1 or Neon based on environment
+ * 
+ * When D1 is bound (env.DB set): uses D1
+ * When DATABASE_URL is set: uses Neon (local dev fallback)
+ * 
+ * All server code imports from './db.js' and gets the right adapter automatically
  */
-function stripSqlLineComments(sqlText: string): string {
-  return sqlText
-    .split('\n')
-    .map((line) => {
-      const commentIdx = line.indexOf('--');
-      if (commentIdx >= 0) {
-        return line.slice(0, commentIdx);
-      }
-      return line;
-    })
-    .join('\n');
+
+// Check if D1 is available (set by _worker.js or dev environment)
+let useD1 = false;
+let d1Adapter: any = null;
+
+// Try to import D1 adapter (will fail if not available, which is fine)
+try {
+  d1Adapter = await import('./db-d1.js');
+  // Check if D1 is actually initialized
+  try {
+    d1Adapter.getD1Database();
+    useD1 = true;
+    console.log('[DB] Using Cloudflare D1 adapter');
+  } catch {
+    // D1 not initialized yet, will check again on first query
+  }
+} catch {
+  // D1 adapter not available (e.g., local dev without D1)
 }
 
-export async function ensureSchema(): Promise<void> {
-  const db = getSQL();
-  
-  let schemaText: string | null = EMBEDDED_SCHEMA;
-  
-  // If schema not embedded (local dev), try reading from filesystem
-  if (!schemaText && typeof process !== 'undefined' && process.versions?.node) {
-    try {
-      // Dynamic imports for Node-only modules (won't be in Workers bundle)
-      const { readFileSync } = await import('node:fs');
-      const { dirname, join } = await import('node:path');
-      const { fileURLToPath } = await import('node:url');
-      
-      const here = dirname(fileURLToPath(import.meta.url));
-      const candidates = [
-        join(here, 'schema.sql'),
-        join(here, '..', 'server', 'schema.sql'),
-        join(process.cwd(), 'server', 'schema.sql'),
-      ];
-      
-      for (const path of candidates) {
-        try {
-          schemaText = readFileSync(path, 'utf8');
-          break;
-        } catch {
-          // try next
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load schema from filesystem:', err);
-    }
+// Lazy-load Neon adapter only if needed
+let neonAdapter: any = null;
+
+async function getNeonAdapter() {
+  if (!neonAdapter) {
+    neonAdapter = await import('./db-neon.js');
   }
-  
-  if (!schemaText) {
-    throw new Error('Could not find schema.sql (not embedded and filesystem unavailable)');
+  return neonAdapter;
+}
+
+// Re-export D1 setters for _worker.js
+export function setD1Database(db: D1Database): void {
+  if (d1Adapter) {
+    d1Adapter.setD1Database(db);
+    useD1 = true;
+    console.log('[DB] D1 database bound, using D1 adapter');
   }
-  
-  // CRITICAL: Strip line comments BEFORE splitting to avoid false splits on "Research; never..."
-  const cleaned = stripSqlLineComments(schemaText);
-  
-  // Split into individual statements (naive semicolon split works AFTER comment stripping)
-  const statements = cleaned
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  
-  // Execute all DDL statements in ONE transaction (required for Neon HTTP driver)
-  // Use sql.query() for raw SQL strings within transaction
-  const queries = statements.map((stmt) => db.query(stmt, []));
-  await db.transaction(queries);
 }
 
 export interface QueryResult<T = any> {
@@ -105,18 +50,101 @@ export interface QueryResult<T = any> {
   rowCount: number | null;
 }
 
+export async function ensureSchema(): Promise<void> {
+  if (useD1 && d1Adapter) {
+    return d1Adapter.ensureSchema();
+  }
+  
+  // Try D1 one more time (might have been initialized since import)
+  if (d1Adapter) {
+    try {
+      d1Adapter.getD1Database();
+      useD1 = true;
+      return d1Adapter.ensureSchema();
+    } catch {
+      // Fall through to Neon
+    }
+  }
+  
+  const neon = await getNeonAdapter();
+  return neon.ensureSchema();
+}
+
 export async function query<T = any>(
   text: string,
   params?: unknown[],
 ): Promise<QueryResult<T>> {
-  const db = getSQL();
-  // Use .query() method for parameterized queries with $1, $2 placeholders
-  const result = await db.query(text, params ?? []);
-  // Neon HTTP driver with fullResults returns { rows, rowCount, fields, ... }
-  // Type assertion needed because result type is union
-  const fullResult = result as { rows: T[]; rowCount: number };
-  return {
-    rows: fullResult.rows,
-    rowCount: fullResult.rowCount,
-  };
+  if (useD1 && d1Adapter) {
+    return d1Adapter.query<T>(text, params);
+  }
+  
+  // Try D1 one more time
+  if (d1Adapter) {
+    try {
+      d1Adapter.getD1Database();
+      useD1 = true;
+      return d1Adapter.query<T>(text, params);
+    } catch {
+      // Fall through to Neon
+    }
+  }
+  
+  const neon = await getNeonAdapter();
+  return neon.query<T>(text, params);
+}
+
+export async function execute(
+  text: string,
+  params?: unknown[]
+): Promise<{ rowCount: number }> {
+  if (useD1 && d1Adapter) {
+    return d1Adapter.execute(text, params);
+  }
+  
+  // Try D1 one more time
+  if (d1Adapter) {
+    try {
+      d1Adapter.getD1Database();
+      useD1 = true;
+      return d1Adapter.execute(text, params);
+    } catch {
+      // Fall through to Neon
+    }
+  }
+  
+  const neon = await getNeonAdapter();
+  // Neon adapter doesn't have separate execute, use query
+  const result = await neon.query(text, params);
+  return { rowCount: result.rowCount ?? 0 };
+}
+
+export async function batch(
+  statements: Array<{ text: string; params?: unknown[] }>
+): Promise<void> {
+  if (useD1 && d1Adapter) {
+    return d1Adapter.batch(statements);
+  }
+  
+  // Try D1 one more time
+  if (d1Adapter) {
+    try {
+      d1Adapter.getD1Database();
+      useD1 = true;
+      return d1Adapter.batch(statements);
+    } catch {
+      // Fall through to Neon
+    }
+  }
+  
+  const neon = await getNeonAdapter();
+  // Neon doesn't have batch, execute sequentially
+  for (const stmt of statements) {
+    await neon.query(stmt.text, stmt.params);
+  }
+}
+
+export async function transaction<T>(
+  statements: Array<{ text: string; params?: unknown[] }>
+): Promise<void> {
+  return batch(statements);
 }

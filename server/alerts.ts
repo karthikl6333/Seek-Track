@@ -126,6 +126,7 @@ export async function evaluateAlerts(): Promise<{
 
   // Fetch current marks for all alert symbols
   const symbols = alertsRes.rows.map((a) => a.symbol.toUpperCase());
+  // ANY($1) converted to IN (?, ?, ...) by db adapter
   const marksRes = await query<{ symbol: string; price: number }>(
     `SELECT symbol, price FROM marks WHERE symbol = ANY($1)`,
     [symbols],

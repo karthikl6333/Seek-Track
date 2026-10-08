@@ -383,7 +383,7 @@ async function getWatchlistSymbols(): Promise<Set<string>> {
 
 /**
  * Update database with fresh quotes
- * Optimized for CF Workers: 2 Neon queries per call (marks + watchlist_quotes)
+ * Optimized for D1: Skip unchanged rows (write efficiency) and chunk to stay under 100 params
  */
 async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   if (quotes.size === 0) return;
@@ -391,50 +391,82 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   // Get watchlist symbols (cached, so only 1 query per minute across all chunks)
   const watchlistSet = await getWatchlistSymbols();
 
-  // Bulk upsert to marks table (all symbols) - 1 query
-  const marksValues: string[] = [];
-  const marksParams: unknown[] = [];
-  let paramIndex = 1;
+  // D1 optimization: Only update marks if price, day_pct, or session changed
+  // Fetch existing marks to compare
+  const symbols = Array.from(quotes.keys());
+  const placeholders = symbols.map(() => '?').join(', ');
+  const existingMarks = await query<{
+    symbol: string;
+    price: number;
+    day_pct: number | null;
+    session: string | null;
+  }>(`SELECT symbol, price, day_pct, session FROM marks WHERE symbol IN (${placeholders})`, symbols);
   
+  const existingMarksMap = new Map(
+    existingMarks.rows.map((r) => [
+      r.symbol.toUpperCase(),
+      { price: r.price, day_pct: r.day_pct, session: r.session },
+    ])
+  );
+
+  // Filter to only changed quotes
+  const changedQuotes = new Map<string, QuoteData>();
   for (const [symbol, quote] of quotes.entries()) {
-    marksValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`);
-    marksParams.push(symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct, quote.session);
-    paramIndex += 6;
+    const existing = existingMarksMap.get(symbol.toUpperCase());
+    if (!existing) {
+      changedQuotes.set(symbol, quote);
+      continue;
+    }
+    
+    // Check if any field changed (price, day_pct, or session)
+    const priceChanged = Math.abs(existing.price - quote.price) > 0.0001;
+    const dayPctChanged =
+      (existing.day_pct === null && quote.dayPct !== null) ||
+      (existing.day_pct !== null && quote.dayPct === null) ||
+      (existing.day_pct !== null &&
+        quote.dayPct !== null &&
+        Math.abs(existing.day_pct - quote.dayPct) > 0.01);
+    const sessionChanged = existing.session !== quote.session;
+
+    if (priceChanged || dayPctChanged || sessionChanged) {
+      changedQuotes.set(symbol, quote);
+    }
   }
 
-  // Bulk upsert to watchlist_quotes (only watchlist symbols) - 1 query
-  const watchlistValues: string[] = [];
-  const watchlistParams: unknown[] = [];
-  paramIndex = 1;
-
-  for (const [symbol, quote] of quotes.entries()) {
-    if (!watchlistSet.has(symbol)) continue;
-
-    watchlistValues.push(
-      `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, ` +
-      `$${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, ` +
-      `$${paramIndex + 10}, $${paramIndex + 11})`
-    );
-    watchlistParams.push(
-      symbol,
-      quote.price,
-      quote.dayPct,
-      quote.valChange,
-      quote.sessionOpen,
-      quote.bid,
-      quote.ask,
-      quote.marketCap,
-      quote.volume,
-      quote.week52High,
-      quote.week52Low,
-      quote.updatedAt
-    );
-    paramIndex += 12;
+  if (changedQuotes.size === 0) {
+    console.log('[QuoteService] No price/session changes detected, skipping DB write');
+    return;
   }
 
-  // Execute both upserts in parallel (2 queries total)
-  await Promise.all([
-    marksValues.length > 0 ? query(
+  console.log(`[QuoteService] Writing ${changedQuotes.size}/${quotes.size} changed quotes to DB`);
+
+  // D1 allows max 100 bound params per query - chunk marks updates
+  // Each mark row = 6 params (symbol, price, updated_at, source, day_pct, session)
+  const MAX_MARKS_PER_CHUNK = Math.floor(100 / 6); // 16 marks per chunk
+
+  const marksArray = Array.from(changedQuotes.entries());
+  for (let i = 0; i < marksArray.length; i += MAX_MARKS_PER_CHUNK) {
+    const chunk = marksArray.slice(i, i + MAX_MARKS_PER_CHUNK);
+    const marksValues: string[] = [];
+    const marksParams: unknown[] = [];
+    let paramIndex = 1;
+
+    for (const [symbol, quote] of chunk) {
+      marksValues.push(
+        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`
+      );
+      marksParams.push(
+        symbol,
+        quote.price,
+        quote.updatedAt,
+        quote.source,
+        quote.dayPct,
+        quote.session
+      );
+      paramIndex += 6;
+    }
+
+    await query(
       `INSERT INTO marks (symbol, price, updated_at, source, day_pct, session)
        VALUES ${marksValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
@@ -444,8 +476,47 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
          day_pct = EXCLUDED.day_pct,
          session = EXCLUDED.session`,
       marksParams
-    ) : Promise.resolve(),
-    watchlistValues.length > 0 ? query(
+    );
+  }
+
+  // Bulk upsert to watchlist_quotes (only watchlist symbols)
+  // Each watchlist_quotes row = 12 params
+  const MAX_WATCHLIST_PER_CHUNK = Math.floor(100 / 12); // 8 quotes per chunk
+
+  const watchlistArray = Array.from(changedQuotes.entries()).filter(([symbol]) =>
+    watchlistSet.has(symbol)
+  );
+
+  for (let i = 0; i < watchlistArray.length; i += MAX_WATCHLIST_PER_CHUNK) {
+    const chunk = watchlistArray.slice(i, i + MAX_WATCHLIST_PER_CHUNK);
+    const watchlistValues: string[] = [];
+    const watchlistParams: unknown[] = [];
+    let paramIndex = 1;
+
+    for (const [symbol, quote] of chunk) {
+      watchlistValues.push(
+        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, ` +
+          `$${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, ` +
+          `$${paramIndex + 10}, $${paramIndex + 11})`
+      );
+      watchlistParams.push(
+        symbol,
+        quote.price,
+        quote.dayPct,
+        quote.valChange,
+        quote.sessionOpen,
+        quote.bid,
+        quote.ask,
+        quote.marketCap,
+        quote.volume,
+        quote.week52High,
+        quote.week52Low,
+        quote.updatedAt
+      );
+      paramIndex += 12;
+    }
+
+    await query(
       `INSERT INTO watchlist_quotes
          (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
           week52_high, week52_low, updated_at)
@@ -463,8 +534,8 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
          week52_low = EXCLUDED.week52_low,
          updated_at = EXCLUDED.updated_at`,
       watchlistParams
-    ) : Promise.resolve(),
-  ]);
+    );
+  }
 }
 
 /**

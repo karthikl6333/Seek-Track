@@ -20,8 +20,16 @@ const DEFAULT_SETTINGS = {
 };
 
 export async function getSettings(c: Context) {
-  const res = await query<{ data: unknown }>(`SELECT data FROM settings WHERE id = 1`);
-  const data = res.rows[0]?.data;
+  const res = await query<{ data: string }>(`SELECT data FROM settings WHERE id = 1`);
+  const dataStr = res.rows[0]?.data;
+  
+  let data: unknown;
+  try {
+    data = dataStr ? JSON.parse(dataStr) : {};
+  } catch {
+    data = {};
+  }
+  
   if (!data || typeof data !== 'object' || Object.keys(data as object).length === 0) {
     return c.json(DEFAULT_SETTINGS);
   }
@@ -38,7 +46,7 @@ export async function getSettings(c: Context) {
 export async function putSettings(c: Context) {
   const body = await c.req.json();
   await query(
-    `INSERT INTO settings (id, data) VALUES (1, $1::jsonb)
+    `INSERT INTO settings (id, data) VALUES (1, $1)
      ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
     [JSON.stringify(body)],
   );

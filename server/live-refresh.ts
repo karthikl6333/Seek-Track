@@ -59,10 +59,13 @@ async function getLiveStreamUniverse(): Promise<string[]> {
  */
 async function getLastLiveRefreshAt(): Promise<Date | null> {
   try {
-    const res = await query<{ updated_at: Date }>(
+    const res = await query<{ updated_at: Date | string }>(
       `SELECT MAX(updated_at) as updated_at FROM marks`
     );
-    return res.rows[0]?.updated_at || null;
+    const updatedAt = res.rows[0]?.updated_at;
+    if (!updatedAt) return null;
+    // D1 returns timestamps as strings, so parse them
+    return typeof updatedAt === 'string' ? new Date(updatedAt) : updatedAt;
   } catch {
     return null;
   }

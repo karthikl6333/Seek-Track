@@ -31,19 +31,19 @@ const cfServerDir = join(cfDist, 'dist-server');
 mkdirSync(cfServerDir, { recursive: true });
 cpSync(distServer, cfServerDir, { recursive: true });
 
-// Read schema.sql and embed it into db.js
-console.log('Embedding schema.sql into db.js for Workers compatibility...');
-const schemaPath = join(rootDir, 'server', 'schema.sql');
+// Read D1 schema and embed it into db-d1.js
+console.log('Embedding schema-d1.sql into db-d1.js for Workers compatibility...');
+const schemaPath = join(rootDir, 'server', 'schema-d1.sql');
 const schemaSql = readFileSync(schemaPath, 'utf8');
-const dbJsPath = join(cfServerDir, 'db.js');
+const dbJsPath = join(cfServerDir, 'db-d1.js');
 let dbJsContent = readFileSync(dbJsPath, 'utf8');
 
 // Replace the placeholder with the actual schema as a string literal
 // Escape backticks and backslashes in the SQL
 const escapedSql = schemaSql.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
 dbJsContent = dbJsContent.replace(
-  '// @SCHEMA_SQL_PLACEHOLDER@\nlet EMBEDDED_SCHEMA = null;',
-  `// Schema embedded at build time for Cloudflare Workers\nconst EMBEDDED_SCHEMA = \`${escapedSql}\`;`
+  '// @SCHEMA_SQL_PLACEHOLDER@\nlet EMBEDDED_SCHEMA: string | null = null;',
+  `// Schema embedded at build time for Cloudflare Workers\nconst EMBEDDED_SCHEMA: string | null = \`${escapedSql}\`;`
 );
 writeFileSync(dbJsPath, dbJsContent, 'utf8');
 console.log('✅ Schema embedded successfully');
@@ -55,17 +55,23 @@ const workerJs = `
 // Handles API routes and serves static assets via ASSETS binding
 
 import app from './dist-server/index.js';
-import { ensureSchema } from './dist-server/db.js';
+import { ensureSchema, setD1Database } from './dist-server/db.js';
 
 let schemaInitialized = false;
 
 export default {
   async fetch(request, env, ctx) {
+    // Set D1 database binding for this request
+    if (env.DB) {
+      setD1Database(env.DB);
+    } else {
+      console.error('WARNING: D1 binding (DB) not configured');
+    }
+
     // Initialize schema once per cold start (fast — no seeding in Workers)
-    if (!schemaInitialized) {
+    if (!schemaInitialized && env.DB) {
       try {
         // Pass Cloudflare environment variables to process.env
-        if (env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL;
         if (env.AUTH_PASSWORD) process.env.AUTH_PASSWORD = env.AUTH_PASSWORD;
         if (env.AUTH_USER) process.env.AUTH_USER = env.AUTH_USER;
         if (env.ALPACA_API_KEY) process.env.ALPACA_API_KEY = env.ALPACA_API_KEY;
@@ -84,9 +90,9 @@ export default {
         // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();
         schemaInitialized = true;
-        console.log('Schema initialized for Cloudflare Pages');
+        console.log('D1 schema initialized for Cloudflare Pages');
       } catch (err) {
-        console.error('Failed to initialize schema:', err);
+        console.error('Failed to initialize D1 schema:', err);
         // Continue anyway to allow health check to report the error
       }
     }

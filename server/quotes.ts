@@ -83,6 +83,58 @@ export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
   };
 }
 
+/**
+ * D1 optimization: Read only marks that changed since cursor
+ * Reduces row reads for SSE streaming (99% of ticks have no changes)
+ */
+export async function listMarksDetailedIncremental(cursor: string): Promise<{
+  marks: Record<string, MarkInfo>;
+  lastRefreshAt: string | null;
+  lastRefreshError: string | null;
+}> {
+  const status = getQuoteServiceStatus();
+  const res = await query<{
+    symbol: string;
+    price: number;
+    updated_at: Date | string;
+    source: string | null;
+    day_pct: number | null;
+    session: string | null;
+  }>(
+    `SELECT symbol, price, updated_at, source, day_pct, session 
+     FROM marks 
+     WHERE updated_at > $1 
+     ORDER BY symbol`,
+    [cursor]
+  );
+
+  const marks: Record<string, MarkInfo> = {};
+  let maxUpdatedAt: string | null = cursor;
+  
+  for (const r of res.rows) {
+    const updatedAt =
+      typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
+    marks[r.symbol] = {
+      symbol: r.symbol,
+      price: Number(r.price),
+      updatedAt,
+      source: r.source ?? 'manual',
+      dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
+      session: r.session as 'regular' | 'premarket' | 'afterhours' | 'unknown' | undefined,
+    };
+    
+    if (!maxUpdatedAt || updatedAt > maxUpdatedAt) {
+      maxUpdatedAt = updatedAt;
+    }
+  }
+  
+  return {
+    marks,
+    lastRefreshAt: maxUpdatedAt,
+    lastRefreshError: status.lastRefreshError,
+  };
+}
+
 export async function getMarksHandler(c: Context) {
   markActivity();
   const detailed = c.req.query('detailed') === '1' || c.req.query('detailed') === 'true';

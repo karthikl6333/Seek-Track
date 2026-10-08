@@ -9,6 +9,9 @@
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;
 
+// Schema version - increment when schema changes
+const SCHEMA_VERSION = 1;
+
 export interface QueryResult<T = any> {
   rows: T[];
   rowCount: number | null;
@@ -16,6 +19,9 @@ export interface QueryResult<T = any> {
 
 // Global D1 database binding (set by _worker.js on each request)
 let globalDB: D1Database | null = null;
+
+// Per-isolate flag: once schema is verified in this isolate, skip rechecks
+let schemaInitialized = false;
 
 export function setD1Database(db: D1Database): void {
   globalDB = db;
@@ -45,7 +51,28 @@ function stripSqlLineComments(sqlText: string): string {
 }
 
 export async function ensureSchema(): Promise<void> {
+  // Fast path: if already initialized in this isolate, skip
+  if (schemaInitialized) {
+    return;
+  }
+
   const db = getD1Database();
+  
+  // Check if schema is already at the current version (cheap read)
+  try {
+    const versionResult = await db.prepare('SELECT version FROM schema_meta WHERE id = 1').all();
+    const currentVersion = versionResult.results?.[0]?.version as number | undefined;
+    
+    if (currentVersion === SCHEMA_VERSION) {
+      schemaInitialized = true;
+      return;
+    }
+    
+    console.log(`[D1] Schema version mismatch: DB=${currentVersion ?? 'none'}, code=${SCHEMA_VERSION}. Running migration...`);
+  } catch (err) {
+    // schema_meta table doesn't exist yet, proceed with full schema init
+    console.log('[D1] schema_meta not found, initializing schema...');
+  }
   
   let schemaText: string | null = EMBEDDED_SCHEMA;
   
@@ -95,6 +122,13 @@ export async function ensureSchema(): Promise<void> {
     const batch = statements.slice(i, i + batchSize).map((stmt) => db.prepare(stmt));
     await db.batch(batch);
   }
+  
+  // Record schema version
+  await db.prepare('CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)').run();
+  await db.prepare('INSERT OR REPLACE INTO schema_meta (id, version) VALUES (1, ?)').bind(SCHEMA_VERSION).run();
+  
+  schemaInitialized = true;
+  console.log(`[D1] Schema initialized to version ${SCHEMA_VERSION}`);
 }
 
 /**

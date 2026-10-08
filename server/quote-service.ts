@@ -93,6 +93,10 @@ let lastActivityAt = Date.now();
 // Per-request refresh tracking (no global lock)
 const activeRefreshes = new Map<string, boolean>();
 
+// 404 cache: symbols that returned 404, keyed by symbol, value is timestamp when they can be retried
+const cache404Symbols = new Map<string, number>();
+const CACHE_404_DURATION_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 /**
  * Determine current trading session
  */
@@ -130,6 +134,12 @@ async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<Qu
   });
 
   if (!res.ok) {
+    // Cache 404s to avoid repeated failed requests
+    if (res.status === 404) {
+      const retryAfter = Date.now() + CACHE_404_DURATION_MS;
+      cache404Symbols.set(symbol, retryAfter);
+      console.warn(`[QuoteService] Symbol ${symbol} returned 404, caching for ${CACHE_404_DURATION_MS / 1000 / 60}m`);
+    }
     throw new Error(`Yahoo HTTP ${res.status} for ${symbol}`);
   }
 
@@ -260,9 +270,32 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
   const results = new Map<string, QuoteData | null>();
   const FETCH_TIMEOUT_MS = 5000; // 5s timeout per Yahoo fetch
   
+  // Filter out cached 404 symbols
+  const now = Date.now();
+  const symbolsToFetch: string[] = [];
+  const skippedCached404: string[] = [];
+  
+  for (const symbol of symbols) {
+    const retryAfter = cache404Symbols.get(symbol);
+    if (retryAfter && now < retryAfter) {
+      skippedCached404.push(symbol);
+      results.set(symbol, null);
+    } else {
+      // Remove expired 404 entries
+      if (retryAfter) {
+        cache404Symbols.delete(symbol);
+      }
+      symbolsToFetch.push(symbol);
+    }
+  }
+  
+  if (skippedCached404.length > 0) {
+    console.log(`[QuoteService] Skipped ${skippedCached404.length} cached 404 symbols: ${skippedCached404.join(', ')}`);
+  }
+  
   // Process in chunks with controlled concurrency
-  for (let i = 0; i < symbols.length; i += YAHOO_CONCURRENCY) {
-    const chunk = symbols.slice(i, i + YAHOO_CONCURRENCY);
+  for (let i = 0; i < symbolsToFetch.length; i += YAHOO_CONCURRENCY) {
+    const chunk = symbolsToFetch.slice(i, i + YAHOO_CONCURRENCY);
     const chunkPromises = chunk.map(async (symbol) => {
       try {
         // Per-fetch timeout via AbortController
@@ -289,7 +322,7 @@ async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteDat
     await Promise.all(chunkPromises);
     
     // Delay between chunks (not after last chunk)
-    if (i + YAHOO_CONCURRENCY < symbols.length) {
+    if (i + YAHOO_CONCURRENCY < symbolsToFetch.length) {
       await new Promise((resolve) => setTimeout(resolve, YAHOO_DELAY_MS));
     }
   }

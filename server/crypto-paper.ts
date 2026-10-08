@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
+import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
 
 export interface CryptoPaperState {
   equity: number;
@@ -205,22 +206,18 @@ export async function upsertCryptoPaperPositions(c: Context) {
     theme?: string;
   }[];
 
-  await query(`DELETE FROM crypto_paper_positions`);
-
-  for (const pos of positions) {
-    await query(
-      `INSERT INTO crypto_paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-      [
-        pos.symbol,
-        pos.quantity,
-        pos.avgPrice,
-        pos.marketValue ?? null,
-        pos.unrealizedPnl ?? null,
-        pos.theme ?? '',
-      ],
-    );
-  }
+  // Atomic replace (one D1 batch): upsert current rows, delete only symbols no longer present.
+  await replacePositions(
+    'crypto_paper_positions',
+    (Array.isArray(positions) ? positions : []).map((pos) => ({
+      symbol: pos.symbol,
+      quantity: pos.quantity,
+      avgPrice: pos.avgPrice,
+      marketValue: pos.marketValue ?? null,
+      unrealizedPnl: pos.unrealizedPnl ?? null,
+      theme: pos.theme ?? '',
+    })),
+  );
 
   return c.json({ ok: true });
 }
@@ -380,22 +377,13 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
       ],
     );
 
-    await query(`DELETE FROM crypto_paper_positions`);
-
-    for (const pos of positions as any[]) {
-      await query(
-        `INSERT INTO crypto_paper_positions (symbol, quantity, avg_price, market_value, unrealized_pnl, theme, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [
-          pos.symbol,
-          parseFloat(pos.qty),
-          parseFloat(pos.avg_entry_price),
-          parseFloat(pos.market_value),
-          parseFloat(pos.unrealized_pl),
-          pos.asset_class === 'crypto' ? 'Crypto' : '',
-        ],
-      );
-    }
+    // Atomic replace in ONE D1 batch (see positions-sync.ts).
+    await replacePositions(
+      'crypto_paper_positions',
+      (positions as any[]).map((pos) =>
+        alpacaToPositionRow(pos, pos.asset_class === 'crypto' ? 'Crypto' : ''),
+      ),
+    );
 
     return c.json({
       ok: true,

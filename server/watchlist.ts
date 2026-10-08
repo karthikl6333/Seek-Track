@@ -39,25 +39,31 @@ export function normalizeWatchlistSymbol(raw: unknown): string | null {
 }
 
 async function getWatchlistSeededFlag(): Promise<boolean> {
-  const res = await query<{ data: Record<string, unknown> | null }>(
+  const res = await query<{ data: string | null }>(
     `SELECT data FROM settings WHERE id = 1`,
   );
-  const data = res.rows[0]?.data;
-  return Boolean(data && typeof data === 'object' && data.watchlistSeeded === true);
+  const dataStr = res.rows[0]?.data;
+  let data: unknown;
+  try {
+    data = dataStr ? JSON.parse(dataStr) : null;
+  } catch {
+    data = null;
+  }
+  return Boolean(data && typeof data === 'object' && (data as any).watchlistSeeded === true);
 }
 
 async function setWatchlistSeededFlag(): Promise<void> {
   await query(
-    `INSERT INTO settings (id, data) VALUES (1, '{"watchlistSeeded":true}'::jsonb)
+    `INSERT INTO settings (id, data) VALUES (1, '{"watchlistSeeded":true}')
      ON CONFLICT (id) DO UPDATE SET
-       data = jsonb_set(COALESCE(settings.data, '{}'::jsonb), '{watchlistSeeded}', 'true'::jsonb)`,
+       data = json_set(COALESCE(settings.data, '{}'), '$.watchlistSeeded', json('true'))`,
   );
 }
 
 /** Seed once from research_universe when empty; never re-seed after user clears. */
 export async function ensureWatchlistSeeded(): Promise<void> {
-  const countRes = await query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM watchlist`);
-  const count = Number(countRes.rows[0]?.n ?? 0);
+  const res = await query<{ n: number }>(`SELECT COUNT(*) AS n FROM watchlist`);
+  const count = Number(res.rows[0]?.n ?? 0);
   const alreadySeeded = await getWatchlistSeededFlag();
 
   if (count > 0 && !alreadySeeded) {
@@ -74,9 +80,9 @@ export async function ensureWatchlistSeeded(): Promise<void> {
       order += 1;
       await query(
         `INSERT INTO watchlist (symbol, sort_order, added_at)
-         VALUES ($1, $2, NOW())
+         VALUES ($1, $2, $3)
          ON CONFLICT (symbol) DO NOTHING`,
-        [row.symbol.toUpperCase(), row.sort_order || order],
+        [row.symbol.toUpperCase(), row.sort_order || order, new Date().toISOString()],
       );
     }
     await setWatchlistSeededFlag();
@@ -95,6 +101,7 @@ async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, Wa
   if (!symbols.length) return {};
   // Join marks (price + day%) with watchlist_quotes (metadata: bid/ask/volume/52w high/low)
   // for unified display. Price/day% always come from marks (single source of truth).
+  // ANY($1) converted to IN (?, ?, ...) by db adapter
   const res = await query<{
     symbol: string;
     last: number | null;
@@ -268,9 +275,9 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
 
   await query(
     `INSERT INTO watchlist (symbol, sort_order, added_at)
-     VALUES ($1, $2, NOW())
+     VALUES ($1, $2, $3)
      ON CONFLICT (symbol) DO NOTHING`,
-    [symbol, nextOrder],
+    [symbol, nextOrder, new Date().toISOString()],
   );
 
   try {

@@ -98,13 +98,22 @@ export function useStore() {
     marks: Record<string, MarkInfo>;
     lastRefreshAt: string | null;
     lastRefreshError: string | null;
+    incremental?: boolean;
   }) => {
     const flat: Record<string, number> = {};
     for (const [sym, info] of Object.entries(data.marks)) {
       flat[sym] = info.price;
     }
-    setMarks(flat);
-    setMarkDetails(data.marks);
+    if (data.incremental) {
+      // Incremental SSE ticks only carry rows changed since the last tick: merge them.
+      if (Object.keys(data.marks).length > 0) {
+        setMarks((prev) => ({ ...prev, ...flat }));
+        setMarkDetails((prev) => ({ ...prev, ...data.marks }));
+      }
+    } else {
+      setMarks(flat);
+      setMarkDetails(data.marks);
+    }
     setLastRefreshAt(data.lastRefreshAt);
     setLastRefreshError(data.lastRefreshError);
   }, []);

@@ -338,24 +338,30 @@ async function listMaps(underlying?: string): Promise<EtfMapRow[]> {
 }
 
 async function getResearchUniverseSeededFlag(): Promise<boolean> {
-  const res = await query<{ data: Record<string, unknown> | null }>(
+  const res = await query<{ data: string | null }>(
     `SELECT data FROM settings WHERE id = 1`,
   );
-  const data = res.rows[0]?.data;
-  return Boolean(data && typeof data === 'object' && data.researchUniverseSeeded === true);
+  const dataStr = res.rows[0]?.data;
+  let data: unknown;
+  try {
+    data = dataStr ? JSON.parse(dataStr) : null;
+  } catch {
+    data = null;
+  }
+  return Boolean(data && typeof data === 'object' && (data as any).researchUniverseSeeded === true);
 }
 
 async function setResearchUniverseSeededFlag(): Promise<void> {
   await query(
-    `INSERT INTO settings (id, data) VALUES (1, '{"researchUniverseSeeded":true}'::jsonb)
+    `INSERT INTO settings (id, data) VALUES (1, '{"researchUniverseSeeded":true}')
      ON CONFLICT (id) DO UPDATE SET
-       data = jsonb_set(COALESCE(settings.data, '{}'::jsonb), '{researchUniverseSeeded}', 'true'::jsonb)`,
+       data = json_set(COALESCE(settings.data, '{}'), '$.researchUniverseSeeded', json('true'))`,
   );
 }
 
 export async function ensureResearchSeeded(): Promise<void> {
   const countRes = await query<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM research_universe`,
+    `SELECT COUNT(*) AS n FROM research_universe`,
   );
   const count = Number(countRes.rows[0]?.n ?? 0);
   const alreadySeeded = await getResearchUniverseSeededFlag();

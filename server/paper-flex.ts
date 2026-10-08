@@ -410,8 +410,17 @@ export async function refreshPaperFlexFromAlpaca(c: Context) {
     const settingsRes = await query<{ data: any }>(
       `SELECT data FROM settings WHERE id = 1`
     );
-    const settings = settingsRes.rows[0]?.data;
-    const themes = settings?.themes || [];
+    // D1 stores settings.data as JSON TEXT (Postgres JSONB came back as an object)
+    const rawSettings = settingsRes.rows[0]?.data;
+    let settings: any = rawSettings;
+    if (typeof rawSettings === 'string') {
+      try {
+        settings = JSON.parse(rawSettings);
+      } catch {
+        settings = null;
+      }
+    }
+    const themes = Array.isArray(settings?.themes) ? settings.themes : [];
     
     const getTheme = (symbol: string): string => {
       const upper = symbol.toUpperCase();

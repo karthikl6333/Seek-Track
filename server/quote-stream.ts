@@ -19,14 +19,14 @@
 
 import type { Context } from 'hono';
 import { markActivity } from './quote-service.js';
-import { listMarksDetailed } from './quotes.js';
+import { listMarksDetailed, listMarksDetailedIncremental } from './quotes.js';
 
-// SSE tick cadence
-const STREAM_TICK_INTERVAL_MS = 3_000; // 3 seconds
+// SSE tick cadence (D1 optimization: slower = fewer reads)
+const STREAM_TICK_INTERVAL_MS = 5_000; // 5 seconds
 
 // Graceful close after N ticks to avoid lifetime budget exhaustion
 // Budget math: 40 ticks × 1 subrequest (read marks) = 40 total (safe under 50)
-const MAX_TICKS_PER_CONNECTION = 40; // ~2 minutes per connection
+const MAX_TICKS_PER_CONNECTION = 40; // ~3.3 minutes per connection
 
 /**
  * Generate SSE message format
@@ -60,6 +60,7 @@ export async function handleQuoteStream(c: Context) {
   // Track connection state
   let closed = false;
   let tickCount = 0;
+  let lastCursor: string | null = null; // Track last updated_at for incremental reads
 
   // Create SSE stream with read-only loop (CLIENT drives refreshes, not SSE)
   const stream = new ReadableStream({
@@ -80,8 +81,7 @@ export async function handleQuoteStream(c: Context) {
         );
 
         // Read-only loop: continuously read marks from DB and emit
-        // CLIENT drives refreshes via HTTP (each HTTP request = fresh 50-subrequest budget)
-        // This SSE connection only READS marks (~1 subrequest per tick, 40 ticks = safe under 50)
+        // D1 optimization: first tick reads all, subsequent ticks read only changed rows
         while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
           // Wait before next tick
           await sleep(STREAM_TICK_INTERVAL_MS);
@@ -90,14 +90,34 @@ export async function handleQuoteStream(c: Context) {
 
           tickCount++;
 
-          // Read marks from DB (cheap: ~1 subrequest per tick)
+          // Read marks from DB
           try {
-            const data = await listMarksDetailed();
-            const message = sseMessage('marks', data);
+            let data;
+            let isIncremental = false;
+            if (tickCount === 1 || !lastCursor) {
+              // First tick: read all marks
+              data = await listMarksDetailed();
+              console.log(
+                `[QuoteStream] ${connectionId}: Full read (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
+              );
+            } else {
+              // Subsequent ticks: read only marks updated since lastCursor
+              data = await listMarksDetailedIncremental(lastCursor);
+              isIncremental = true;
+              console.log(
+                `[QuoteStream] ${connectionId}: Incremental read since ${lastCursor} (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
+              );
+            }
+
+            // Update cursor for next tick
+            if (data.lastRefreshAt) {
+              lastCursor = data.lastRefreshAt;
+            }
+
+            // `incremental: true` tells the client to MERGE these rows into its existing
+            // marks instead of replacing the whole map (incremental reads only carry changes).
+            const message = sseMessage('marks', { ...data, incremental: isIncremental });
             controller.enqueue(new TextEncoder().encode(message));
-            console.log(
-              `[QuoteStream] ${connectionId}: Sent marks (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
-            );
           } catch (err) {
             console.error(`[QuoteStream] ${connectionId}: Failed to read/send marks:`, err);
             // Don't break - try again next tick

@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { query } from './db.js';
+import { batch, query } from './db.js';
 import { parseSchwabCsv, type Trade } from './csv.js';
 import { hashTradeRow } from './hash.js';
 
@@ -43,35 +43,57 @@ export async function insertTradesIdempotent(
   trades: Array<Trade & { source?: string }>,
   source = 'csv',
 ): Promise<{ added: number; skipped: number }> {
-  let added = 0;
-  let skipped = 0;
+  if (trades.length === 0) return { added: 0, skipped: 0 };
+
+  // Which hashes already exist? ANY($1) binds the whole list as ONE param (json_each on D1),
+  // so CSV files with hundreds of rows never exceed D1's 100-bound-parameter limit.
+  const hashes = trades.map((t) => t.rowHash);
+  const existing = await query<{ row_hash: string }>(
+    `SELECT row_hash FROM trades WHERE row_hash = ANY($1)`,
+    [hashes],
+  );
+  const seen = new Set(existing.rows.map((r) => r.row_hash));
+
+  // Filter to new trades, also de-duplicating identical rows within this same file
+  const newTrades: Array<Trade & { source?: string }> = [];
   for (const t of trades) {
-    const res = await query(
-      `INSERT INTO trades (
+    if (seen.has(t.rowHash)) continue;
+    seen.add(t.rowHash);
+    newTrades.push(t);
+  }
+
+  if (newTrades.length === 0) {
+    return { added: 0, skipped: trades.length };
+  }
+
+  // One statement per row (13 params each), sent via D1 batch (chunked at 50 per batch).
+  // ON CONFLICT keeps the insert idempotent if a concurrent import raced us.
+  const statements = newTrades.map((t) => ({
+    text: `INSERT INTO trades (
         id, row_hash, date, action, symbol, description,
         quantity, price, fees, amount, imported_at, note, source
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT (row_hash) DO NOTHING`,
-      [
-        t.id || randomUUID(),
-        t.rowHash,
-        t.date,
-        t.action,
-        t.symbol,
-        t.description ?? '',
-        t.quantity,
-        t.price,
-        t.fees,
-        t.amount,
-        t.importedAt || new Date().toISOString(),
-        t.note ?? null,
-        t.source ?? source,
-      ],
-    );
-    if (res.rowCount && res.rowCount > 0) added++;
-    else skipped++;
-  }
-  return { added, skipped };
+    params: [
+      t.id || randomUUID(),
+      t.rowHash,
+      t.date,
+      t.action,
+      t.symbol,
+      t.description ?? '',
+      t.quantity,
+      t.price,
+      t.fees,
+      t.amount,
+      t.importedAt || new Date().toISOString(),
+      t.note ?? null,
+      t.source ?? source,
+    ],
+  }));
+
+  await batch(statements);
+
+  return { added: newTrades.length, skipped: trades.length - newTrades.length };
 }
 
 export async function listTrades(c: Context) {
@@ -197,10 +219,11 @@ async function importCsv(c: Context, csvText: string, overrideManual: boolean) {
     if (symbols.length) {
       // CSV wins for symbols in this file: remove conflicting manual additions.
       // Identical CSV rows still dedupe by row_hash on insert.
+      // ANY($1) converted to IN (?, ?, ...) by db adapter
       const del = await query(
         `DELETE FROM trades
          WHERE source = 'manual'
-           AND symbol = ANY($1::text[])
+           AND symbol = ANY($1)
          RETURNING id`,
         [symbols],
       );

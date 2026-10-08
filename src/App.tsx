@@ -218,7 +218,10 @@ export default function App() {
     useCallback((data) => {
       // Update store with live marks (read from storeRef.current for stable callback)
       storeRef.current.applyMarksUpdate(data);
-      
+
+      // Incremental tick with no changed rows: nothing to reload (saves D1 reads every 5s)
+      if (data.incremental && Object.keys(data.marks).length === 0) return;
+
       // Reload watchlist and research displays
       void Promise.allSettled([
         watchlistRef.current?.reload(),

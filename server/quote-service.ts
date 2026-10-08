@@ -325,33 +325,27 @@ async function buildSymbolUniverse(): Promise<string[]> {
     
     UNION
     
-    -- Watchlist
-    SELECT symbol, 'watchlist' as source FROM watchlist
-    
+    -- Watchlist + research universe
+    SELECT symbol, 'watchlist_research' as source FROM (
+      SELECT symbol FROM watchlist
+      UNION
+      SELECT symbol FROM research_universe
+    ) wr
+
     UNION
-    
-    -- Research universe
-    SELECT symbol, 'research' as source FROM research_universe
-    
-    UNION
-    
-    -- Research ETFs
-    SELECT etf as symbol, 'etf' as source FROM research_etf_map
-    
-    UNION
-    
-    -- Pair cache ETFs
-    SELECT etf as symbol, 'pair_etf' as source FROM pair_cache
-    
-    UNION
-    
-    -- Pair cache underlyings
-    SELECT underlying as symbol, 'pair_underlying' as source FROM pair_cache
-    
-    UNION
-    
-    -- Active price alerts
-    SELECT symbol, 'price_alert' as source FROM price_alerts WHERE status = 'active'
+
+    -- Research ETFs, pair cache ETFs/underlyings, active price alerts.
+    -- Nested so neither compound SELECT exceeds D1's limit on compound terms
+    -- (a flat 7-term UNION fails on D1 with "too many terms in compound SELECT").
+    SELECT symbol, 'etf_pair_alert' as source FROM (
+      SELECT etf AS symbol FROM research_etf_map
+      UNION
+      SELECT etf AS symbol FROM pair_cache
+      UNION
+      SELECT underlying AS symbol FROM pair_cache
+      UNION
+      SELECT symbol FROM price_alerts WHERE status = 'active'
+    ) epa
     `
   );
 

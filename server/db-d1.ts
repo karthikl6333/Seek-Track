@@ -98,67 +98,53 @@ export async function ensureSchema(): Promise<void> {
 }
 
 /**
- * Convert PostgreSQL $N placeholders to D1 ?N style and handle ANY() expansion
+ * Normalize a bound parameter for D1 (D1 rejects undefined, Date and other objects).
  */
-function convertQueryForD1(
+function normalizeParam(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (value !== null && typeof value === 'object' && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) {
+    return JSON.stringify(value);
+  }
+  return value;
+}
+
+/**
+ * Convert Postgres-flavoured SQL used by the app into SQLite/D1 SQL.
+ *
+ * - `= ANY($N)` / `= ANY($N::text[])` -> `IN (SELECT value FROM json_each(?N))` with the array
+ *   bound as ONE JSON param. Parameter numbering is preserved (no flattening/renumbering) and
+ *   arbitrarily large arrays never hit D1's 100-bound-parameter limit.
+ * - `$N` -> `?N` (D1 supports ordered ?NNN params)
+ * - `NOW()` -> ISO-8601 UTC text, same format as JS toISOString() and the imported data
+ * - Postgres `::type` casts are stripped; `jsonb_set(` -> `json_set(`
+ */
+export function convertQueryForD1(
   sql: string,
   params: unknown[]
 ): { sql: string; params: unknown[] } {
-  let convertedSql = sql;
-  let convertedParams = [...params];
+  const convertedParams = params.map(normalizeParam);
+  const anyIndexes = new Set<number>();
 
-  // Handle ANY($N) array queries - convert to IN (?, ?, ...)
-  // Match patterns like "= ANY($1)" or "= ANY($1::text[])"
-  const anyRegex = /=\s*ANY\(\$(\d+)(?:::[a-z\[\]]+)?\)/gi;
-  let match: RegExpExecArray | null;
-  let offset = 0;
-  const replacements: Array<{ start: number; end: number; paramIndex: number }> = [];
-
-  // First pass: collect all ANY() matches
-  while ((match = anyRegex.exec(sql)) !== null) {
-    const paramIndex = parseInt(match[1], 10) - 1;
-    replacements.push({
-      start: match.index,
-      end: match.index + match[0].length,
-      paramIndex,
-    });
-  }
-
-  // Process replacements in reverse order to maintain correct indices
-  for (let i = replacements.length - 1; i >= 0; i--) {
-    const { start, end, paramIndex } = replacements[i];
-    const arrayParam = params[paramIndex];
-
-    if (Array.isArray(arrayParam) && arrayParam.length > 0) {
-      const placeholders = arrayParam.map(() => '?').join(', ');
-      const inClause = `IN (${placeholders})`;
-      
-      convertedSql = convertedSql.slice(0, start + 2) + inClause + convertedSql.slice(end);
-      
-      // Flatten the array into params list
-      convertedParams = [
-        ...convertedParams.slice(0, paramIndex),
-        ...arrayParam,
-        ...convertedParams.slice(paramIndex + 1),
-      ];
-    } else if (Array.isArray(arrayParam) && arrayParam.length === 0) {
-      // Empty array - use IN (NULL) to match nothing
-      convertedSql = convertedSql.slice(0, start + 2) + 'IN (NULL)' + convertedSql.slice(end);
-      convertedParams = [
-        ...convertedParams.slice(0, paramIndex),
-        ...convertedParams.slice(paramIndex + 1),
-      ];
+  let convertedSql = sql.replace(
+    /=\s*ANY\s*\(\s*\$(\d+)(?:\s*::\s*[a-z_ ]+(?:\[\])?)?\s*\)/gi,
+    (_m, n: string) => {
+      anyIndexes.add(Number(n) - 1);
+      return `IN (SELECT value FROM json_each(?${n}))`;
     }
+  );
+  for (const idx of anyIndexes) {
+    const raw = params[idx];
+    const arr = Array.isArray(raw) ? raw : raw === null || raw === undefined ? [] : [raw];
+    convertedParams[idx] = JSON.stringify(arr.map((v) => (v instanceof Date ? v.toISOString() : v)));
   }
 
-  // Convert remaining $N to ?N (for non-ANY params)
-  convertedSql = convertedSql.replace(/\$(\d+)/g, '?$1');
-
-  // Remove Postgres-specific type casts
-  convertedSql = convertedSql.replace(/::(jsonb|text\[\]|int|double precision|timestamptz)/gi, '');
-
-  // Convert jsonb_set to json_set for SQLite
-  convertedSql = convertedSql.replace(/jsonb_set\(/gi, 'json_set(');
+  convertedSql = convertedSql
+    .replace(/\$(\d+)/g, '?$1')
+    .replace(/\bNOW\(\)/gi, "strftime('%Y-%m-%dT%H:%M:%fZ','now')")
+    .replace(/::\s*(jsonb|json|text\[\]|text|int4|int8|int|integer|bigint|numeric|float8|double precision|real|timestamptz|timestamp|date|boolean)(?![a-z_0-9])/gi, '')
+    .replace(/jsonb_set\(/gi, 'json_set(');
 
   return { sql: convertedSql, params: convertedParams };
 }

@@ -42,8 +42,8 @@ async function getNeonAdapter() {
 export function setD1Database(db: D1Database): void {
   if (d1Adapter) {
     d1Adapter.setD1Database(db);
+    if (!useD1) console.log('[DB] D1 database bound, using D1 adapter');
     useD1 = true;
-    console.log('[DB] D1 database bound, using D1 adapter');
   }
 }
 

@@ -7,6 +7,8 @@
  * All server code imports from './db.js' and gets the right adapter automatically
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 // Check if D1 is available (set by _worker.js or dev environment)
 let useD1 = false;
 let d1Adapter: any = null;
@@ -75,7 +77,7 @@ export async function query<T = any>(
   params?: unknown[],
 ): Promise<QueryResult<T>> {
   if (useD1 && d1Adapter) {
-    return d1Adapter.query<T>(text, params);
+    return d1Adapter.query(text, params) as Promise<QueryResult<T>>;
   }
   
   // Try D1 one more time
@@ -83,14 +85,14 @@ export async function query<T = any>(
     try {
       d1Adapter.getD1Database();
       useD1 = true;
-      return d1Adapter.query<T>(text, params);
+      return d1Adapter.query(text, params) as Promise<QueryResult<T>>;
     } catch {
       // Fall through to Neon
     }
   }
   
   const neon = await getNeonAdapter();
-  return neon.query<T>(text, params);
+  return neon.query(text, params) as Promise<QueryResult<T>>;
 }
 
 export async function execute(
@@ -98,7 +100,7 @@ export async function execute(
   params?: unknown[]
 ): Promise<{ rowCount: number }> {
   if (useD1 && d1Adapter) {
-    return d1Adapter.execute(text, params);
+    return d1Adapter.execute(text, params) as Promise<{ rowCount: number }>;
   }
   
   // Try D1 one more time
@@ -106,7 +108,7 @@ export async function execute(
     try {
       d1Adapter.getD1Database();
       useD1 = true;
-      return d1Adapter.execute(text, params);
+      return d1Adapter.execute(text, params) as Promise<{ rowCount: number }>;
     } catch {
       // Fall through to Neon
     }

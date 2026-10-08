@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -78,7 +78,7 @@ export async function createAlert(input: {
     throw new Error('Condition must be "above" or "below"');
   }
 
-  const id = randomBytes(16).toString('hex');
+  const id = randomUUID().replace(/-/g, '');
   const now = new Date().toISOString();
 
   await query(

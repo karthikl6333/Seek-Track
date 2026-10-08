@@ -3,6 +3,8 @@
  * Replaces Neon Postgres with SQLite-based D1
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 // Embedded schema for Cloudflare Workers (injected at build time)
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;

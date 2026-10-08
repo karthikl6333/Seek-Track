@@ -93,6 +93,7 @@ export async function handleQuoteStream(c: Context) {
           // Read marks from DB
           try {
             let data;
+            let isIncremental = false;
             if (tickCount === 1 || !lastCursor) {
               // First tick: read all marks
               data = await listMarksDetailed();
@@ -102,6 +103,7 @@ export async function handleQuoteStream(c: Context) {
             } else {
               // Subsequent ticks: read only marks updated since lastCursor
               data = await listMarksDetailedIncremental(lastCursor);
+              isIncremental = true;
               console.log(
                 `[QuoteStream] ${connectionId}: Incremental read since ${lastCursor} (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
               );
@@ -112,7 +114,9 @@ export async function handleQuoteStream(c: Context) {
               lastCursor = data.lastRefreshAt;
             }
 
-            const message = sseMessage('marks', data);
+            // `incremental: true` tells the client to MERGE these rows into its existing
+            // marks instead of replacing the whole map (incremental reads only carry changes).
+            const message = sseMessage('marks', { ...data, incremental: isIncremental });
             controller.enqueue(new TextEncoder().encode(message));
           } catch (err) {
             console.error(`[QuoteStream] ${connectionId}: Failed to read/send marks:`, err);

@@ -17,6 +17,8 @@ interface LiveQuotesData {
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
   lastRefreshError: string | null;
+  /** true when `marks` only contains rows changed since the previous tick (merge, don't replace) */
+  incremental?: boolean;
 }
 
 interface UseLiveQuotesResult {

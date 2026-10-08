@@ -3,7 +3,7 @@
  * 
  * Usage:
  * - When enabled: opens EventSource to /api/quotes/stream
- * - Receives real-time mark updates (~3s interval)
+ * - Receives a full `marks` snapshot on connect, then `marks-delta` events (~5s)
  * - Auto-reconnects on connection loss
  * - Gracefully closes when disabled
  */
@@ -43,7 +43,20 @@ export function useLiveQuotes(
     onUpdateRef.current = onUpdate;
   }, [onUpdate]);
 
+  // Close the stream while the tab is hidden (saves a D1 read every 5s per hidden tab); on
+  // becoming visible it reconnects and receives a fresh full snapshot first.
+  const [visible, setVisible] = useState(() =>
+    typeof document === 'undefined' ? true : !document.hidden,
+  );
   useEffect(() => {
+    const onVis = () => setVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+  const active = enabled && visible;
+
+  useEffect(() => {
+    const enabled = active;
     if (!enabled) {
       // Close existing connection
       if (eventSourceRef.current) {
@@ -75,9 +88,10 @@ export function useLiveQuotes(
         setError(null);
       });
 
-      es.addEventListener('marks', (e) => {
+      const handleMarks = (e: MessageEvent, forceIncremental?: boolean) => {
         try {
           const data = JSON.parse(e.data) as LiveQuotesData;
+          if (forceIncremental) data.incremental = true;
           onUpdateRef.current(data);
           setLastUpdate(new Date().toISOString());
           setError(null);
@@ -85,7 +99,13 @@ export function useLiveQuotes(
           console.error('[LiveQuotes] Failed to parse marks update:', err);
           setError('Failed to parse update');
         }
-      });
+      };
+      // Full snapshot (every connect / reconnect). The client always merges, so an empty
+      // payload is a no-op rather than a wipe.
+      es.addEventListener('marks', (e) => handleMarks(e));
+      // Changed-rows-only delta. Force incremental=true so even a stale client build that
+      // still REPLACE-s on `marks` keeps its known prices when this event arrives.
+      es.addEventListener('marks-delta', (e) => handleMarks(e, true));
 
       es.addEventListener('error', () => {
         console.warn('[LiveQuotes] Connection error, will retry...');
@@ -122,7 +142,7 @@ export function useLiveQuotes(
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [enabled]);
+  }, [active]);
 
   return { connected, error, lastUpdate };
 }

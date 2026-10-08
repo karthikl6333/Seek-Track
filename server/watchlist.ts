@@ -117,8 +117,10 @@ async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, Wa
   }>(
     `SELECT 
        COALESCE(m.symbol, wq.symbol) AS symbol,
-       m.price AS last,
-       m.day_pct AS pct_change,
+       -- marks is the source of truth; fall back to the last stored watchlist quote so a row
+       -- never shows blank when a marks row is missing.
+       COALESCE(m.price, wq.last) AS last,
+       COALESCE(m.day_pct, wq.pct_change) AS pct_change,
        wq.val_change,
        wq.bid,
        wq.ask,
@@ -362,7 +364,8 @@ export async function postWatchlistRefreshHandler(c: Context) {
     c.header('Pragma', 'no-cache');
     c.header('Expires', '0');
     
-    return c.json({ ...result, ...payload }, result.ok ? 200 : 502);
+    // Always 200 with the payload: symbols whose refresh failed keep their last known price.
+    return c.json({ ...result, ...payload }, 200);
   } catch (e) {
     return c.json({ error: String(e) }, 500);
   }

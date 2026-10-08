@@ -9,6 +9,7 @@ import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { TickerLink } from '../lib/yahoo';
+import { STALE_AFTER_MS, staleAge } from '../lib/marks';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
@@ -318,8 +319,17 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                             </span>
                           )}
                           {info && (
-                            <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                            <span
+                              className="muted"
+                              style={{ display: 'block', fontSize: 11 }}
+                              title={`Last price update: ${info.updatedAt}`}
+                            >
                               {info.source}
+                              {(() => {
+                                // Stale prices stay visible; just label their age.
+                                const age = staleAge(info.updatedAt, Date.now(), STALE_AFTER_MS);
+                                return age ? ` · ${age} old` : '';
+                              })()}
                             </span>
                           )}
                         </td>

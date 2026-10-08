@@ -45,7 +45,7 @@ export interface QuoteData {
   sessionOpen: number | null;
 }
 
-interface YahooMeta {
+export interface YahooMeta {
   regularMarketPrice?: number;
   fulldayPrice?: number;
   hasPrePostMarketData?: boolean;
@@ -67,7 +67,7 @@ interface YahooMeta {
   };
 }
 
-interface YahooChartResponse {
+export interface YahooChartResponse {
   chart?: {
     result?: Array<{
       meta?: YahooMeta;
@@ -93,9 +93,34 @@ let lastActivityAt = Date.now();
 // Per-request refresh tracking (no global lock)
 const activeRefreshes = new Map<string, boolean>();
 
-// 404 cache: symbols that returned 404, keyed by symbol, value is timestamp when they can be retried
+// 404 cache: symbols that returned 404, keyed by symbol, value is timestamp when they can be retried.
+// The long skip only applies to symbols we have NEVER priced (no marks row). A symbol that already
+// has a mark is retried after a short back-off; its last known price stays in marks untouched.
 const cache404Symbols = new Map<string, number>();
-const CACHE_404_DURATION_MS = 6 * 60 * 60 * 1000; // 6 hours
+export const NOT_FOUND_SKIP_NO_MARK_MS = 6 * 60 * 60 * 1000; // 6 hours (never-priced symbols)
+export const NOT_FOUND_RETRY_WITH_MARK_MS = 10 * 60 * 1000; // 10 minutes (symbols with a last known mark)
+
+/** Error carrying the upstream HTTP status so the batch fetcher can decide how to back off. */
+export class YahooHttpError extends Error {
+  constructor(public readonly status: number, symbol: string) {
+    super(`Yahoo HTTP ${status} for ${symbol}`);
+    this.name = 'YahooHttpError';
+  }
+}
+
+/** A price we are willing to store/show: finite and strictly positive. Never null/0/NaN. */
+export function isUsablePrice(p: unknown): p is number {
+  return typeof p === 'number' && Number.isFinite(p) && p > 0;
+}
+
+/** Test helper: reset module-level caches. */
+export function __resetQuoteServiceStateForTests(): void {
+  cache404Symbols.clear();
+  watchlistSymbolsCache = null;
+  watchlistCacheTime = 0;
+  lastRefreshAt = null;
+  lastRefreshError = null;
+}
 
 /**
  * Determine current trading session
@@ -121,29 +146,43 @@ function determineSession(meta: YahooMeta, now: number): 'regular' | 'premarket'
 }
 
 /**
- * Fetch a single symbol from Yahoo with full metadata (with timeout)
+ * Baseline for day % / val change: the close of the most recent regular session that
+ * finished BEFORE the session the current price belongs to.
+ *
+ * Yahoo's chart meta (range=1d, includePrePost=true) exposes `previousClose` /
+ * `chartPreviousClose` as the close *before the chart day*. During pre-market (and in the
+ * overnight gap once Yahoo rolls `currentTradingPeriod` to the new day) the chart day is
+ * the NEW day, but `regularMarketPrice` / `regularMarketTime` still describe yesterday's
+ * regular close. In that window `previousClose` is two sessions back (e.g. GOOG on
+ * 2026-10-08 pre-market: previousClose 344.59 = Oct 6 close, regularMarketPrice 347.37 =
+ * Oct 7 close), so day % must be measured against `regularMarketPrice` instead.
+ *
+ * During regular hours and after-hours today's regular session has traded, so the baseline
+ * is the previous day's close (`previousClose` ?? `chartPreviousClose`).
  */
-async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<QuoteData> {
-  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      Accept: 'application/json',
-    },
-    signal,
-  });
-
-  if (!res.ok) {
-    // Cache 404s to avoid repeated failed requests
-    if (res.status === 404) {
-      const retryAfter = Date.now() + CACHE_404_DURATION_MS;
-      cache404Symbols.set(symbol, retryAfter);
-      console.warn(`[QuoteService] Symbol ${symbol} returned 404, caching for ${CACHE_404_DURATION_MS / 1000 / 60}m`);
-    }
-    throw new Error(`Yahoo HTTP ${res.status} for ${symbol}`);
+export function dayChangeBaseline(meta: YahooMeta): number | null {
+  const regularStart = meta.currentTradingPeriod?.regular?.start;
+  const rmt = meta.regularMarketTime;
+  const rmp = meta.regularMarketPrice;
+  const todaysRegularNotStarted =
+    typeof regularStart === 'number' && typeof rmt === 'number' && rmt < regularStart;
+  if (todaysRegularNotStarted && isUsablePrice(rmp)) {
+    return rmp;
   }
+  const prev = meta.previousClose ?? meta.chartPreviousClose ?? null;
+  return isUsablePrice(prev) ? prev : null;
+}
 
-  const data = (await res.json()) as YahooChartResponse;
+/**
+ * Pure parser: Yahoo chart JSON -> QuoteData. Throws if no usable price.
+ * `nowSec` is injectable for tests.
+ */
+export function parseYahooChart(
+  symbol: string,
+  data: YahooChartResponse,
+  nowSec: number = Math.floor(Date.now() / 1000),
+  nowIso: string = new Date().toISOString(),
+): QuoteData {
   const result = data.chart?.result?.[0];
   const meta = result?.meta;
 
@@ -151,19 +190,11 @@ async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<Qu
     throw new Error(data.chart?.error?.description || `No quote data for ${symbol}`);
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const session = determineSession(meta, now);
-  const isRegularHours = session === 'regular';
+  const session = determineSession(meta, nowSec);
 
-  // Price selection logic (ALWAYS prefer last bar close for extended-hours accuracy)
-  // Yahoo's regularMarketPrice may be stale during pre/post market
+  // Price: last non-null 1m close (covers pre/post with includePrePost=true)
   let price: number | null = null;
-  
-  // ALWAYS try to get the last non-null close bar first (includes pre/post market with includePrePost=true)
-  const priceTimestamps = result?.timestamp ?? [];
   const priceCloses = result?.indicators?.quote?.[0]?.close ?? [];
-  
-  // Find the last non-null close price from the bars (this is the most accurate, real-time price)
   for (let i = priceCloses.length - 1; i >= 0; i--) {
     const closePrice = priceCloses[i];
     if (closePrice != null && Number.isFinite(closePrice)) {
@@ -172,31 +203,22 @@ async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<Qu
     }
   }
 
-  // Fallback cascade if no bar data available (rare, but handle gracefully)
-  if (price === null || !Number.isFinite(price)) {
-    // During regular hours, regularMarketPrice is usually accurate
-    if (isRegularHours && meta.regularMarketPrice != null && Number.isFinite(meta.regularMarketPrice)) {
-      price = meta.regularMarketPrice;
-    } else {
-      // Last resort: use previous close (stale but better than nothing)
-      price =
-        meta.previousClose ??
-        meta.chartPreviousClose ??
-        null;
-    }
+  // Fallback if no bars: the last regular trade is the best "last known" price.
+  // (previousClose is older than regularMarketPrice and only a last resort.)
+  if (!isUsablePrice(price)) {
+    price = [meta.regularMarketPrice, meta.previousClose, meta.chartPreviousClose].find(isUsablePrice) ?? null;
   }
 
-  if (price === null || !Number.isFinite(price)) {
+  if (!isUsablePrice(price)) {
     throw new Error(`No price for ${symbol}`);
   }
 
-  // Calculate day % vs previous close
+  // Day % vs the previous regular-session close (see dayChangeBaseline). Stored in PERCENT units
+  // (1.13 means +1.13%), never as a fraction.
+  const baseline = dayChangeBaseline(meta);
   let dayPct: number | null = null;
-  const prevCloseRaw = meta.previousClose ?? meta.chartPreviousClose ?? null;
-  const previousClose = prevCloseRaw !== null && Number.isFinite(prevCloseRaw) ? Number(prevCloseRaw) : null;
-
-  if (price !== null && previousClose !== null && previousClose !== 0) {
-    dayPct = ((price - previousClose) / previousClose) * 100;
+  if (baseline !== null) {
+    dayPct = ((price - baseline) / baseline) * 100;
   } else if (
     typeof meta.regularMarketChangePercent === 'number' &&
     Number.isFinite(meta.regularMarketChangePercent)
@@ -214,18 +236,18 @@ async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<Qu
     const todayBarIndex = timestamps.findIndex((ts) => ts === sessionStart);
     if (todayBarIndex >= 0 && todayBarIndex < opens.length) {
       const openRaw = opens[todayBarIndex];
-      if (openRaw !== null && Number.isFinite(openRaw)) {
+      if (openRaw != null && Number.isFinite(openRaw)) {
         sessionOpen = Number(openRaw);
       }
     }
   }
 
-  // Val change
+  // Val change ($): vs session open when today's regular session has an open bar, else vs baseline
   let valChange: number | null = null;
   if (sessionOpen !== null) {
     valChange = price - sessionOpen;
-  } else if (previousClose !== null) {
-    valChange = price - previousClose;
+  } else if (baseline !== null) {
+    valChange = price - baseline;
   }
 
   // Volume
@@ -239,94 +261,138 @@ async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<Qu
     if (lastVol != null) volume = Number(lastVol);
   }
 
-  const bid = typeof meta.bid === 'number' && Number.isFinite(meta.bid) ? Number(meta.bid) : null;
-  const ask = typeof meta.ask === 'number' && Number.isFinite(meta.ask) ? Number(meta.ask) : null;
-  const marketCap = typeof meta.marketCap === 'number' && Number.isFinite(meta.marketCap) ? Number(meta.marketCap) : null;
-  const week52High = typeof meta.fiftyTwoWeekHigh === 'number' && Number.isFinite(meta.fiftyTwoWeekHigh) ? Number(meta.fiftyTwoWeekHigh) : null;
-  const week52Low = typeof meta.fiftyTwoWeekLow === 'number' && Number.isFinite(meta.fiftyTwoWeekLow) ? Number(meta.fiftyTwoWeekLow) : null;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Number(v) : null);
 
   return {
     symbol: (meta.symbol ?? symbol).toUpperCase(),
     price: Number(price),
     dayPct: dayPct !== null && Number.isFinite(dayPct) ? dayPct : null,
     source: 'yahoo',
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso,
     session,
-    bid,
-    ask,
+    bid: num(meta.bid),
+    ask: num(meta.ask),
     volume,
-    marketCap,
-    week52High,
-    week52Low,
+    marketCap: num(meta.marketCap),
+    week52High: num(meta.fiftyTwoWeekHigh),
+    week52Low: num(meta.fiftyTwoWeekLow),
     valChange,
     sessionOpen,
   };
 }
 
 /**
- * Batch fetch with controlled concurrency and per-fetch timeout
+ * Fetch a single symbol from Yahoo with full metadata (with timeout)
  */
-async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteData | null>> {
+async function fetchYahooQuote(
+  symbol: string,
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+): Promise<QuoteData> {
+  const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
+  const res = await fetchImpl(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+    },
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new YahooHttpError(res.status, symbol);
+  }
+
+  const data = (await res.json()) as YahooChartResponse;
+  return parseYahooChart(symbol, data);
+}
+
+export interface FetchBatchOptions {
+  /** Symbols that already have a stored mark (last known price). */
+  symbolsWithMark?: Set<string>;
+  /** Injectable fetch for tests. */
+  fetchImpl?: typeof fetch;
+  /** Injectable clock for tests. */
+  now?: () => number;
+}
+
+/**
+ * Batch fetch with controlled concurrency and per-fetch timeout.
+ *
+ * A null entry means "no fresh quote this round" (failed, timed out, or 404-skipped). Callers must
+ * treat null as "keep the last known mark", never as "price is now empty".
+ */
+export async function fetchQuotesBatch(
+  symbols: string[],
+  opts: FetchBatchOptions = {},
+): Promise<Map<string, QuoteData | null>> {
   const results = new Map<string, QuoteData | null>();
   const FETCH_TIMEOUT_MS = 5000; // 5s timeout per Yahoo fetch
-  
-  // Filter out cached 404 symbols
-  const now = Date.now();
+  const nowFn = opts.now ?? Date.now;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const withMark = opts.symbolsWithMark ?? new Set<string>();
+
+  // Filter out symbols still inside their 404 back-off window
+  const now = nowFn();
   const symbolsToFetch: string[] = [];
   const skippedCached404: string[] = [];
-  
+
   for (const symbol of symbols) {
     const retryAfter = cache404Symbols.get(symbol);
     if (retryAfter && now < retryAfter) {
       skippedCached404.push(symbol);
       results.set(symbol, null);
     } else {
-      // Remove expired 404 entries
-      if (retryAfter) {
-        cache404Symbols.delete(symbol);
-      }
+      if (retryAfter) cache404Symbols.delete(symbol);
       symbolsToFetch.push(symbol);
     }
   }
-  
+
   if (skippedCached404.length > 0) {
-    console.log(`[QuoteService] Skipped ${skippedCached404.length} cached 404 symbols: ${skippedCached404.join(', ')}`);
+    console.log(
+      `[QuoteService] Skipped ${skippedCached404.length} symbols still in 404 back-off: ${skippedCached404.join(', ')}`,
+    );
   }
-  
-  // Process in chunks with controlled concurrency
+
   for (let i = 0; i < symbolsToFetch.length; i += YAHOO_CONCURRENCY) {
     const chunk = symbolsToFetch.slice(i, i + YAHOO_CONCURRENCY);
     const chunkPromises = chunk.map(async (symbol) => {
       try {
-        // Per-fetch timeout via AbortController
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-        
         try {
-          const quote = await fetchYahooQuote(symbol, controller.signal);
+          const quote = await fetchYahooQuote(symbol, controller.signal, fetchImpl);
           results.set(symbol, quote);
         } finally {
           clearTimeout(timeoutId);
         }
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        if (errMsg.includes('aborted')) {
-          console.error(`[QuoteService] Timeout fetching ${symbol} (${FETCH_TIMEOUT_MS}ms)`);
+        if (err instanceof YahooHttpError && err.status === 404) {
+          const hasMark = withMark.has(symbol.toUpperCase());
+          const backoff = hasMark ? NOT_FOUND_RETRY_WITH_MARK_MS : NOT_FOUND_SKIP_NO_MARK_MS;
+          cache404Symbols.set(symbol, nowFn() + backoff);
+          console.warn(
+            `[QuoteService] ${symbol} returned 404; retry in ${backoff / 60000}m` +
+              (hasMark ? ' (keeping last known mark)' : ' (no mark yet)'),
+          );
         } else {
-          console.error(`[QuoteService] Failed to fetch ${symbol}:`, err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg.includes('aborted')) {
+            console.error(`[QuoteService] Timeout fetching ${symbol} (${FETCH_TIMEOUT_MS}ms)`);
+          } else {
+            console.error(`[QuoteService] Failed to fetch ${symbol}:`, errMsg);
+          }
         }
         results.set(symbol, null);
       }
     });
-    
+
     await Promise.all(chunkPromises);
-    
-    // Delay between chunks (not after last chunk)
+
     if (i + YAHOO_CONCURRENCY < symbolsToFetch.length) {
       await new Promise((resolve) => setTimeout(resolve, YAHOO_DELAY_MS));
     }
   }
-  
+
   return results;
 }
 
@@ -408,19 +474,15 @@ async function getWatchlistSymbols(): Promise<Set<string>> {
   return watchlistSymbolsCache;
 }
 
-/**
- * Update database with fresh quotes
- * Optimized for D1: Skip unchanged rows (write efficiency) and chunk to stay under 100 params
- */
-async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
-  if (quotes.size === 0) return;
+export interface ExistingMark {
+  price: number;
+  day_pct: number | null;
+  session: string | null;
+}
 
-  // Get watchlist symbols (cached, so only 1 query per minute across all chunks)
-  const watchlistSet = await getWatchlistSymbols();
-
-  // D1 optimization: Only update marks if price, day_pct, or session changed
-  // Fetch existing marks to compare
-  const symbols = Array.from(quotes.keys());
+/** Read stored marks for a set of symbols (one D1 read). Keys are upper-cased. */
+async function loadExistingMarks(symbols: string[]): Promise<Map<string, ExistingMark>> {
+  if (symbols.length === 0) return new Map();
   const placeholders = symbols.map(() => '?').join(', ');
   const existingMarks = await query<{
     symbol: string;
@@ -428,42 +490,60 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
     day_pct: number | null;
     session: string | null;
   }>(`SELECT symbol, price, day_pct, session FROM marks WHERE symbol IN (${placeholders})`, symbols);
-  
-  const existingMarksMap = new Map(
+  return new Map(
     existingMarks.rows.map((r) => [
       r.symbol.toUpperCase(),
-      { price: r.price, day_pct: r.day_pct, session: r.session },
-    ])
+      { price: Number(r.price), day_pct: r.day_pct == null ? null : Number(r.day_pct), session: r.session },
+    ]),
   );
+}
 
-  // Filter to only changed quotes
-  const changedQuotes = new Map<string, QuoteData>();
+/**
+ * Pure: decide which fresh quotes should be written.
+ * - Only usable prices (finite, > 0) are ever written: a null/0/NaN quote can never overwrite a mark.
+ * - Unchanged rows (same price, day % within 0.01, same session) are skipped to save D1 writes.
+ */
+export function selectQuotesToPersist(
+  quotes: Map<string, QuoteData | null>,
+  existing: Map<string, ExistingMark>,
+): Map<string, QuoteData> {
+  const changed = new Map<string, QuoteData>();
   for (const [symbol, quote] of quotes.entries()) {
-    const existing = existingMarksMap.get(symbol.toUpperCase());
-    if (!existing) {
-      changedQuotes.set(symbol, quote);
+    if (!quote || !isUsablePrice(quote.price)) continue;
+    const prev = existing.get(symbol.toUpperCase());
+    if (!prev || !isUsablePrice(prev.price)) {
+      changed.set(symbol, quote);
       continue;
     }
-    
-    // Check if any field changed (price, day_pct, or session)
-    const priceChanged = Math.abs(existing.price - quote.price) > 0.0001;
+    const priceChanged = Math.abs(prev.price - quote.price) > 0.0001;
     const dayPctChanged =
-      (existing.day_pct === null && quote.dayPct !== null) ||
-      (existing.day_pct !== null && quote.dayPct === null) ||
-      (existing.day_pct !== null &&
-        quote.dayPct !== null &&
-        Math.abs(existing.day_pct - quote.dayPct) > 0.01);
-    const sessionChanged = existing.session !== quote.session;
-
+      (prev.day_pct === null) !== (quote.dayPct === null) ||
+      (prev.day_pct !== null && quote.dayPct !== null && Math.abs(prev.day_pct - quote.dayPct) > 0.01);
+    const sessionChanged = (prev.session ?? null) !== (quote.session ?? null);
     if (priceChanged || dayPctChanged || sessionChanged) {
-      changedQuotes.set(symbol, quote);
+      changed.set(symbol, quote);
     }
   }
+  return changed;
+}
+
+/**
+ * Update database with fresh quotes
+ * Optimized for D1: Skip unchanged rows (write efficiency) and chunk to stay under 100 params
+ */
+async function persistQuotes(
+  quotes: Map<string, QuoteData | null>,
+  existingMarksMap: Map<string, ExistingMark>,
+): Promise<void> {
+  const changedQuotes = selectQuotesToPersist(quotes, existingMarksMap);
 
   if (changedQuotes.size === 0) {
     console.log('[QuoteService] No price/session changes detected, skipping DB write');
     return;
   }
+
+  // Get watchlist symbols (cached, so only 1 query per minute across all chunks)
+  const watchlistSet = await getWatchlistSymbols();
 
   console.log(`[QuoteService] Writing ${changedQuotes.size}/${quotes.size} changed quotes to DB`);
 
@@ -549,16 +629,16 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
           week52_high, week52_low, updated_at)
        VALUES ${watchlistValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
-         last = EXCLUDED.last,
+         last = COALESCE(EXCLUDED.last, watchlist_quotes.last),
          pct_change = EXCLUDED.pct_change,
          val_change = EXCLUDED.val_change,
          session_open = EXCLUDED.session_open,
-         bid = EXCLUDED.bid,
-         ask = EXCLUDED.ask,
-         market_cap = EXCLUDED.market_cap,
-         volume = EXCLUDED.volume,
-         week52_high = EXCLUDED.week52_high,
-         week52_low = EXCLUDED.week52_low,
+         bid = COALESCE(EXCLUDED.bid, watchlist_quotes.bid),
+         ask = COALESCE(EXCLUDED.ask, watchlist_quotes.ask),
+         market_cap = COALESCE(EXCLUDED.market_cap, watchlist_quotes.market_cap),
+         volume = COALESCE(EXCLUDED.volume, watchlist_quotes.volume),
+         week52_high = COALESCE(EXCLUDED.week52_high, watchlist_quotes.week52_high),
+         week52_low = COALESCE(EXCLUDED.week52_low, watchlist_quotes.week52_low),
          updated_at = EXCLUDED.updated_at`,
       watchlistParams
     );
@@ -586,6 +666,7 @@ export async function refreshAllPrices(
   ok: boolean;
   updated: string[];
   failed: string[];
+  stale?: string[];
   refreshedAt: string;
   error?: string;
   total: number;
@@ -638,6 +719,8 @@ export async function refreshAllPrices(
 
   const updated: string[] = [];
   const failed: string[] = [];
+  /** failed this round but still have a last known mark (shown as-is with its age) */
+  const stale: string[] = [];
   let error: string | undefined;
 
   try {
@@ -656,26 +739,37 @@ export async function refreshAllPrices(
 
     console.log(`[QuoteService] Refreshing ${universe.length} symbols (request ${requestId})`);
 
+    // One read up front: which symbols already have a last known price. Used both for the
+    // 404 back-off policy and for the changed-row check in persistQuotes (no extra D1 reads).
+    const existingMarks = await loadExistingMarks(universe);
+    const symbolsWithMark = new Set(
+      Array.from(existingMarks.entries())
+        .filter(([, m]) => isUsablePrice(m.price))
+        .map(([s]) => s),
+    );
+
     const startTime = Date.now();
-    const quotes = await fetchQuotesBatch(universe);
+    const quotes = await fetchQuotesBatch(universe, { symbolsWithMark });
     const fetchTime = Date.now() - startTime;
 
     for (const [symbol, quote] of quotes.entries()) {
-      if (quote) {
+      if (quote && isUsablePrice(quote.price)) {
         updated.push(symbol);
       } else {
         failed.push(symbol);
+        if (symbolsWithMark.has(symbol.toUpperCase())) stale.push(symbol);
       }
     }
 
-    // Only persist successful quotes
-    const successQuotes = new Map(
-      Array.from(quotes.entries()).filter(([, q]) => q !== null) as [string, QuoteData][]
-    );
-    await persistQuotes(successQuotes);
+    // Only successful, usable quotes are written. Failed/skipped symbols keep their last mark.
+    await persistQuotes(quotes, existingMarks);
 
     lastRefreshAt = new Date().toISOString();
-    lastRefreshError = failed.length > 0 && updated.length === 0 ? 'All quotes failed' : null;
+    // Only an error when a symbol has NO price to show at all. Failures for symbols that still
+    // have a last known mark are reported in `stale`, not as an error banner.
+    const noPrice = failed.filter((s) => !symbolsWithMark.has(s.toUpperCase()));
+    lastRefreshError =
+      noPrice.length > 0 && updated.length === 0 ? `No price available for ${noPrice.join(', ')}` : null;
 
     // Evaluate price alerts after marks are updated
     if (updated.length > 0) {
@@ -696,9 +790,10 @@ export async function refreshAllPrices(
     );
 
     return {
-      ok: updated.length > 0 || universe.length === 0,
+      ok: updated.length > 0 || noPrice.length === 0,
       updated,
       failed,
+      stale,
       refreshedAt: lastRefreshAt,
       error: lastRefreshError ?? undefined,
       total,
@@ -712,6 +807,7 @@ export async function refreshAllPrices(
       ok: false,
       updated,
       failed,
+      stale,
       refreshedAt: lastRefreshAt,
       error,
       total: updated.length + failed.length,
@@ -800,6 +896,7 @@ export async function forceRefresh(symbols?: string[]): Promise<{
   ok: boolean;
   updated: string[];
   failed: string[];
+  stale?: string[];
   refreshedAt: string;
   error?: string;
   total: number;

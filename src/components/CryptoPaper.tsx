@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadCryptoPaperSummary, refreshCryptoPaperLivePnl } from '../lib/db';
 import type { CryptoPaperSummary } from '../types';
-import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
+import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
 export function CryptoPaper() {
   const [summary, setSummary] = useState<CryptoPaperSummary | null>(null);
@@ -321,7 +321,7 @@ export function CryptoPaper() {
               Win Rate
             </div>
             <div className="mono" style={{ fontSize: 18 }}>
-              {scoreboard.winRate !== null ? fmtPct(scoreboard.winRate) : '—'}
+              {scoreboard.winRate !== null ? fmtRatioPct(scoreboard.winRate) : '—'}
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertQueryForD1 } from './db-d1.js';
+import { cursorWithLookback, INCREMENTAL_LOOKBACK_MS } from './quotes.js';
 
 describe('convertQueryForD1', () => {
   it('binds ANY($N) arrays as one JSON param without renumbering later params', () => {
@@ -37,14 +38,25 @@ describe('convertQueryForD1', () => {
     const r = convertQueryForD1("UPDATE settings SET data = json_set(data, '$.watchlistSeeded', json('true'))", []);
     expect(r.sql).toContain("'$.watchlistSeeded'");
   });
+
+  it('converts the schema_meta upsert used by ensureSchema', () => {
+    const r = convertQueryForD1(
+      'INSERT INTO schema_meta (id, version) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version',
+      [1, 1],
+    );
+    expect(r.sql).toContain('?1');
+    expect(r.params).toEqual([1, 1]);
+  });
 });
 
-describe('schema version check', () => {
-  it('schema_meta table should be created by ensureSchema', () => {
-    // This test verifies the schema_meta table creation logic
-    // In actual D1, ensureSchema() will create:
-    // CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)
-    // and INSERT OR REPLACE INTO schema_meta (id, version) VALUES (1, SCHEMA_VERSION)
-    expect(true).toBe(true);
+describe('SSE cursor lookback', () => {
+  it('rewinds the cursor by INCREMENTAL_LOOKBACK_MS so concurrent writes are not skipped', () => {
+    const cursor = '2026-10-08T12:00:00.000Z';
+    const back = cursorWithLookback(cursor);
+    expect(Date.parse(cursor) - Date.parse(back)).toBe(INCREMENTAL_LOOKBACK_MS);
+  });
+
+  it('passes through unparseable cursors unchanged', () => {
+    expect(cursorWithLookback('not-a-date')).toBe('not-a-date');
   });
 });

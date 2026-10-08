@@ -25,6 +25,10 @@ export async function upsertMark(
   source: string,
   dayPct?: number | null,
 ): Promise<void> {
+  // Never store a blank/zero/NaN price over a real mark.
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+    throw new Error(`Refusing to store unusable price ${String(price)} for ${symbol}`);
+  }
   const now = new Date().toISOString();
   await query(
     `INSERT INTO marks (symbol, price, updated_at, source, day_pct) VALUES ($1, $2, $3, $4, $5)
@@ -87,6 +91,19 @@ export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
  * D1 optimization: Read only marks that changed since cursor
  * Reduces row reads for SSE streaming (99% of ticks have no changes)
  */
+/**
+ * Look-back applied to the SSE delta cursor. Rows are stamped with the time their quote was
+ * fetched, which can be slightly earlier than a concurrent write that already advanced the cursor.
+ * Re-reading a short window guarantees such rows are not skipped; the stream de-duplicates.
+ */
+export const INCREMENTAL_LOOKBACK_MS = 15_000;
+
+export function cursorWithLookback(cursor: string, lookbackMs = INCREMENTAL_LOOKBACK_MS): string {
+  const t = Date.parse(cursor);
+  if (!Number.isFinite(t)) return cursor;
+  return new Date(t - lookbackMs).toISOString();
+}
+
 export async function listMarksDetailedIncremental(cursor: string): Promise<{
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
@@ -105,7 +122,7 @@ export async function listMarksDetailedIncremental(cursor: string): Promise<{
      FROM marks 
      WHERE updated_at > $1 
      ORDER BY symbol`,
-    [cursor]
+    [cursorWithLookback(cursor)]
   );
 
   const marks: Record<string, MarkInfo> = {};
@@ -159,12 +176,15 @@ export async function putMarksHandler(c: Context) {
   markActivity();
   const body = await c.req.json();
   if (body && typeof body.symbol === 'string' && typeof body.price === 'number') {
+    if (!Number.isFinite(body.price) || body.price <= 0) {
+      return c.json({ error: 'price must be a positive number' }, 400);
+    }
     await upsertMark(body.symbol, body.price, 'manual');
     return c.json({ ok: true, symbol: body.symbol.toUpperCase(), price: body.price });
   }
   if (body && typeof body.marks === 'object' && body.marks !== null) {
     for (const [symbol, price] of Object.entries(body.marks as Record<string, unknown>)) {
-      if (typeof price !== 'number') continue;
+      if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) continue;
       await upsertMark(symbol, price, 'manual');
     }
     return c.json({ ok: true });
@@ -232,7 +252,11 @@ export async function refreshQuotesHandler(c: Context) {
   if (result.error && result.error.includes('Too many symbols')) {
     return c.json(result, 400);
   }
-  return c.json(result, result.ok ? 200 : 502);
+  // A completed refresh is a 200 even if some/all symbols failed upstream: failed symbols keep
+  // their last known mark (listed in `stale`). 502 only when the refresh itself crashed
+  // (e.g. D1 error) and nothing was attempted. Clients must never treat this as "prices empty".
+  const attempted = result.updated.length + result.failed.length > 0;
+  return c.json(result, result.ok || attempted ? 200 : 502);
 }
 
 // Legacy cron function - now a no-op (replaced by quote-service)

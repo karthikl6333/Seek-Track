@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadPaperSummary, refreshPaperData } from '../lib/db';
 import type { PaperSummary } from '../types';
-import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
+import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
 export function Paper() {
   const [summary, setSummary] = useState<PaperSummary | null>(null);
@@ -343,7 +343,7 @@ export function Paper() {
               Win Rate
             </div>
             <div className="mono" style={{ fontSize: 18 }}>
-              {scoreboard.winRate !== null ? fmtPct(scoreboard.winRate) : '—'}
+              {scoreboard.winRate !== null ? fmtRatioPct(scoreboard.winRate) : '—'}
             </div>
           </div>
         </div>

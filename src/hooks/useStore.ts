@@ -186,9 +186,11 @@ export function useStore() {
   );
 
   const refreshLiveQuotes = useCallback(
-    async (extra?: string[]) => {
+    async (extra?: string[], options?: { includeHoldings?: boolean }) => {
       setError(null);
       setLastRefreshError(null);
+      
+      const includeHoldings = options?.includeHoldings ?? true;
       
       // Build symbol list
       const symbols = [...(extra ?? [])];
@@ -217,15 +219,23 @@ export function useStore() {
         if (foundB) symbols.push(foundB.etf, foundB.underlying);
       }
       
-      const open =
-        analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [];
-      let universe = [...new Set([...symbols, ...open].map((s) => s.toUpperCase()).filter(Boolean))];
+      // Include open positions only if requested (default true)
+      // Bug fix: when refreshing full universe, holdings are included once at the top level
+      const open = includeHoldings
+        ? (analysis?.positions.filter((p) => p.quantity !== 0).map((p) => p.symbol) ?? [])
+        : [];
+      
+      // Exclude empty symbols and 'TEST' (Bug 7)
+      let universe = [...new Set([...symbols, ...open]
+        .map((s) => s.toUpperCase().trim())
+        .filter((s) => s.length > 0 && s !== 'TEST')
+      )];
       
       try {
         // If no symbols, get universe
         if (universe.length === 0) {
           const { symbols: universeSymbols } = await db.getQuoteUniverse();
-          universe = universeSymbols;
+          universe = universeSymbols.filter((s) => s !== 'TEST' && s.length > 0);
         }
         
         // Chunk at client level (never send >10 symbols to server)
@@ -239,7 +249,7 @@ export function useStore() {
           // Handle needsChunking response (shouldn't happen with chunk ≤10, but be safe)
           if (result.needsChunking && result.universe) {
             // Server returned universe - use it for remaining chunks
-            universe = result.universe;
+            universe = result.universe.filter((s) => s !== 'TEST' && s.length > 0);
             continue;
           }
           
@@ -413,7 +423,9 @@ export function useStore() {
     [settings],
   );
 
-  return {
+  // Memoize the return object to prevent re-render loops
+  // Functions are already stable via useCallback, but the object itself must be stable
+  return useMemo(() => ({
     ready,
     error,
     authError,
@@ -453,7 +465,15 @@ export function useStore() {
     toggleHiddenSymbol,
     hiddenSet,
     applyMarksUpdate,
-  };
+  }), [
+    ready, error, authError, trades, marks, markDetails, lastRefreshAt, lastRefreshError,
+    settings, journal, view, setView, importResult, setImportResult, analysis,
+    calcA, setCalcA, whatIfA, calcB, setCalcB, whatIfB,
+    importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, loadPositionIntoCalc,
+    saveJournal, removeJournal, updateSettings, updateNote, refresh,
+    resolvedPairA, resolvedPairB, resolveCalcPair, pairBusyA, pairBusyB,
+    toggleHiddenSymbol, hiddenSet, applyMarksUpdate,
+  ]);
 }
 
 export type Store = ReturnType<typeof useStore>;

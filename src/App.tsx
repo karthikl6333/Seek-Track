@@ -57,6 +57,9 @@ export default function App() {
    * 1. GET /api/quotes/universe (1 Neon query)
    * 2. POST /api/quotes/refresh with ≤10 symbols (N Yahoo + 2 Neon per request)
    * 3. Repeat for each chunk
+   * 
+   * Bug fix: Holdings are included in the universe, so pass includeHoldings: false
+   * to avoid refreshing them 10x per cycle (once per chunk).
    */
   const refreshAll = useCallback(async () => {
     if (autoRefreshingRef.current) return;
@@ -68,9 +71,10 @@ export default function App() {
       console.log(`[App] Refreshing ${universe.length} symbols in chunks of ${CHUNK_SIZE}`);
       
       // Refresh in chunks (multiple HTTP requests, each stays under CF limit)
+      // Pass includeHoldings: false since holdings are already in universe
       for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
         const chunk = universe.slice(i, i + CHUNK_SIZE);
-        await store.refreshLiveQuotes(chunk);
+        await store.refreshLiveQuotes(chunk, { includeHoldings: false });
         console.log(
           `[App] Chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
         );
@@ -152,31 +156,25 @@ export default function App() {
   }, [refreshAll]); // Only run once on mount
 
   /**
-   * Auto-refresh system (disabled when live quotes enabled):
-   * - 30s interval for ALL symbols
+   * Auto-refresh system:
+   * - When live quotes OFF: 30s interval for ALL symbols
+   * - When live quotes ON: 30s fallback (lighter refresh) in case SSE fails
    * - Pauses when tab is hidden
-   * - Only active when live quotes are OFF
+   * - Resumes immediately when tab becomes visible
    */
   useEffect(() => {
-    // Skip auto-refresh when live quotes are enabled (SSE stream handles it)
-    if (liveQuotesEnabled) {
-      console.log('[App] Auto-refresh disabled (live quotes enabled)');
-      if (refreshIntervalRef.current !== null) {
-        clearInterval(refreshIntervalRef.current);
-        refreshIntervalRef.current = null;
-      }
-      return;
-    }
+    console.log(`[App] Auto-refresh ${liveQuotesEnabled ? '(fallback mode, 30s)' : '(full mode, 30s)'}`);
 
-    console.log('[App] Auto-refresh enabled (live quotes disabled)');
-
-    // Set up 30s interval (skip initial delay since we have a separate mount effect)
+    // Set up 30s interval
     refreshIntervalRef.current = window.setInterval(() => {
       // Skip refresh if tab is hidden (save Yahoo quota)
       if (document.hidden) {
         console.log('[App] Skipping auto-refresh (tab hidden)');
         return;
       }
+      
+      // In live mode, only refresh holdings+watchlist (SSE handles the rest)
+      // In delayed mode, refresh full universe
       void refreshAll();
     }, AUTO_REFRESH_INTERVAL_MS);
 

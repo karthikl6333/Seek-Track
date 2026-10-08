@@ -89,7 +89,9 @@ let lastRefreshAt: string | null = null;
 let lastRefreshError: string | null = null;
 let refreshIntervalHandle: NodeJS.Timeout | null = null;
 let lastActivityAt = Date.now();
-let isRefreshing = false;
+
+// Per-request refresh tracking (no global lock)
+const activeRefreshes = new Map<string, boolean>();
 
 /**
  * Determine current trading session
@@ -115,15 +117,16 @@ function determineSession(meta: YahooMeta, now: number): 'regular' | 'premarket'
 }
 
 /**
- * Fetch a single symbol from Yahoo with full metadata
+ * Fetch a single symbol from Yahoo with full metadata (with timeout)
  */
-async function fetchYahooQuote(symbol: string): Promise<QuoteData> {
+async function fetchYahooQuote(symbol: string, signal?: AbortSignal): Promise<QuoteData> {
   const url = `${YAHOO_CHART}/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': USER_AGENT,
       Accept: 'application/json',
     },
+    signal,
   });
 
   if (!res.ok) {
@@ -142,36 +145,35 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData> {
   const session = determineSession(meta, now);
   const isRegularHours = session === 'regular';
 
-  // Price selection logic
+  // Price selection logic (ALWAYS prefer last bar close for extended-hours accuracy)
+  // Yahoo's regularMarketPrice may be stale during pre/post market
   let price: number | null = null;
   
-  if (isRegularHours) {
-    // During regular hours: use regularMarketPrice
-    price = meta.regularMarketPrice ?? null;
-  } else {
-    // Outside regular hours: get last extended-hours bar close
-    // Yahoo's fulldayPrice does NOT contain extended-hours data; it equals regularMarketPrice
-    // The actual extended-hours price is in the last non-null close bar from includePrePost=true
-    const timestamps = result?.timestamp ?? [];
-    const closes = result?.indicators?.quote?.[0]?.close ?? [];
-    
-    // Find the last non-null close price from the bars (includes pre/post market)
-    for (let i = closes.length - 1; i >= 0; i--) {
-      const closePrice = closes[i];
-      if (closePrice != null && Number.isFinite(closePrice)) {
-        price = Number(closePrice);
-        break;
-      }
+  // ALWAYS try to get the last non-null close bar first (includes pre/post market with includePrePost=true)
+  const priceTimestamps = result?.timestamp ?? [];
+  const priceCloses = result?.indicators?.quote?.[0]?.close ?? [];
+  
+  // Find the last non-null close price from the bars (this is the most accurate, real-time price)
+  for (let i = priceCloses.length - 1; i >= 0; i--) {
+    const closePrice = priceCloses[i];
+    if (closePrice != null && Number.isFinite(closePrice)) {
+      price = Number(closePrice);
+      break;
     }
   }
 
-  // Fallback cascade if no price found yet
+  // Fallback cascade if no bar data available (rare, but handle gracefully)
   if (price === null || !Number.isFinite(price)) {
-    price =
-      meta.regularMarketPrice ??
-      meta.previousClose ??
-      meta.chartPreviousClose ??
-      null;
+    // During regular hours, regularMarketPrice is usually accurate
+    if (isRegularHours && meta.regularMarketPrice != null && Number.isFinite(meta.regularMarketPrice)) {
+      price = meta.regularMarketPrice;
+    } else {
+      // Last resort: use previous close (stale but better than nothing)
+      price =
+        meta.previousClose ??
+        meta.chartPreviousClose ??
+        null;
+    }
   }
 
   if (price === null || !Number.isFinite(price)) {
@@ -252,20 +254,34 @@ async function fetchYahooQuote(symbol: string): Promise<QuoteData> {
 }
 
 /**
- * Batch fetch with controlled concurrency
+ * Batch fetch with controlled concurrency and per-fetch timeout
  */
 async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, QuoteData | null>> {
   const results = new Map<string, QuoteData | null>();
+  const FETCH_TIMEOUT_MS = 5000; // 5s timeout per Yahoo fetch
   
   // Process in chunks with controlled concurrency
   for (let i = 0; i < symbols.length; i += YAHOO_CONCURRENCY) {
     const chunk = symbols.slice(i, i + YAHOO_CONCURRENCY);
     const chunkPromises = chunk.map(async (symbol) => {
       try {
-        const quote = await fetchYahooQuote(symbol);
-        results.set(symbol, quote);
+        // Per-fetch timeout via AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        
+        try {
+          const quote = await fetchYahooQuote(symbol, controller.signal);
+          results.set(symbol, quote);
+        } finally {
+          clearTimeout(timeoutId);
+        }
       } catch (err) {
-        console.error(`[QuoteService] Failed to fetch ${symbol}:`, err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('aborted')) {
+          console.error(`[QuoteService] Timeout fetching ${symbol} (${FETCH_TIMEOUT_MS}ms)`);
+        } else {
+          console.error(`[QuoteService] Failed to fetch ${symbol}:`, err);
+        }
         results.set(symbol, null);
       }
     });
@@ -341,10 +357,11 @@ async function buildSymbolUniverse(): Promise<string[]> {
 
   for (const r of allSymbolsRes.rows) {
     const sym = r.symbol.toUpperCase().trim();
-    if (sym.length > 0) symbols.add(sym);
+    // Exclude empty symbols and 'TEST' (Bug 7)
+    if (sym.length > 0 && sym !== 'TEST') symbols.add(sym);
   }
 
-  return Array.from(symbols).filter(s => s.length > 0).sort();
+  return Array.from(symbols).filter(s => s.length > 0 && s !== 'TEST').sort();
 }
 
 // Cache watchlist symbols to avoid repeated queries
@@ -380,9 +397,9 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   let paramIndex = 1;
   
   for (const [symbol, quote] of quotes.entries()) {
-    marksValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4})`);
-    marksParams.push(symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct);
-    paramIndex += 5;
+    marksValues.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`);
+    marksParams.push(symbol, quote.price, quote.updatedAt, quote.source, quote.dayPct, quote.session);
+    paramIndex += 6;
   }
 
   // Bulk upsert to watchlist_quotes (only watchlist symbols) - 1 query
@@ -418,13 +435,14 @@ async function persistQuotes(quotes: Map<string, QuoteData>): Promise<void> {
   // Execute both upserts in parallel (2 queries total)
   await Promise.all([
     marksValues.length > 0 ? query(
-      `INSERT INTO marks (symbol, price, updated_at, source, day_pct)
+      `INSERT INTO marks (symbol, price, updated_at, source, day_pct, session)
        VALUES ${marksValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
          price = EXCLUDED.price,
          updated_at = EXCLUDED.updated_at,
          source = EXCLUDED.source,
-         day_pct = EXCLUDED.day_pct`,
+         day_pct = EXCLUDED.day_pct,
+         session = EXCLUDED.session`,
       marksParams
     ) : Promise.resolve(),
     watchlistValues.length > 0 ? query(
@@ -477,17 +495,6 @@ export async function refreshAllPrices(
   universe?: string[];
   chunkSize?: number;
 }> {
-  if (isRefreshing) {
-    return {
-      ok: false,
-      updated: [],
-      failed: [],
-      refreshedAt: lastRefreshAt ?? new Date().toISOString(),
-      error: 'Refresh already in progress',
-      total: 0,
-    };
-  }
-
   // No symbols provided - return universe for caller to chunk
   if (!symbols || symbols.length === 0) {
     const universe = await buildSymbolUniverse();
@@ -506,9 +513,9 @@ export async function refreshAllPrices(
     };
   }
 
-  // Normalize symbols
+  // Normalize symbols (exclude empty and 'TEST')
   const universe = Array.from(
-    new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0))
+    new Set(symbols.map(s => s.trim().toUpperCase()).filter(s => s.length > 0 && s !== 'TEST'))
   ).sort();
 
   // Too many symbols - reject with error
@@ -527,7 +534,10 @@ export async function refreshAllPrices(
     };
   }
 
-  isRefreshing = true;
+  // Per-request tracking (no global lock - concurrent requests OK on different isolates)
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  activeRefreshes.set(requestId, true);
+
   const updated: string[] = [];
   const failed: string[] = [];
   let error: string | undefined;
@@ -546,7 +556,7 @@ export async function refreshAllPrices(
       };
     }
 
-    console.log(`[QuoteService] Refreshing ${universe.length} symbols`);
+    console.log(`[QuoteService] Refreshing ${universe.length} symbols (request ${requestId})`);
 
     const startTime = Date.now();
     const quotes = await fetchQuotesBatch(universe);
@@ -609,7 +619,7 @@ export async function refreshAllPrices(
       total: updated.length + failed.length,
     };
   } finally {
-    isRefreshing = false;
+    activeRefreshes.delete(requestId);
   }
 }
 
@@ -629,7 +639,7 @@ export function getQuoteServiceStatus() {
   return {
     lastRefreshAt,
     lastRefreshError,
-    isRefreshing,
+    activeRefreshCount: activeRefreshes.size,
     intervalActive: refreshIntervalHandle !== null,
   };
 }

@@ -83,6 +83,56 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
         ).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
       : null;
 
+  // Determine market session from marks (for session indicator)
+  const getMarketSession = (): string => {
+    // Get session from any recent mark (they should all be from same session)
+    const recentMark = totalsPositions
+      .map((p) => store.markDetails[p.symbol])
+      .find((m) => m?.session);
+    
+    if (!recentMark?.session || recentMark.session === 'unknown') {
+      // Fallback: compute from current time (US/Eastern)
+      const nowET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const dateET = new Date(nowET);
+      const hours = dateET.getHours();
+      const minutes = dateET.getMinutes();
+      const dayOfWeek = dateET.getDay();
+      
+      // Weekend = closed
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return 'Closed';
+      }
+      
+      // Weekday hours (Eastern Time)
+      const timeMinutes = hours * 60 + minutes;
+      if (timeMinutes >= 4 * 60 && timeMinutes < 9 * 60 + 30) {
+        return 'Pre-market';
+      } else if (timeMinutes >= 9 * 60 + 30 && timeMinutes < 16 * 60) {
+        return 'Regular';
+      } else if (timeMinutes >= 16 * 60 && timeMinutes < 20 * 60) {
+        return 'After-hours';
+      } else {
+        // Before 4am or after 8pm ET
+        const lastPrintTime = store.lastRefreshAt
+          ? new Date(store.lastRefreshAt).toLocaleTimeString('en-US', {
+              timeZone: 'America/New_York',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          : null;
+        return lastPrintTime ? `Closed — last ${lastPrintTime} ET` : 'Closed';
+      }
+    }
+    
+    // Use session from mark
+    if (recentMark.session === 'premarket') return 'Pre-market';
+    if (recentMark.session === 'afterhours') return 'After-hours';
+    if (recentMark.session === 'regular') return 'Regular';
+    return 'Closed';
+  };
+  
+  const marketSession = getMarketSession();
+
   const charges = summarizeCharges(store.trades);
 
   const paperPnl = paperSummary?.scoreboard.totalPnl ?? 0;
@@ -327,8 +377,32 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
               </table>
             </div>
             {lastUpdatedLabel && (
-              <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-                Prices last updated: {lastUpdatedLabel}
+              <p className="muted" style={{ fontSize: 12, marginBottom: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>Prices last updated: {lastUpdatedLabel}</span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    borderRadius: 3,
+                    background: marketSession.startsWith('Regular')
+                      ? 'rgba(34, 197, 94, 0.15)'
+                      : marketSession.startsWith('Pre-market') || marketSession.startsWith('After-hours')
+                      ? 'rgba(234, 179, 8, 0.15)'
+                      : 'rgba(156, 163, 175, 0.15)',
+                    color: marketSession.startsWith('Regular')
+                      ? '#22c55e'
+                      : marketSession.startsWith('Pre-market') || marketSession.startsWith('After-hours')
+                      ? '#eab308'
+                      : '#9ca3af',
+                    border: `1px solid ${marketSession.startsWith('Regular')
+                      ? '#22c55e'
+                      : marketSession.startsWith('Pre-market') || marketSession.startsWith('After-hours')
+                      ? '#eab308'
+                      : '#9ca3af'}`,
+                  }}
+                >
+                  {marketSession}
+                </span>
               </p>
             )}
           </div>

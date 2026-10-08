@@ -18,6 +18,7 @@ CREATE INDEX IF NOT EXISTS trades_date_idx ON trades (date);
 
 -- source: 'csv' | 'manual' (manual fills can be overridden on re-import)
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'csv';
+ALTER TABLE marks ADD COLUMN IF NOT EXISTS session TEXT;
 CREATE INDEX IF NOT EXISTS trades_source_idx ON trades (source);
 
 CREATE TABLE IF NOT EXISTS marks (
@@ -25,7 +26,8 @@ CREATE TABLE IF NOT EXISTS marks (
   price DOUBLE PRECISION NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
-  day_pct DOUBLE PRECISION
+  day_pct DOUBLE PRECISION,
+  session TEXT
 );
 
 CREATE TABLE IF NOT EXISTS journal (

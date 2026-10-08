@@ -16,6 +16,7 @@ export interface MarkInfo {
   updatedAt: string;
   source: string;
   dayPct: number | null;
+  session?: 'regular' | 'premarket' | 'afterhours' | 'unknown';
 }
 
 export async function upsertMark(
@@ -36,7 +37,7 @@ export async function upsertMark(
   );
 }
 
-export async function listMarksDetailed(): Promise<{
+export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
   lastRefreshError: string | null;
@@ -48,9 +49,12 @@ export async function listMarksDetailed(): Promise<{
     updated_at: Date | string;
     source: string | null;
     day_pct: number | null;
-  }>(`SELECT symbol, price, updated_at, source, day_pct FROM marks ORDER BY symbol`);
+    session: string | null;
+  }>(`SELECT symbol, price, updated_at, source, day_pct, session FROM marks ORDER BY symbol`);
 
   const marks: Record<string, MarkInfo> = {};
+  let maxUpdatedAt: string | null = null;
+  
   for (const r of res.rows) {
     const updatedAt =
       typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
@@ -60,11 +64,21 @@ export async function listMarksDetailed(): Promise<{
       updatedAt,
       source: r.source ?? 'manual',
       dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
+      session: r.session as 'regular' | 'premarket' | 'afterhours' | 'unknown' | undefined,
     };
+    
+    // Track max updated_at for filtered symbols (if provided) or all symbols
+    if (!symbolsFilter || symbolsFilter.includes(r.symbol)) {
+      if (!maxUpdatedAt || updatedAt > maxUpdatedAt) {
+        maxUpdatedAt = updatedAt;
+      }
+    }
   }
+  
+  // Use DB max(updated_at) as lastRefreshAt (Bug 5 fix)
   return {
     marks,
-    lastRefreshAt: status.lastRefreshAt,
+    lastRefreshAt: maxUpdatedAt,
     lastRefreshError: status.lastRefreshError,
   };
 }

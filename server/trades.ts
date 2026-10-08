@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { query } from './db.js';
+import { batch, query } from './db.js';
 import { parseSchwabCsv, type Trade } from './csv.js';
 import { hashTradeRow } from './hash.js';
 
@@ -43,35 +43,37 @@ export async function insertTradesIdempotent(
   trades: Array<Trade & { source?: string }>,
   source = 'csv',
 ): Promise<{ added: number; skipped: number }> {
-  // D1 allows max 50 statements per batch
-  // Use batch insert for better performance
   if (trades.length === 0) return { added: 0, skipped: 0 };
 
-  // First check which hashes already exist
+  // Which hashes already exist? ANY($1) binds the whole list as ONE param (json_each on D1),
+  // so CSV files with hundreds of rows never exceed D1's 100-bound-parameter limit.
   const hashes = trades.map((t) => t.rowHash);
-  const placeholders = hashes.map(() => '?').join(', ');
   const existing = await query<{ row_hash: string }>(
-    `SELECT row_hash FROM trades WHERE row_hash IN (${placeholders})`,
-    hashes
+    `SELECT row_hash FROM trades WHERE row_hash = ANY($1)`,
+    [hashes],
   );
-  const existingSet = new Set(existing.rows.map((r) => r.row_hash));
+  const seen = new Set(existing.rows.map((r) => r.row_hash));
 
-  // Filter to only new trades
-  const newTrades = trades.filter((t) => !existingSet.has(t.rowHash));
-  
+  // Filter to new trades, also de-duplicating identical rows within this same file
+  const newTrades: Array<Trade & { source?: string }> = [];
+  for (const t of trades) {
+    if (seen.has(t.rowHash)) continue;
+    seen.add(t.rowHash);
+    newTrades.push(t);
+  }
+
   if (newTrades.length === 0) {
     return { added: 0, skipped: trades.length };
   }
 
-  // Import the batch function from db module
-  const { batch } = await import('./db.js');
-
-  // Prepare batch insert statements (max 50 per batch in D1)
+  // One statement per row (13 params each), sent via D1 batch (chunked at 50 per batch).
+  // ON CONFLICT keeps the insert idempotent if a concurrent import raced us.
   const statements = newTrades.map((t) => ({
     text: `INSERT INTO trades (
         id, row_hash, date, action, symbol, description,
         quantity, price, fees, amount, imported_at, note, source
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT (row_hash) DO NOTHING`,
     params: [
       t.id || randomUUID(),
       t.rowHash,
@@ -90,7 +92,7 @@ export async function insertTradesIdempotent(
   }));
 
   await batch(statements);
-  
+
   return { added: newTrades.length, skipped: trades.length - newTrades.length };
 }
 

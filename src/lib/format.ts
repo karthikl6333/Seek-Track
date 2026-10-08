@@ -7,11 +7,21 @@ export function fmtMoney(n: number | null | undefined, digits = 2): string {
   })}`;
 }
 
+/**
+ * Format a value that is ALREADY in percent units (1.13 -> "1.13%", 0.89 -> "0.89%").
+ * Do not pass fractions here; use fmtRatioPct for 0..1 ratios such as win rate.
+ * (A previous "auto-scale values between 0 and 1" heuristic turned a +0.89% day move into
+ * "89.38%".)
+ */
 export function fmtPct(n: number | null | undefined, digits = 2): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  // If value is between 0 and 1 (e.g., 0.52 meaning 52%), multiply by 100
-  const val = n > 0 && n < 1 ? n * 100 : n;
-  return `${val.toFixed(digits)}%`;
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  return `${n.toFixed(digits)}%`;
+}
+
+/** Format a 0..1 ratio as a percentage (0.52 -> "52.00%", 1 -> "100.00%"). */
+export function fmtRatioPct(r: number | null | undefined, digits = 2): string {
+  if (r === null || r === undefined || !Number.isFinite(r)) return '—';
+  return fmtPct(r * 100, digits);
 }
 
 export function fmtQty(n: number): string {

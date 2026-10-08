@@ -76,48 +76,60 @@ export async function handleQuoteStream(c: Context) {
               timestamp: new Date().toISOString(),
               tickInterval: STREAM_TICK_INTERVAL_MS,
               maxTicks: MAX_TICKS_PER_CONNECTION,
+              // 2 = full `marks` snapshot on connect, then `marks-delta` events with changed rows only
+              protocol: 2,
             })
           )
         );
 
-        // Read-only loop: continuously read marks from DB and emit
-        // D1 optimization: first tick reads all, subsequent ticks read only changed rows
+        // Snapshot-on-connect: the FULL marks set goes out immediately as `marks` (every connect
+        // and every reconnect). Afterwards only changed rows go out, as a separate `marks-delta`
+        // event. Old client bundles only listen for `marks` and REPLACE their price map with it,
+        // so they must never receive a partial payload under that name (that blanked prices for
+        // tabs still running the pre-D1 build). Empty deltas are not sent at all.
+        const sent = new Map<string, string>(); // symbol -> updatedAt already delivered
+        const enqueue = (event: string, payload: unknown) =>
+          controller.enqueue(new TextEncoder().encode(sseMessage(event, payload)));
+
+        const sendSnapshot = async () => {
+          const data = await listMarksDetailed();
+          sent.clear();
+          for (const [sym, m] of Object.entries(data.marks)) sent.set(sym, m.updatedAt);
+          lastCursor = data.lastRefreshAt;
+          enqueue('marks', { ...data, incremental: false, snapshot: true });
+          console.log(`[QuoteStream] ${connectionId}: snapshot sent (${Object.keys(data.marks).length} marks)`);
+        };
+
+        try {
+          await sendSnapshot();
+        } catch (err) {
+          console.error(`[QuoteStream] ${connectionId}: initial snapshot failed:`, err);
+        }
+
         while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
-          // Wait before next tick
           await sleep(STREAM_TICK_INTERVAL_MS);
-
           if (closed) break;
-
           tickCount++;
 
-          // Read marks from DB
           try {
-            let data;
-            let isIncremental = false;
-            if (tickCount === 1 || !lastCursor) {
-              // First tick: read all marks
-              data = await listMarksDetailed();
-              console.log(
-                `[QuoteStream] ${connectionId}: Full read (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
-              );
+            if (!lastCursor) {
+              // Snapshot failed earlier (or DB was empty): retry the full read.
+              await sendSnapshot();
             } else {
-              // Subsequent ticks: read only marks updated since lastCursor
-              data = await listMarksDetailedIncremental(lastCursor);
-              isIncremental = true;
-              console.log(
-                `[QuoteStream] ${connectionId}: Incremental read since ${lastCursor} (tick ${tickCount}/${MAX_TICKS_PER_CONNECTION})`
-              );
+              const data = await listMarksDetailedIncremental(lastCursor);
+              if (data.lastRefreshAt) lastCursor = data.lastRefreshAt;
+              // De-duplicate rows re-read by the cursor look-back window.
+              const changed: Record<string, (typeof data.marks)[string]> = {};
+              for (const [sym, m] of Object.entries(data.marks)) {
+                if (sent.get(sym) !== m.updatedAt) {
+                  changed[sym] = m;
+                  sent.set(sym, m.updatedAt);
+                }
+              }
+              if (Object.keys(changed).length > 0) {
+                enqueue('marks-delta', { ...data, marks: changed, incremental: true });
+              }
             }
-
-            // Update cursor for next tick
-            if (data.lastRefreshAt) {
-              lastCursor = data.lastRefreshAt;
-            }
-
-            // `incremental: true` tells the client to MERGE these rows into its existing
-            // marks instead of replacing the whole map (incremental reads only carry changes).
-            const message = sseMessage('marks', { ...data, incremental: isIncremental });
-            controller.enqueue(new TextEncoder().encode(message));
           } catch (err) {
             console.error(`[QuoteStream] ${connectionId}: Failed to read/send marks:`, err);
             // Don't break - try again next tick

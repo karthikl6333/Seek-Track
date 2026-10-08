@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
+import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../lib/marks';
 import { TickerLink } from '../lib/yahoo';
 import type { PairDef } from '../types';
 
@@ -137,7 +138,8 @@ export function Watchlist(props: WatchlistProps = {}) {
   const refreshInProgressRef = useRef(false);
 
   const applyPayload = useCallback((data: WatchlistPayload) => {
-    setRows(data.rows ?? []);
+    // Preserve last known prices when a row comes back with last=null (failed Yahoo fetch etc.).
+    setRows((prev) => mergeWatchlistRows(prev, data.rows ?? []));
     setLastRefreshAt(data.lastRefreshAt ?? null);
   }, []);
 
@@ -397,7 +399,17 @@ export function Watchlist(props: WatchlistProps = {}) {
                 <td className="left">
                   <TickerLink symbol={r.symbol} />
                 </td>
-                <td className="mono">{fmtMoney(r.last, 2)}</td>
+                <td className="mono" title={r.updatedAt ? `Last price update: ${r.updatedAt}` : undefined}>
+                  {fmtMoney(r.last, 2)}
+                  {(() => {
+                    const age = r.last != null ? staleAge(r.updatedAt, Date.now(), STALE_AFTER_MS) : null;
+                    return age ? (
+                      <span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>
+                        {age}
+                      </span>
+                    ) : null;
+                  })()}
+                </td>
                 <td className={pnlClass(r.pctChange)}>{fmtPct(r.pctChange)}</td>
                 <td className={pnlClass(r.valChange)}>{fmtMoney(r.valChange)}</td>
                 {!compact && (

@@ -118,6 +118,7 @@ export async function refreshQuotes(
   ok: boolean;
   updated: string[];
   failed: string[];
+  stale?: string[];
   error?: string;
   refreshedAt: string;
   total: number;

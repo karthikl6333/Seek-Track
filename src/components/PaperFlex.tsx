@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { loadPaperFlexSummary, refreshPaperFlexData } from '../lib/db';
 import type { PaperFlexSummary } from '../types';
-import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
+import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
 export function PaperFlex() {
   const [summary, setSummary] = useState<PaperFlexSummary | null>(null);
@@ -343,7 +343,7 @@ export function PaperFlex() {
               Win Rate
             </div>
             <div className="mono" style={{ fontSize: 18 }}>
-              {scoreboard.winRate !== null ? fmtPct(scoreboard.winRate) : '—'}
+              {scoreboard.winRate !== null ? fmtRatioPct(scoreboard.winRate) : '—'}
             </div>
           </div>
         </div>

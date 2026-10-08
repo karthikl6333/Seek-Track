@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as db from '../lib/db';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
+import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import type {
   AppSettings,
   CalculatorState,
@@ -82,17 +83,26 @@ export function useStore() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [view]);
 
+  /**
+   * Single entry point for any marks payload (REST full read, SSE snapshot, SSE delta).
+   * Always MERGES: a symbol missing from the payload, or carrying a null/0 price, keeps its last
+   * known price. Prices therefore never go blank once known, whatever the server or a stale
+   * client/server version combination sends.
+   */
+  const ingestMarks = useCallback((incoming: Record<string, MarkInfo> | null | undefined) => {
+    setMarkDetails((prev) => {
+      const next = mergeMarkDetails(prev, incoming);
+      if (next !== prev) setMarks(flattenMarks(next));
+      return next;
+    });
+  }, []);
+
   const refreshMarks = useCallback(async () => {
     const detailed = await db.loadMarksDetailed();
-    const flat: Record<string, number> = {};
-    for (const [sym, info] of Object.entries(detailed.marks)) {
-      flat[sym] = info.price;
-    }
-    setMarks(flat);
-    setMarkDetails(detailed.marks);
-    setLastRefreshAt(detailed.lastRefreshAt);
+    ingestMarks(detailed.marks);
+    if (detailed.lastRefreshAt) setLastRefreshAt(detailed.lastRefreshAt);
     setLastRefreshError(detailed.lastRefreshError);
-  }, []);
+  }, [ingestMarks]);
 
   const applyMarksUpdate = useCallback((data: {
     marks: Record<string, MarkInfo>;
@@ -100,23 +110,11 @@ export function useStore() {
     lastRefreshError: string | null;
     incremental?: boolean;
   }) => {
-    const flat: Record<string, number> = {};
-    for (const [sym, info] of Object.entries(data.marks)) {
-      flat[sym] = info.price;
-    }
-    if (data.incremental) {
-      // Incremental SSE ticks only carry rows changed since the last tick: merge them.
-      if (Object.keys(data.marks).length > 0) {
-        setMarks((prev) => ({ ...prev, ...flat }));
-        setMarkDetails((prev) => ({ ...prev, ...data.marks }));
-      }
-    } else {
-      setMarks(flat);
-      setMarkDetails(data.marks);
-    }
-    setLastRefreshAt(data.lastRefreshAt);
+    // Snapshot or delta: both merge (see ingestMarks). Never replace the map.
+    ingestMarks(data.marks);
+    if (data.lastRefreshAt) setLastRefreshAt(data.lastRefreshAt);
     setLastRefreshError(data.lastRefreshError);
-  }, []);
+  }, [ingestMarks]);
 
   const refresh = useCallback(async () => {
     try {
@@ -247,35 +245,50 @@ export function useStore() {
           universe = universeSymbols.filter((s) => s !== 'TEST' && s.length > 0);
         }
         
-        // Chunk at client level (never send >10 symbols to server)
+        // Chunk at client level (never send >10 symbols to server). A failing chunk does not
+        // abort the others, and marks are always re-read (merged) afterwards, so a failed
+        // refresh just leaves the last known prices on screen.
         const CHUNK_SIZE = 10;
         const allResults: Awaited<ReturnType<typeof db.refreshQuotes>>[] = [];
-        
+        let firstError: unknown = null;
+
         for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
           const chunk = universe.slice(i, i + CHUNK_SIZE);
-          const result = await db.refreshQuotes(chunk);
-          
-          // Handle needsChunking response (shouldn't happen with chunk ≤10, but be safe)
-          if (result.needsChunking && result.universe) {
-            // Server returned universe - use it for remaining chunks
-            universe = result.universe.filter((s) => s !== 'TEST' && s.length > 0);
-            continue;
+          try {
+            const result = await db.refreshQuotes(chunk);
+            if (result.needsChunking && result.universe) {
+              universe = result.universe.filter((s) => s !== 'TEST' && s.length > 0);
+              continue;
+            }
+            allResults.push(result);
+          } catch (chunkErr) {
+            if (chunkErr instanceof db.AuthError) throw chunkErr;
+            firstError ??= chunkErr;
+            console.warn('[Store] quote refresh chunk failed; keeping last known prices', chunkErr);
           }
-          
-          allResults.push(result);
         }
-        
-        await refreshMarks();
-        
+
+        try {
+          await refreshMarks();
+        } catch (readErr) {
+          firstError ??= readErr;
+        }
+
+        if (firstError && allResults.length === 0) {
+          // Nothing refreshed: surface a small error badge; prices stay as they were.
+          setLastRefreshError(String(firstError));
+        }
+
         // Return aggregated result
         const aggregated = {
           ok: allResults.some(r => r.ok),
           updated: allResults.flatMap(r => r.updated),
           failed: allResults.flatMap(r => r.failed),
+          stale: allResults.flatMap(r => r.stale ?? []),
           refreshedAt: allResults[allResults.length - 1]?.refreshedAt ?? new Date().toISOString(),
           total: universe.length,
         };
-        
+
         return aggregated;
       } catch (err) {
         setLastRefreshError(String(err));

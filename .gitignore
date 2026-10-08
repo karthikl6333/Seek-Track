@@ -10,3 +10,5 @@ dist-functions
 dist-cf
 .dist-cf-backup
 node_modules
+
+.wrangler

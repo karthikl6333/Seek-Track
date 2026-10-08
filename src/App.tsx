@@ -11,6 +11,11 @@ import { Positions } from './components/Positions';
 import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
+import {
+  fullUniverseRefreshIntervalMs,
+  holdingsRefreshIntervalMs,
+  marketSessionAt,
+} from './lib/marketHours';
 import type { ViewId } from './types';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
@@ -28,10 +33,10 @@ const NAV: { id: ViewId; label: string }[] = [
   { id: 'cryptoPaper', label: 'Crypto Paper' },
 ];
 
-const HOLDINGS_WATCHLIST_REFRESH_INTERVAL_MS = 30_000; // 30 seconds (holdings + watchlist)
-const FULL_UNIVERSE_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (research + everything else)
 const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
 const LIVE_QUOTES_KEY = 'seektrack.liveQuotes';
+/** How often we re-evaluate the session-aware interval (handles open/close transitions). */
+const INTERVAL_RECHECK_MS = 60_000;
 
 export default function App() {
   const store = useStore();
@@ -46,8 +51,6 @@ export default function App() {
   const researchRef = useRef<ResearchRef>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshComplete, setRefreshComplete] = useState(false);
-  const holdingsWatchlistIntervalRef = useRef<number | null>(null);
-  const fullUniverseIntervalRef = useRef<number | null>(null);
   const autoRefreshingRef = useRef(false);
   const autoRefreshingHoldingsRef = useRef(false);
   
@@ -219,10 +222,10 @@ export default function App() {
       // Update store with live marks (read from storeRef.current for stable callback)
       storeRef.current.applyMarksUpdate(data);
 
-      // Incremental tick with no changed rows: nothing to reload (saves D1 reads every 5s)
-      if (data.incremental && Object.keys(data.marks).length === 0) return;
+      // Empty delta: nothing to reload (saves D1 reads). Full snapshots and non-empty deltas
+      // re-read the watchlist/research displays so they pick up the new marks join.
+      if (Object.keys(data.marks).length === 0) return;
 
-      // Reload watchlist and research displays
       void Promise.allSettled([
         watchlistRef.current?.reload(),
         researchRef.current?.reload(),
@@ -249,60 +252,71 @@ export default function App() {
   }, []); // Empty deps: run exactly once on mount, even when store identity changes
 
   /**
-   * Auto-refresh system:
-   * - Holdings + watchlist: 30s interval (both live and delayed modes)
-   * - Full universe (Research, etc.): 15-min interval
-   * - SSE stream (live mode) pushes marks updates to UI every 3s
-   * - Pauses when tab is hidden
-   * - Resumes immediately when tab becomes visible
-   * 
-   * CRITICAL: Empty deps ([]) ensures intervals are NOT reset on every marks update.
-   * refreshAll and refreshHoldingsAndWatchlist are stable (empty deps, read storeRef.current).
-   * Without empty deps, intervals would clear and re-create every ~3s in live mode → never fire.
+   * Auto-refresh system (session-aware):
+   * - Regular hours: holdings/watchlist every 30s, full universe every 15m
+   * - Pre-market / after-hours: holdings/watchlist every 60s, full universe every 15m
+   * - Closed (overnight / weekend): holdings/watchlist every 10m, full universe every 60m
+     (Yahoo has no new prints then; keep D1 reads/writes low)
+   * - Pauses while the tab is hidden; refreshes immediately when it becomes visible
+   * - Manual refresh button always available
+   *
+   * CRITICAL: Empty deps ([]) so intervals are not reset on every marks update.
+   * Callbacks are stable (empty deps, read storeRef.current).
    */
   useEffect(() => {
-    console.log('[App] Auto-refresh enabled: holdings/watchlist 30s, full universe 15m');
+    let holdingsHandle: number | null = null;
+    let fullHandle: number | null = null;
+    let recheckHandle: number | null = null;
+    let currentSession = marketSessionAt(new Date());
 
-    // 30s interval: holdings + watchlist (both live and delayed modes)
-    holdingsWatchlistIntervalRef.current = window.setInterval(() => {
-      if (document.hidden) {
-        console.log('[App] Skipping holdings/watchlist refresh (tab hidden)');
-        return;
-      }
-      void refreshHoldingsAndWatchlist();
-    }, HOLDINGS_WATCHLIST_REFRESH_INTERVAL_MS);
+    const clearTimers = () => {
+      if (holdingsHandle !== null) { clearInterval(holdingsHandle); holdingsHandle = null; }
+      if (fullHandle !== null) { clearInterval(fullHandle); fullHandle = null; }
+    };
 
-    // 15-min interval: full universe (Research, etc.)
-    fullUniverseIntervalRef.current = window.setInterval(() => {
-      if (document.hidden) {
-        console.log('[App] Skipping full universe refresh (tab hidden)');
-        return;
-      }
-      console.log('[App] Running 15-min full universe refresh');
-      void refreshAll();
-    }, FULL_UNIVERSE_REFRESH_INTERVAL_MS);
+    const schedule = () => {
+      const now = new Date();
+      currentSession = marketSessionAt(now);
+      const holdingsMs = holdingsRefreshIntervalMs(now);
+      const fullMs = fullUniverseRefreshIntervalMs(now);
+      clearTimers();
+      console.log(
+        `[App] Auto-refresh: session=${currentSession}, holdings/watchlist=${holdingsMs / 1000}s, full=${fullMs / 60000}m`,
+      );
+      holdingsHandle = window.setInterval(() => {
+        if (document.hidden) return;
+        void refreshHoldingsAndWatchlist();
+      }, holdingsMs);
+      fullHandle = window.setInterval(() => {
+        if (document.hidden) return;
+        console.log('[App] Running full universe refresh');
+        void refreshAll();
+      }, fullMs);
+    };
 
-    // Resume immediately when tab becomes visible
+    schedule();
+    // Re-evaluate when the session flips (e.g. 9:30 ET open, 16:00 close).
+    recheckHandle = window.setInterval(() => {
+      const next = marketSessionAt(new Date());
+      if (next !== currentSession) schedule();
+    }, INTERVAL_RECHECK_MS);
+
     const handleVisibilityChange = () => {
       if (!document.hidden && !autoRefreshingHoldingsRef.current) {
         console.log('[App] Tab visible, triggering holdings/watchlist refresh');
         void refreshHoldingsAndWatchlist();
+        // Also re-schedule in case we crossed a session boundary while hidden.
+        schedule();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (holdingsWatchlistIntervalRef.current !== null) {
-        clearInterval(holdingsWatchlistIntervalRef.current);
-        holdingsWatchlistIntervalRef.current = null;
-      }
-      if (fullUniverseIntervalRef.current !== null) {
-        clearInterval(fullUniverseIntervalRef.current);
-        fullUniverseIntervalRef.current = null;
-      }
+      clearTimers();
+      if (recheckHandle !== null) clearInterval(recheckHandle);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []); // Empty deps: intervals persist across store identity changes, callbacks are stable
+  }, []); // Empty deps: intervals persist across store identity changes
 
   const handleLogout = useCallback(() => {
     // Robust Basic Auth logout for Chromium/Safari/Firefox
@@ -419,7 +433,7 @@ export default function App() {
               }}
               title={liveQuotesEnabled
                 ? (liveConnected ? 'Live streaming active (~3s refresh)' : 'Connecting to live stream...')
-                : '30-second delayed refresh'}
+                : 'Session-aware delayed refresh'}
             >
               {liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
             </div>
@@ -429,7 +443,7 @@ export default function App() {
               type="button"
               className="btn"
               onClick={toggleLiveQuotes}
-              title={liveQuotesEnabled ? 'Disable live quotes (30s refresh)' : 'Enable live quotes (~3s refresh)'}
+              title={liveQuotesEnabled ? 'Disable live quotes (session-aware poll)' : 'Enable live quotes (SSE)'}
               style={{
                 minWidth: 70,
                 minHeight: 40,
@@ -453,7 +467,7 @@ export default function App() {
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}
-                title={store.lastRefreshError}
+                title={`${store.lastRefreshError} (last known prices still shown)`}
               >
                 ⚠ {store.lastRefreshError.split('\n')[0].slice(0, 100)}
               </div>

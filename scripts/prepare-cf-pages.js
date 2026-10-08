@@ -41,9 +41,17 @@ let dbJsContent = readFileSync(dbJsPath, 'utf8');
 // Replace the placeholder with the actual schema as a string literal
 // Escape backticks and backslashes in the SQL
 const escapedSql = schemaSql.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+// NOTE: this runs on the *compiled* JS (tsc strips the `: string | null` annotation),
+// so match the JS form. Fail the build if the placeholder isn't found, otherwise the
+// Worker silently ships without a schema and ensureSchema() throws on every request.
+const placeholderRe = /\/\/ @SCHEMA_SQL_PLACEHOLDER@\r?\nlet EMBEDDED_SCHEMA(?:: string \| null)? = null;/;
+if (!placeholderRe.test(dbJsContent)) {
+  console.error(`❌ Schema placeholder not found in ${dbJsPath}; cannot embed schema-d1.sql`);
+  process.exit(1);
+}
 dbJsContent = dbJsContent.replace(
-  '// @SCHEMA_SQL_PLACEHOLDER@\nlet EMBEDDED_SCHEMA: string | null = null;',
-  `// Schema embedded at build time for Cloudflare Workers\nconst EMBEDDED_SCHEMA: string | null = \`${escapedSql}\`;`
+  placeholderRe,
+  () => `// Schema embedded at build time for Cloudflare Workers\nconst EMBEDDED_SCHEMA = \`${escapedSql}\`;`
 );
 writeFileSync(dbJsPath, dbJsContent, 'utf8');
 console.log('✅ Schema embedded successfully');

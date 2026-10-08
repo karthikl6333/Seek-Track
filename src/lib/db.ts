@@ -10,7 +10,10 @@ import type {
 } from '../types';
 import { DEFAULT_SETTINGS } from './pairs';
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
+// Build API base URL without credentials (avoid "Request cannot be constructed from a URL that includes credentials")
+// If VITE_API_BASE is empty, use window.location.origin (strips credentials from page URL)
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 
+  (typeof window !== 'undefined' ? window.location.origin : '');
 
 export class AuthError extends Error {
   constructor(message: string) {
@@ -20,7 +23,12 @@ export class AuthError extends Error {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  // Build URL from API_BASE + path to avoid carrying credentials from page URL into fetch
+  // If API_BASE is empty, just use path as-is (for relative URLs)
+  // Otherwise, use new URL(path, base) which strips credentials from base
+  const url = API_BASE ? new URL(path, API_BASE).href : path;
+  
+  const res = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -228,4 +236,25 @@ export async function deleteAlert(id: string): Promise<{ ok: boolean }> {
   return api(`/api/alerts/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+/**
+ * Load watchlist symbols from the API
+ * Returns array of symbols (uppercase, trimmed, no empty/TEST)
+ */
+export async function loadWatchlistSymbols(): Promise<string[]> {
+  const data = await api<{
+    symbols?: string[];
+    rows?: Array<{ symbol: string }>;
+    lastRefreshAt?: string | null;
+  } | null>('/api/watchlist');
+  
+  // Handle null/undefined response gracefully
+  if (!data) return [];
+  
+  // Prefer symbols array, fallback to rows[].symbol for backwards compatibility
+  const symbols = data.symbols ?? data.rows?.map((r) => r.symbol) ?? [];
+  return symbols
+    .map((s) => s.toUpperCase().trim())
+    .filter((s) => s.length > 0 && s !== 'TEST');
 }

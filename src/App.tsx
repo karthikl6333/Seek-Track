@@ -12,8 +12,9 @@ import { Trades } from './components/Trades';
 import { useStore } from './hooks/useStore';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
 import {
-  fullUniverseRefreshIntervalMs,
-  holdingsRefreshIntervalMs,
+  autoRefreshAllowedAt,
+  autoRefreshPlan,
+  isWeekendAt,
   marketSessionAt,
 } from './lib/marketHours';
 import type { ViewId } from './types';
@@ -54,6 +55,10 @@ export default function App() {
   const autoRefreshingRef = useRef(false);
   const autoRefreshingHoldingsRef = useRef(false);
   
+  // Weekend (Fri 20:00 ET → Mon 04:00 ET): no automatic Yahoo refresh, no SSE polling.
+  // Updated by the scheduler below when the session flips.
+  const [weekend, setWeekend] = useState(() => isWeekendAt(new Date()));
+
   // Live quotes toggle state
   const [liveQuotesEnabled, setLiveQuotesEnabled] = useState(() => {
     try {
@@ -217,7 +222,7 @@ export default function App() {
   // Live quotes SSE connection
   // Stable callback (empty deps) reads storeRef.current at call time
   const { connected: liveConnected } = useLiveQuotes(
-    liveQuotesEnabled,
+    liveQuotesEnabled && !weekend, // prices don't move on weekends: skip the 5s D1 marks poll
     useCallback((data) => {
       // Update store with live marks (read from storeRef.current for stable callback)
       storeRef.current.applyMarksUpdate(data);
@@ -244,6 +249,11 @@ export default function App() {
    */
   useEffect(() => {
     const initialTimer = setTimeout(() => {
+      if (!autoRefreshAllowedAt(new Date())) {
+        // Weekend: show stored marks only (useStore already did one GET /api/marks on load).
+        console.log('[App] Weekend: skipping initial Yahoo refresh, showing stored prices');
+        return;
+      }
       console.log('[App] Running initial refresh on mount');
       void refreshAll();
     }, 1000); // 1s delay for initial load
@@ -252,13 +262,14 @@ export default function App() {
   }, []); // Empty deps: run exactly once on mount, even when store identity changes
 
   /**
-   * Auto-refresh system (session-aware):
+   * Auto-refresh system (session-aware, America/New_York):
    * - Regular hours: holdings/watchlist every 30s, full universe every 15m
    * - Pre-market / after-hours: holdings/watchlist every 60s, full universe every 15m
-   * - Closed (overnight / weekend): holdings/watchlist every 10m, full universe every 60m
-     (Yahoo has no new prints then; keep D1 reads/writes low)
-   * - Pauses while the tab is hidden; refreshes immediately when it becomes visible
-   * - Manual refresh button always available
+   * - Weekday overnight (closed): holdings/watchlist every 10m, full universe every 60m
+   * - Weekend (Fri 20:00 → Mon 04:00 ET): NO automatic refresh; a wake timer (plus the 60s
+   *   session re-check) resumes refreshing at Mon 04:00 ET
+   * - Pauses while the tab is hidden; refreshes when it becomes visible (weekdays only)
+   * - Manual refresh buttons always work, including on weekends
    *
    * CRITICAL: Empty deps ([]) so intervals are not reset on every marks update.
    * Callbacks are stable (empty deps, read storeRef.current).
@@ -266,47 +277,71 @@ export default function App() {
   useEffect(() => {
     let holdingsHandle: number | null = null;
     let fullHandle: number | null = null;
+    let wakeHandle: number | null = null;
     let recheckHandle: number | null = null;
     let currentSession = marketSessionAt(new Date());
 
     const clearTimers = () => {
       if (holdingsHandle !== null) { clearInterval(holdingsHandle); holdingsHandle = null; }
       if (fullHandle !== null) { clearInterval(fullHandle); fullHandle = null; }
+      if (wakeHandle !== null) { clearTimeout(wakeHandle); wakeHandle = null; }
     };
 
     const schedule = () => {
-      const now = new Date();
-      currentSession = marketSessionAt(now);
-      const holdingsMs = holdingsRefreshIntervalMs(now);
-      const fullMs = fullUniverseRefreshIntervalMs(now);
+      const plan = autoRefreshPlan(new Date());
+      currentSession = plan.session;
+      setWeekend(currentSession === 'weekend');
+      const { holdingsMs, fullMs } = plan;
       clearTimers();
+
+      if (holdingsMs === null || fullMs === null) {
+        const wakeIn = plan.resumeInMs;
+        console.log(
+          `[App] Auto-refresh paused (session=${currentSession})` +
+            (wakeIn !== null ? `; resumes in ${Math.round(wakeIn / 60000)}m (Mon 04:00 ET)` : ''),
+        );
+        // setTimeout delays are capped at 2^31-1 ms (~24.8 days); the weekend is far shorter.
+        if (wakeIn !== null) wakeHandle = window.setTimeout(checkSession, wakeIn + 1_000);
+        return;
+      }
+
       console.log(
         `[App] Auto-refresh: session=${currentSession}, holdings/watchlist=${holdingsMs / 1000}s, full=${fullMs / 60000}m`,
       );
       holdingsHandle = window.setInterval(() => {
-        if (document.hidden) return;
+        if (document.hidden || !autoRefreshAllowedAt(new Date())) return;
         void refreshHoldingsAndWatchlist();
       }, holdingsMs);
       fullHandle = window.setInterval(() => {
-        if (document.hidden) return;
+        if (document.hidden || !autoRefreshAllowedAt(new Date())) return;
         console.log('[App] Running full universe refresh');
         void refreshAll();
       }, fullMs);
     };
 
-    schedule();
-    // Re-evaluate when the session flips (e.g. 9:30 ET open, 16:00 close).
-    recheckHandle = window.setInterval(() => {
+    /** Re-evaluate the session; on weekend → weekday, resume and refresh right away. */
+    function checkSession() {
+      const prev = currentSession;
       const next = marketSessionAt(new Date());
-      if (next !== currentSession) schedule();
-    }, INTERVAL_RECHECK_MS);
+      if (next === prev) return;
+      schedule();
+      if (prev === 'weekend' && next !== 'weekend' && !document.hidden) {
+        console.log('[App] Weekend over, resuming automatic refresh');
+        void refreshHoldingsAndWatchlist();
+      }
+    }
+
+    schedule();
+    // Safety net for session flips (9:30 open, 16:00 close, laptop sleep across Mon 04:00, etc.)
+    recheckHandle = window.setInterval(checkSession, INTERVAL_RECHECK_MS);
 
     const handleVisibilityChange = () => {
-      if (!document.hidden && !autoRefreshingHoldingsRef.current) {
+      if (document.hidden) return;
+      checkSession(); // may resume after a weekend spent hidden
+      if (!autoRefreshAllowedAt(new Date())) return; // weekend: no Yahoo refresh on visible
+      if (!autoRefreshingHoldingsRef.current) {
         console.log('[App] Tab visible, triggering holdings/watchlist refresh');
         void refreshHoldingsAndWatchlist();
-        // Also re-schedule in case we crossed a session boundary while hidden.
-        schedule();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -421,21 +456,23 @@ export default function App() {
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                background: liveQuotesEnabled
+                background: liveQuotesEnabled && !weekend
                   ? (liveConnected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)')
                   : 'rgba(156, 163, 175, 0.15)',
-                color: liveQuotesEnabled
+                color: liveQuotesEnabled && !weekend
                   ? (liveConnected ? '#22c55e' : '#eab308')
                   : '#9ca3af',
-                border: `1px solid ${liveQuotesEnabled
+                border: `1px solid ${liveQuotesEnabled && !weekend
                   ? (liveConnected ? '#22c55e' : '#eab308')
                   : '#9ca3af'}`,
               }}
-              title={liveQuotesEnabled
-                ? (liveConnected ? 'Live streaming active (~3s refresh)' : 'Connecting to live stream...')
+              title={weekend
+                ? 'Weekend: automatic refresh paused until Mon 04:00 ET. Manual refresh still works.'
+                : liveQuotesEnabled
+                ? (liveConnected ? 'Live streaming active (~5s updates)' : 'Connecting to live stream...')
                 : 'Session-aware delayed refresh'}
             >
-              {liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
+              {weekend ? 'Weekend' : liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
             </div>
             
             {/* Live quotes toggle */}

@@ -14,8 +14,11 @@ import { useLiveQuotes } from './hooks/useLiveQuotes';
 import {
   autoRefreshAllowedAt,
   autoRefreshPlan,
-  isWeekendAt,
   marketSessionAt,
+  nonTradingBadge,
+  nonTradingTooltip,
+  nonTradingWindowAt,
+  type NonTradingWindow,
 } from './lib/marketHours';
 import type { ViewId } from './types';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
@@ -55,9 +58,9 @@ export default function App() {
   const autoRefreshingRef = useRef(false);
   const autoRefreshingHoldingsRef = useRef(false);
   
-  // Weekend (Fri 20:00 ET → Mon 04:00 ET): no automatic Yahoo refresh, no SSE polling.
-  // Updated by the scheduler below when the session flips.
-  const [weekend, setWeekend] = useState(() => isWeekendAt(new Date()));
+  // Weekend / NYSE holiday window (last trading day 20:00 ET → next trading day 04:00 ET):
+  // no automatic Yahoo refresh, no SSE polling. Updated by the scheduler when the session flips.
+  const [closedWindow, setClosedWindow] = useState<NonTradingWindow | null>(() => nonTradingWindowAt(new Date()));
 
   // Live quotes toggle state
   const [liveQuotesEnabled, setLiveQuotesEnabled] = useState(() => {
@@ -222,7 +225,7 @@ export default function App() {
   // Live quotes SSE connection
   // Stable callback (empty deps) reads storeRef.current at call time
   const { connected: liveConnected } = useLiveQuotes(
-    liveQuotesEnabled && !weekend, // prices don't move on weekends: skip the 5s D1 marks poll
+    liveQuotesEnabled && !closedWindow, // prices don't move on weekends/holidays: skip the 5s D1 marks poll
     useCallback((data) => {
       // Update store with live marks (read from storeRef.current for stable callback)
       storeRef.current.applyMarksUpdate(data);
@@ -250,8 +253,8 @@ export default function App() {
   useEffect(() => {
     const initialTimer = setTimeout(() => {
       if (!autoRefreshAllowedAt(new Date())) {
-        // Weekend: show stored marks only (useStore already did one GET /api/marks on load).
-        console.log('[App] Weekend: skipping initial Yahoo refresh, showing stored prices');
+        // Weekend/holiday: show stored marks only (useStore already did one GET /api/marks on load).
+        console.log('[App] Weekend/holiday: skipping initial Yahoo refresh, showing stored prices');
         return;
       }
       console.log('[App] Running initial refresh on mount');
@@ -266,10 +269,11 @@ export default function App() {
    * - Regular hours: holdings/watchlist every 30s, full universe every 15m
    * - Pre-market / after-hours: holdings/watchlist every 60s, full universe every 15m
    * - Weekday overnight (closed): holdings/watchlist every 10m, full universe every 60m
-   * - Weekend (Fri 20:00 → Mon 04:00 ET): NO automatic refresh; a wake timer (plus the 60s
-   *   session re-check) resumes refreshing at Mon 04:00 ET
+   * - Weekend / NYSE holiday window (last trading day 20:00 ET → next trading day 04:00 ET):
+   *   NO automatic refresh; a wake timer (plus the 60s session re-check) resumes refreshing at
+   *   04:00 ET on the next trading day
    * - Pauses while the tab is hidden; refreshes when it becomes visible (weekdays only)
-   * - Manual refresh buttons always work, including on weekends
+   * - Manual refresh buttons always work, including on weekends/holidays
    *
    * CRITICAL: Empty deps ([]) so intervals are not reset on every marks update.
    * Callbacks are stable (empty deps, read storeRef.current).
@@ -290,7 +294,7 @@ export default function App() {
     const schedule = () => {
       const plan = autoRefreshPlan(new Date());
       currentSession = plan.session;
-      setWeekend(currentSession === 'weekend');
+      setClosedWindow(plan.window);
       const { holdingsMs, fullMs } = plan;
       clearTimers();
 
@@ -298,9 +302,11 @@ export default function App() {
         const wakeIn = plan.resumeInMs;
         console.log(
           `[App] Auto-refresh paused (session=${currentSession})` +
-            (wakeIn !== null ? `; resumes in ${Math.round(wakeIn / 60000)}m (Mon 04:00 ET)` : ''),
+            (wakeIn !== null && plan.window
+              ? `; ${plan.window.kind}, resumes in ${Math.round(wakeIn / 60000)}m (${plan.window.resumesAt.toISOString()})`
+              : ''),
         );
-        // setTimeout delays are capped at 2^31-1 ms (~24.8 days); the weekend is far shorter.
+        // setTimeout delays are capped at 2^31-1 ms (~24.8 days); a weekend/holiday window is ≤ 4 days.
         if (wakeIn !== null) wakeHandle = window.setTimeout(checkSession, wakeIn + 1_000);
         return;
       }
@@ -319,14 +325,14 @@ export default function App() {
       }, fullMs);
     };
 
-    /** Re-evaluate the session; on weekend → weekday, resume and refresh right away. */
+    /** Re-evaluate the session; when a weekend/holiday window ends, resume and refresh right away. */
     function checkSession() {
       const prev = currentSession;
       const next = marketSessionAt(new Date());
       if (next === prev) return;
       schedule();
-      if (prev === 'weekend' && next !== 'weekend' && !document.hidden) {
-        console.log('[App] Weekend over, resuming automatic refresh');
+      if (prev === 'nontrading' && next !== 'nontrading' && !document.hidden) {
+        console.log('[App] Weekend/holiday over, resuming automatic refresh');
         void refreshHoldingsAndWatchlist();
       }
     }
@@ -337,8 +343,8 @@ export default function App() {
 
     const handleVisibilityChange = () => {
       if (document.hidden) return;
-      checkSession(); // may resume after a weekend spent hidden
-      if (!autoRefreshAllowedAt(new Date())) return; // weekend: no Yahoo refresh on visible
+      checkSession(); // may resume after a weekend/holiday spent hidden
+      if (!autoRefreshAllowedAt(new Date())) return; // weekend/holiday: no Yahoo refresh on visible
       if (!autoRefreshingHoldingsRef.current) {
         console.log('[App] Tab visible, triggering holdings/watchlist refresh');
         void refreshHoldingsAndWatchlist();
@@ -456,23 +462,23 @@ export default function App() {
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                background: liveQuotesEnabled && !weekend
+                background: liveQuotesEnabled && !closedWindow
                   ? (liveConnected ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)')
                   : 'rgba(156, 163, 175, 0.15)',
-                color: liveQuotesEnabled && !weekend
+                color: liveQuotesEnabled && !closedWindow
                   ? (liveConnected ? '#22c55e' : '#eab308')
                   : '#9ca3af',
-                border: `1px solid ${liveQuotesEnabled && !weekend
+                border: `1px solid ${liveQuotesEnabled && !closedWindow
                   ? (liveConnected ? '#22c55e' : '#eab308')
                   : '#9ca3af'}`,
               }}
-              title={weekend
-                ? 'Weekend: automatic refresh paused until Mon 04:00 ET. Manual refresh still works.'
+              title={closedWindow
+                ? nonTradingTooltip(closedWindow)
                 : liveQuotesEnabled
                 ? (liveConnected ? 'Live streaming active (~5s updates)' : 'Connecting to live stream...')
                 : 'Session-aware delayed refresh'}
             >
-              {weekend ? 'Weekend' : liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
+              {closedWindow ? nonTradingBadge(closedWindow) : liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
             </div>
             
             {/* Live quotes toggle */}

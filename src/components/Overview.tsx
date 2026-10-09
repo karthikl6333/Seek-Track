@@ -10,6 +10,7 @@ import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { TickerLink } from '../lib/yahoo';
 import { STALE_AFTER_MS, staleAge } from '../lib/marks';
+import { isWeekendAt, WEEKEND_PRICES_LABEL } from '../lib/marketHours';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
@@ -86,6 +87,8 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
 
   // Determine market session from marks (for session indicator)
   const getMarketSession = (): string => {
+    // Weekend (Fri 20:00 → Mon 04:00 ET): auto-refresh is paused; marks are Friday's last prints.
+    if (isWeekendAt(new Date())) return WEEKEND_PRICES_LABEL;
     // Get session from any recent mark (they should all be from same session)
     const recentMark = totalsPositions
       .map((p) => store.markDetails[p.symbol])

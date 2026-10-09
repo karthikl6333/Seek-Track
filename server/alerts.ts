@@ -109,16 +109,27 @@ export async function deleteAlert(id: string): Promise<void> {
 }
 
 /** Evaluate all active alerts against current marks */
-export async function evaluateAlerts(): Promise<{
+/**
+ * Evaluate active alerts. With `onlySymbols` (the symbols whose price just changed) only those
+ * alerts are read, via price_alerts(status, symbol); without it every active alert is evaluated.
+ */
+export async function evaluateAlerts(onlySymbols?: string[]): Promise<{
   evaluated: number;
   triggered: string[];
 }> {
-  // Fetch all active alerts
-  const alertsRes = await query<DbAlert>(
-    `SELECT id, symbol, target_price, condition, status, created_at, triggered_at, last_price, notified_at
-     FROM price_alerts
-     WHERE status = 'active'`,
-  );
+  if (onlySymbols && onlySymbols.length === 0) return { evaluated: 0, triggered: [] };
+  const alertsRes = onlySymbols
+    ? await query<DbAlert>(
+        `SELECT id, symbol, target_price, condition, status, created_at, triggered_at, last_price, notified_at
+         FROM price_alerts
+         WHERE status = 'active' AND symbol = ANY($1)`,
+        [onlySymbols.map((s) => s.toUpperCase())],
+      )
+    : await query<DbAlert>(
+        `SELECT id, symbol, target_price, condition, status, created_at, triggered_at, last_price, notified_at
+         FROM price_alerts
+         WHERE status = 'active'`,
+      );
 
   if (alertsRes.rows.length === 0) {
     return { evaluated: 0, triggered: [] };

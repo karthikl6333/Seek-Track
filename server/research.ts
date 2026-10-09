@@ -359,7 +359,11 @@ async function setResearchUniverseSeededFlag(): Promise<void> {
   );
 }
 
+/** Per isolate: once the universe is confirmed seeded, skip the COUNT + settings check. */
+let researchSeedVerified = false;
+
 export async function ensureResearchSeeded(): Promise<void> {
+  if (researchSeedVerified) return;
   const countRes = await query<{ n: number }>(
     `SELECT COUNT(*) AS n FROM research_universe`,
   );
@@ -368,6 +372,7 @@ export async function ensureResearchSeeded(): Promise<void> {
 
   // CRITICAL: Early return when data already seeded (skip expensive DELETE + INSERT loops on every GET)
   if (count > 0 && alreadySeeded) {
+    researchSeedVerified = true;
     return;
   }
 

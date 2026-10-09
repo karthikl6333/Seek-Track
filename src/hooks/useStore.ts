@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as db from '../lib/db';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
-import { checkedAtAfter } from '../lib/refreshStamp';
+import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';
 import type {
   AppSettings,
   CalculatorState,
@@ -100,8 +100,16 @@ export function useStore() {
     });
   }, []);
 
-  const refreshMarks = useCallback(async () => {
-    const detailed = await db.loadMarksDetailed();
+  // Newest updatedAt we hold: lets refreshMarks ask the server for a delta (?since=) instead of
+  // the whole marks table. Full read only on first load (or with { full: true }).
+  const markCursorRef = useRef<string | null>(null);
+  useEffect(() => {
+    markCursorRef.current = newestMarkStamp(markDetails);
+  }, [markDetails]);
+
+  const refreshMarks = useCallback(async (opts?: { full?: boolean }) => {
+    const since = opts?.full ? null : markCursorRef.current;
+    const detailed = await db.loadMarksDetailed(since);
     ingestMarks(detailed.marks);
     if (detailed.lastRefreshAt) setLastRefreshAt(detailed.lastRefreshAt);
     setLastRefreshError(detailed.lastRefreshError);
@@ -119,13 +127,18 @@ export function useStore() {
     setLastRefreshError(data.lastRefreshError);
   }, [ingestMarks]);
 
-  const refresh = useCallback(async () => {
+  /**
+   * Full reload (trades, settings, journal, pairs, marks). Only on load, after this client's own
+   * writes (fresh: bypass the server's per-isolate trades cache) and on manual refresh. The
+   * periodic price cycles call refreshMarks() instead (D1 read budget).
+   */
+  const refresh = useCallback(async (opts?: { fresh?: boolean }) => {
     try {
       const [t, s, j, pairCache] = await Promise.all([
-        db.loadAllTrades(),
-        db.loadSettings(),
+        db.loadAllTrades({ fresh: opts?.fresh }),
+        db.loadSettings({ fresh: opts?.fresh }),
         db.loadJournal(),
-        db.listPairCache().catch(() => ({ pairs: [] as import('../types').PairDef[] })),
+        db.listPairCache({ fresh: opts?.fresh }).catch(() => ({ pairs: [] as import('../types').PairDef[] })),
       ]);
       setTrades(t);
       // Merge pair_cache into settings.pairs so CrossCheck is not limited to seeds
@@ -135,7 +148,7 @@ export function useStore() {
       }
       setSettings({ ...s, pairs: Array.from(byEtf.values()) });
       setJournal(j);
-      await refreshMarks();
+      await refreshMarks(opts?.fresh ? { full: true } : undefined);
       setReady(true);
       setAuthError(false);
     } catch (e) {
@@ -171,7 +184,7 @@ export function useStore() {
       setError(null);
       const finalResult = await db.importCsvText(text, overrideManual);
       setImportResult(finalResult);
-      await refresh();
+      await refresh({ fresh: true });
       return finalResult;
     },
     [refresh],
@@ -181,7 +194,7 @@ export function useStore() {
     async (input: ManualTradeInput) => {
       setError(null);
       const result = await db.addManualTrade(input);
-      await refresh();
+      await refresh({ fresh: true });
       return result;
     },
     [refresh],
@@ -402,7 +415,7 @@ export function useStore() {
   const saveJournal = useCallback(
     async (entry: JournalEntry) => {
       await db.saveJournalEntry(entry);
-      await refresh();
+      await refresh({ fresh: true });
     },
     [refresh],
   );
@@ -410,7 +423,7 @@ export function useStore() {
   const removeJournal = useCallback(
     async (id: string) => {
       await db.deleteJournalEntry(id);
-      await refresh();
+      await refresh({ fresh: true });
     },
     [refresh],
   );
@@ -418,7 +431,7 @@ export function useStore() {
   const updateSettings = useCallback(
     async (next: AppSettings) => {
       await db.saveSettings(next);
-      await refresh();
+      await refresh({ fresh: true });
     },
     [refresh],
   );
@@ -426,7 +439,7 @@ export function useStore() {
   const updateNote = useCallback(
     async (id: string, note: string) => {
       await db.updateTradeNote(id, note);
-      await refresh();
+      await refresh({ fresh: true });
     },
     [refresh],
   );
@@ -484,6 +497,7 @@ export function useStore() {
     addManualTrade,
     setMarkPrice,
     refreshLiveQuotes,
+    refreshMarks,
     loadPositionIntoCalc,
     saveJournal,
     removeJournal,
@@ -502,7 +516,7 @@ export function useStore() {
     ready, error, authError, trades, marks, markDetails, lastRefreshAt, lastCheckedAt, lastRefreshError,
     settings, journal, view, setView, importResult, setImportResult, analysis,
     calcA, setCalcA, whatIfA, calcB, setCalcB, whatIfB,
-    importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, loadPositionIntoCalc,
+    importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, refreshMarks, loadPositionIntoCalc,
     saveJournal, removeJournal, updateSettings, updateNote, refresh,
     resolvedPairA, resolvedPairB, resolveCalcPair, pairBusyA, pairBusyB,
     toggleHiddenSymbol, hiddenSet, applyMarksUpdate,

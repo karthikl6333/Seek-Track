@@ -11,6 +11,7 @@ import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { TickerLink } from '../lib/yahoo';
 import { STALE_AFTER_MS, staleAge } from '../lib/marks';
 import { latestIso } from '../lib/refreshStamp';
+import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
 import { nonTradingPricesLabel, nonTradingWindowAt } from '../lib/marketHours';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
@@ -22,21 +23,21 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   const [paperFlexSummary, setPaperFlexSummary] = useState<PaperFlexSummary | null>(null);
   const alertManagerRef = useRef<AlertManagerRef>(null);
 
-  const loadPaperAndCrypto = useCallback(async () => {
+  const loadPaperAndCrypto = useCallback(async (fresh = false) => {
     try {
-      const paper = await loadPaperSummary();
+      const paper = await loadPaperSummary({ fresh });
       setPaperSummary(paper);
     } catch {
       setPaperSummary(null);
     }
     try {
-      const crypto = await loadCryptoPaperSummary();
+      const crypto = await loadCryptoPaperSummary({ fresh });
       setCryptoSummary(crypto);
     } catch {
       setCryptoSummary(null);
     }
     try {
-      const paperFlex = await loadPaperFlexSummary();
+      const paperFlex = await loadPaperFlexSummary({ fresh });
       setPaperFlexSummary(paperFlex);
     } catch {
       setPaperFlexSummary(null);
@@ -47,12 +48,15 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
     void loadPaperAndCrypto();
   }, [loadPaperAndCrypto]);
 
-  // Reload paper/crypto summaries when marks are refreshed (e.g., global refresh button)
+  // Re-read the P&L cards only after a background paper sync (App, ≤ every 5 min while Overview is
+  // visible) — previously this re-read all three summaries (~15 D1 queries) on every marks change.
   useEffect(() => {
-    if (store.lastRefreshAt) {
-      void loadPaperAndCrypto();
-    }
-  }, [store.lastRefreshAt, loadPaperAndCrypto]);
+    const onSynced = () => {
+      if (!document.hidden) void loadPaperAndCrypto(true);
+    };
+    window.addEventListener(PAPER_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(PAPER_SYNCED_EVENT, onSynced);
+  }, [loadPaperAndCrypto]);
 
   const allOpen = analysis?.positions.filter((p) => p.quantity !== 0) ?? [];
   const visibleOpen = allOpen.filter((p) => !hiddenSet.has(p.symbol.toUpperCase()));

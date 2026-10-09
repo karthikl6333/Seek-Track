@@ -4,6 +4,7 @@
  */
 import type { Context } from 'hono';
 import { query } from './db.js';
+import { cached } from './isolate-cache.js';
 import { forceRefresh, getQuoteServiceStatus, getSymbolUniverse, markActivity } from './quote-service.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
@@ -29,16 +30,50 @@ export async function upsertMark(
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
     throw new Error(`Refusing to store unusable price ${String(price)} for ${symbol}`);
   }
-  const now = new Date().toISOString();
+  // updated_at is stamped by the DB at write time (see persistQuotes): the SSE/?since= cursor
+  // relies on stamps being (near-)monotonic in commit order.
   await query(
-    `INSERT INTO marks (symbol, price, updated_at, source, day_pct) VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO marks (symbol, price, updated_at, source, day_pct) VALUES ($1, $2, NOW(), $3, $4)
      ON CONFLICT (symbol) DO UPDATE SET
        price = EXCLUDED.price,
        updated_at = EXCLUDED.updated_at,
        source = EXCLUDED.source,
        day_pct = EXCLUDED.day_pct`,
-    [symbol.toUpperCase(), price, now, source, dayPct ?? null],
+    [symbol.toUpperCase(), price, source, dayPct ?? null],
   );
+}
+
+type MarkRow = {
+  symbol: string;
+  price: number;
+  updated_at: Date | string;
+  source: string | null;
+  day_pct: number | null;
+  session: string | null;
+};
+
+/** Full marks table, cached per isolate (invalidated by any marks write in this isolate). */
+export const MARKS_CACHE_TTL_MS = 15_000;
+
+async function readAllMarkRows(): Promise<MarkRow[]> {
+  return cached('marks:all', { ttlMs: MARKS_CACHE_TTL_MS, tables: ['marks'] }, async () => {
+    const res = await query<MarkRow>(
+      `SELECT symbol, price, updated_at, source, day_pct, session FROM marks ORDER BY symbol`,
+    );
+    return res.rows;
+  });
+}
+
+function rowToMark(r: MarkRow): MarkInfo {
+  const updatedAt = typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
+  return {
+    symbol: r.symbol,
+    price: Number(r.price),
+    updatedAt,
+    source: r.source ?? 'manual',
+    dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
+    session: r.session as 'regular' | 'premarket' | 'afterhours' | 'unknown' | undefined,
+  };
 }
 
 export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
@@ -47,115 +82,137 @@ export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
   lastRefreshError: string | null;
 }> {
   const status = getQuoteServiceStatus();
-  const res = await query<{
-    symbol: string;
-    price: number;
-    updated_at: Date | string;
-    source: string | null;
-    day_pct: number | null;
-    session: string | null;
-  }>(`SELECT symbol, price, updated_at, source, day_pct, session FROM marks ORDER BY symbol`);
+  const rows = await readAllMarkRows();
 
   const marks: Record<string, MarkInfo> = {};
   let maxUpdatedAt: string | null = null;
-  
-  for (const r of res.rows) {
-    const updatedAt =
-      typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
-    marks[r.symbol] = {
-      symbol: r.symbol,
-      price: Number(r.price),
-      updatedAt,
-      source: r.source ?? 'manual',
-      dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
-      session: r.session as 'regular' | 'premarket' | 'afterhours' | 'unknown' | undefined,
-    };
-    
+  for (const r of rows) {
+    const m = rowToMark(r);
+    marks[r.symbol] = m;
     // Track max updated_at for filtered symbols (if provided) or all symbols
     if (!symbolsFilter || symbolsFilter.includes(r.symbol)) {
-      if (!maxUpdatedAt || updatedAt > maxUpdatedAt) {
-        maxUpdatedAt = updatedAt;
-      }
+      if (!maxUpdatedAt || m.updatedAt > maxUpdatedAt) maxUpdatedAt = m.updatedAt;
     }
   }
-  
+
   // Use DB max(updated_at) as lastRefreshAt (Bug 5 fix)
-  return {
-    marks,
-    lastRefreshAt: maxUpdatedAt,
-    lastRefreshError: status.lastRefreshError,
-  };
+  return { marks, lastRefreshAt: maxUpdatedAt, lastRefreshError: status.lastRefreshError };
 }
 
 /**
- * D1 optimization: Read only marks that changed since cursor
- * Reduces row reads for SSE streaming (99% of ticks have no changes)
+ * Overlap applied to the delta cursor. marks.updated_at is stamped by the DB at write time
+ * (NOW() inside the upsert), so stamps follow commit order; the overlap only covers clock skew /
+ * same-millisecond writes. Rows re-read in the overlap are de-duplicated by (symbol, updated_at)
+ * (see dedupeDelta), so a typical tick reads 0-10 rows through marks_updated_at_idx instead of the
+ * whole table.
  */
-/**
- * Look-back applied to the SSE delta cursor. Rows are stamped with the time their quote was
- * fetched, which can be slightly earlier than a concurrent write that already advanced the cursor.
- * Re-reading a short window guarantees such rows are not skipped; the stream de-duplicates.
- */
-export const INCREMENTAL_LOOKBACK_MS = 15_000;
+export const INCREMENTAL_OVERLAP_MS = 2_000;
+/** @deprecated kept for older imports/tests; same as INCREMENTAL_OVERLAP_MS. */
+export const INCREMENTAL_LOOKBACK_MS = INCREMENTAL_OVERLAP_MS;
 
-export function cursorWithLookback(cursor: string, lookbackMs = INCREMENTAL_LOOKBACK_MS): string {
+export function cursorWithLookback(cursor: string, lookbackMs = INCREMENTAL_OVERLAP_MS): string {
   const t = Date.parse(cursor);
   if (!Number.isFinite(t)) return cursor;
   return new Date(t - lookbackMs).toISOString();
 }
 
-export async function listMarksDetailedIncremental(cursor: string): Promise<{
+/**
+ * Pure: drop rows the receiver already has (same symbol AND same updated_at) and record what is
+ * sent. Mutates `sent`. Returns only the new/changed rows.
+ */
+export function dedupeDelta(
+  sent: Map<string, string>,
+  marks: Record<string, MarkInfo>,
+): Record<string, MarkInfo> {
+  const changed: Record<string, MarkInfo> = {};
+  for (const [sym, m] of Object.entries(marks)) {
+    if (sent.get(sym) === m.updatedAt) continue;
+    changed[sym] = m;
+    sent.set(sym, m.updatedAt);
+  }
+  return changed;
+}
+
+/** Bound the dedupe map: forget entries older than the overlap window (they can't be re-read). */
+export function pruneSent(sent: Map<string, string>, cursor: string, overlapMs = INCREMENTAL_OVERLAP_MS): void {
+  const floor = cursorWithLookback(cursor, overlapMs * 2);
+  for (const [sym, at] of sent) if (at < floor) sent.delete(sym);
+}
+
+/**
+ * D1 optimization: read only marks changed since `cursor` (index seek on marks_updated_at_idx).
+ * lastRefreshAt = new cursor (max updated_at seen, never earlier than the given cursor).
+ */
+/**
+ * Stream-side cursor state. The overlap is only needed on the FIRST read after the cursor moved
+ * (that's when a write stamped just before the cursor could still have been committing); after
+ * that the read is strict (`> cursor`), so quiet ticks read 0 rows instead of re-reading the last
+ * batch forever.
+ */
+export function createDeltaCursor(initial: string | null, overlapMs = INCREMENTAL_OVERLAP_MS) {
+  let cursor = initial;
+  let overlapPending = true;
+  return {
+    get value() {
+      return cursor;
+    },
+    /** Overlap (ms) to use for the next read. */
+    overlapMs(): number {
+      return overlapPending ? overlapMs : 0;
+    },
+    /** Record the cursor returned by a read. */
+    advance(next: string | null): void {
+      if (next && (!cursor || next > cursor)) {
+        cursor = next;
+        overlapPending = true;
+      } else {
+        overlapPending = false;
+      }
+    },
+  };
+}
+
+export async function listMarksDetailedIncremental(cursor: string, overlapMs = INCREMENTAL_OVERLAP_MS): Promise<{
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
   lastRefreshError: string | null;
 }> {
   const status = getQuoteServiceStatus();
-  const res = await query<{
-    symbol: string;
-    price: number;
-    updated_at: Date | string;
-    source: string | null;
-    day_pct: number | null;
-    session: string | null;
-  }>(
-    `SELECT symbol, price, updated_at, source, day_pct, session 
-     FROM marks 
-     WHERE updated_at > $1 
-     ORDER BY symbol`,
-    [cursorWithLookback(cursor)]
+  const res = await query<MarkRow>(
+    `SELECT symbol, price, updated_at, source, day_pct, session
+     FROM marks
+     WHERE updated_at > $1
+     ORDER BY updated_at`,
+    [overlapMs > 0 ? cursorWithLookback(cursor, overlapMs) : cursor],
   );
 
   const marks: Record<string, MarkInfo> = {};
   let maxUpdatedAt: string | null = cursor;
-  
   for (const r of res.rows) {
-    const updatedAt =
-      typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
-    marks[r.symbol] = {
-      symbol: r.symbol,
-      price: Number(r.price),
-      updatedAt,
-      source: r.source ?? 'manual',
-      dayPct: r.day_pct !== null ? Number(r.day_pct) : null,
-      session: r.session as 'regular' | 'premarket' | 'afterhours' | 'unknown' | undefined,
-    };
-    
-    if (!maxUpdatedAt || updatedAt > maxUpdatedAt) {
-      maxUpdatedAt = updatedAt;
-    }
+    const m = rowToMark(r);
+    marks[r.symbol] = m;
+    if (!maxUpdatedAt || m.updatedAt > maxUpdatedAt) maxUpdatedAt = m.updatedAt;
   }
-  
-  return {
-    marks,
-    lastRefreshAt: maxUpdatedAt,
-    lastRefreshError: status.lastRefreshError,
-  };
+  return { marks, lastRefreshAt: maxUpdatedAt, lastRefreshError: status.lastRefreshError };
+}
+
+/** A client-supplied cursor we accept: ISO-8601 that parses and isn't in the far future. */
+export function parseSinceCursor(raw: string | undefined | null, nowMs = Date.now()): string | null {
+  if (!raw) return null;
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t) || t > nowMs + 60_000) return null;
+  return new Date(t).toISOString();
 }
 
 export async function getMarksHandler(c: Context) {
   markActivity();
   const detailed = c.req.query('detailed') === '1' || c.req.query('detailed') === 'true';
-  const data = await listMarksDetailed();
+  // ?since=<cursor>: only rows changed since the client's newest known mark (index seek).
+  // The client merges (never replaces), so a delta is safe. Without it: full (cached) read.
+  const since = detailed ? parseSinceCursor(c.req.query('since')) : null;
+  const data = since
+    ? { ...(await listMarksDetailedIncremental(since)), incremental: true }
+    : await listMarksDetailed();
   
   // Prevent caching of quote data (always fetch latest)
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');

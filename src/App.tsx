@@ -1,5 +1,5 @@
 import './App.css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Charges } from './components/Charges';
 import { Charts } from './components/Charts';
 import { Research } from './components/Research';
@@ -21,6 +21,7 @@ import {
   type NonTradingWindow,
 } from './lib/marketHours';
 import { refreshSucceeded } from './lib/refreshStamp';
+import { createThrottle, createTtlValue, PAPER_SYNCED_EVENT, paperSyncTargets, type PaperBook } from './lib/pollGate';
 import type { ViewId } from './types';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
@@ -42,6 +43,17 @@ const CHUNK_SIZE = 10; // Max symbols per HTTP request (CF Workers limit)
 const LIVE_QUOTES_KEY = 'seektrack.liveQuotes';
 /** How often we re-evaluate the session-aware interval (handles open/close transitions). */
 const INTERVAL_RECHECK_MS = 60_000;
+/** SSE deltas re-read the watchlist/research views at most this often (server caches ~20s too). */
+const VIEW_RELOAD_MIN_MS = 20_000;
+
+/** Watchlist symbols when the Watchlist component isn't mounted (one GET per 5 min at most). */
+const watchlistSymbolsMemo = createTtlValue(5 * 60_000, () => loadWatchlistSymbols());
+
+const PAPER_SYNC: Record<PaperBook, () => Promise<unknown>> = {
+  paper: () => refreshPaperData(),
+  cryptoPaper: () => refreshCryptoPaperLivePnl(),
+  paperFlex: () => refreshPaperFlexData(),
+};
 
 export default function App() {
   const store = useStore();
@@ -58,6 +70,24 @@ export default function App() {
   const [refreshComplete, setRefreshComplete] = useState(false);
   const autoRefreshingRef = useRef(false);
   const autoRefreshingHoldingsRef = useRef(false);
+  const lastPaperSyncRef = useRef<number | null>(null);
+
+  /**
+   * Background Alpaca sync for the paper books on screen only, at most every 5 min (was: all three
+   * books on every 30s cycle, each followed by summary re-reads). Fires PAPER_SYNCED_EVENT so the
+   * visible summary cards re-read once.
+   */
+  const maybeSyncPaper = useCallback(async () => {
+    const targets = paperSyncTargets(storeRef.current.view, {
+      hidden: document.hidden,
+      nowMs: Date.now(),
+      lastSyncMs: lastPaperSyncRef.current,
+    });
+    if (targets.length === 0) return;
+    lastPaperSyncRef.current = Date.now();
+    await Promise.allSettled(targets.map((t) => PAPER_SYNC[t]()));
+    window.dispatchEvent(new CustomEvent(PAPER_SYNCED_EVENT, { detail: { books: targets } }));
+  }, []);
   
   // Weekend / NYSE holiday window (last trading day 20:00 ET → next trading day 04:00 ET):
   // no automatic Yahoo refresh, no SSE polling. Updated by the scheduler when the session flips.
@@ -95,9 +125,10 @@ export default function App() {
       
       // Get watchlist symbols from API (fresh data)
       // Use shared helper that correctly parses {symbols, rows, lastRefreshAt} response
-      let watchlistSymbols: string[] = [];
+      // Prefer the symbols the mounted Watchlist already has (no extra GET /api/watchlist).
+      let watchlistSymbols: string[] = watchlistRef.current?.getSymbols() ?? [];
       try {
-        watchlistSymbols = await loadWatchlistSymbols();
+        if (!watchlistRef.current) watchlistSymbols = await watchlistSymbolsMemo.get();
       } catch (e) {
         console.warn('[App] Failed to fetch watchlist for refresh:', e);
       }
@@ -132,12 +163,11 @@ export default function App() {
       // Re-read marks and UI state. A successful check moves the watchlist "Last refreshed"
       // stamp even when the server found no changes (and wrote nothing).
       const watchlistCheckedAt = anyChunkOk && watchlistSymbols.length > 0 ? new Date().toISOString() : null;
+      // Marks only (delta via ?since=): trades/settings/journal/pairs are NOT re-read every cycle.
       await Promise.allSettled([
-        currentStore.refresh(),
+        currentStore.refreshMarks(),
         watchlistRef.current?.reload({ checkedAt: watchlistCheckedAt }),
-        refreshPaperData().catch(() => null),
-        refreshCryptoPaperLivePnl().catch(() => null),
-        refreshPaperFlexData().catch(() => null),
+        maybeSyncPaper(),
       ]);
     } catch (error) {
       console.error('[App] Holdings/watchlist refresh error:', error);
@@ -153,7 +183,7 @@ export default function App() {
    * Uses storeRef.current to read current store state without depending on store identity
    * This keeps the callback stable (deps: []) so intervals don't reset on every marks update
    */
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (opts?: { full?: boolean }) => {
     if (autoRefreshingRef.current) return;
     autoRefreshingRef.current = true;
     
@@ -183,13 +213,16 @@ export default function App() {
       }
       
       // Re-read all client state from shared store (universe includes the watchlist symbols)
+      // Manual refresh (full) re-reads everything incl. trades; the 15-min auto cycle only marks.
+      if (opts?.full) {
+        lastPaperSyncRef.current = null; // manual: sync the on-screen paper books now
+        watchlistSymbolsMemo.invalidate();
+      }
       await Promise.allSettled([
-        currentStore.refresh(),
+        opts?.full ? currentStore.refresh({ fresh: true }) : currentStore.refreshMarks(),
         watchlistRef.current?.reload({ checkedAt: anyChunkOk ? new Date().toISOString() : null }),
         researchRef.current?.reload(),
-        refreshPaperData().catch(() => null),
-        refreshCryptoPaperLivePnl().catch(() => null),
-        refreshPaperFlexData().catch(() => null),
+        maybeSyncPaper(),
       ]);
     } catch (error) {
       console.error('[App] Full universe refresh error:', error);
@@ -206,7 +239,7 @@ export default function App() {
     setRefreshing(true);
     setRefreshComplete(false);
     try {
-      await refreshAll();
+      await refreshAll({ full: true });
       setRefreshComplete(true);
       setTimeout(() => setRefreshComplete(false), 1500);
     } catch (error) {
@@ -231,6 +264,16 @@ export default function App() {
 
   // Live quotes SSE connection
   // Stable callback (empty deps) reads storeRef.current at call time
+  // SSE deltas: re-read the watchlist/research views at most every VIEW_RELOAD_MIN_MS.
+  const viewReloadThrottle = useMemo(
+    () =>
+      createThrottle(VIEW_RELOAD_MIN_MS, () => {
+        void Promise.allSettled([watchlistRef.current?.reload(), researchRef.current?.reload()]);
+      }),
+    [],
+  );
+  useEffect(() => () => viewReloadThrottle.cancel(), [viewReloadThrottle]);
+
   const { connected: liveConnected } = useLiveQuotes(
     liveQuotesEnabled && !closedWindow, // prices don't move on weekends/holidays: skip the 5s D1 marks poll
     useCallback((data) => {
@@ -240,12 +283,8 @@ export default function App() {
       // Empty delta: nothing to reload (saves D1 reads). Full snapshots and non-empty deltas
       // re-read the watchlist/research displays so they pick up the new marks join.
       if (Object.keys(data.marks).length === 0) return;
-
-      void Promise.allSettled([
-        watchlistRef.current?.reload(),
-        researchRef.current?.reload(),
-      ]);
-    }, []) // Empty deps: stable callback, reads storeRef.current at call time
+      viewReloadThrottle.call();
+    }, [viewReloadThrottle]) // stable: stable callback, reads storeRef.current at call time
   );
 
   /**

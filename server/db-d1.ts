@@ -9,8 +9,14 @@
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;
 
-// Schema version - increment when schema changes
-const SCHEMA_VERSION = 1;
+import { recordQuery } from './read-budget.js';
+
+/**
+ * Schema version - increment when schema changes. ensureSchema re-runs the (idempotent:
+ * CREATE ... IF NOT EXISTS) schema once per DB when the stored version differs.
+ * v2: read-budget indexes (marks.updated_at, price_alerts(status, symbol), pair_cache.underlying).
+ */
+export const SCHEMA_VERSION = 2;
 
 export interface QueryResult<T = any> {
   rows: T[];
@@ -22,6 +28,11 @@ let globalDB: D1Database | null = null;
 
 // Per-isolate flag: once schema is verified in this isolate, skip rechecks
 let schemaInitialized = false;
+
+/** Test hook: forget the per-isolate "schema verified" flag. */
+export function __resetSchemaStateForTests(): void {
+  schemaInitialized = false;
+}
 
 export function setD1Database(db: D1Database): void {
   globalDB = db;
@@ -61,6 +72,7 @@ export async function ensureSchema(): Promise<void> {
   // Check if schema is already at the current version (cheap read)
   try {
     const versionResult = await db.prepare('SELECT version FROM schema_meta WHERE id = 1').all();
+    recordQuery(versionResult.meta as { rows_read?: number });
     const currentVersion = versionResult.results?.[0]?.version as number | undefined;
     
     if (currentVersion === SCHEMA_VERSION) {
@@ -199,6 +211,7 @@ export async function query<T = any>(
 
   const stmt = db.prepare(convertedSql).bind(...convertedParams);
   const result = await stmt.all<T>();
+  recordQuery(result.meta as { rows_read?: number; rows_written?: number });
 
   return {
     rows: result.results ?? [],
@@ -222,6 +235,7 @@ export async function execute(
 
   const stmt = db.prepare(convertedSql).bind(...convertedParams);
   const result = await stmt.run();
+  recordQuery(result.meta as { rows_read?: number; rows_written?: number });
 
   return {
     rowCount: result.meta?.changes ?? 0,
@@ -249,7 +263,8 @@ export async function batch(
     const preparedStatements = chunk.map(({ sql, params }) =>
       db.prepare(sql).bind(...params)
     );
-    await db.batch(preparedStatements);
+    const results = await db.batch(preparedStatements);
+    for (const r of results ?? []) recordQuery(r?.meta as { rows_read?: number; rows_written?: number });
   }
 }
 

@@ -18,15 +18,41 @@
  */
 
 import type { Context } from 'hono';
+import { marketSessionAt, type MarketSession } from './market-hours.js';
 import { markActivity } from './quote-service.js';
-import { listMarksDetailed, listMarksDetailedIncremental } from './quotes.js';
+import {
+  createDeltaCursor,
+  dedupeDelta,
+  listMarksDetailed,
+  listMarksDetailedIncremental,
+  parseSinceCursor,
+  pruneSent,
+} from './quotes.js';
 
-// SSE tick cadence (D1 optimization: slower = fewer reads)
-const STREAM_TICK_INTERVAL_MS = 5_000; // 5 seconds
+/**
+ * Session-aware tick cadence (D1 reads: each tick = one indexed delta read of 0-10 rows).
+ * Weekend/holiday: clients don't connect at all; old/stale clients that still do get a 5-min tick
+ * (closing instead would make EventSource reconnect every 3s with a full snapshot).
+ */
+export const STREAM_TICK_MS: Record<MarketSession, number> = {
+  regular: 5_000,
+  premarket: 15_000,
+  afterhours: 15_000,
+  closed: 60_000,
+  nontrading: 300_000,
+};
 
-// Graceful close after N ticks to avoid lifetime budget exhaustion
-// Budget math: 40 ticks × 1 subrequest (read marks) = 40 total (safe under 50)
-const MAX_TICKS_PER_CONNECTION = 40; // ~3.3 minutes per connection
+export function streamTickMs(now: Date = new Date()): number {
+  return STREAM_TICK_MS[marketSessionAt(now)];
+}
+
+/**
+ * Close after N ticks. Free-plan Workers allow 50 D1 queries/subrequests per invocation; one per
+ * tick + the opening read keeps us under that. Lifetime therefore scales with the cadence:
+ * ~3.75 min regular, ~11 min pre/post, ~45 min overnight. The client reconnects with ?since=
+ * so a reconnect costs one small delta read instead of a full snapshot.
+ */
+const MAX_TICKS_PER_CONNECTION = 45;
 
 /**
  * Generate SSE message format
@@ -43,13 +69,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * SSE endpoint handler: GET /api/quotes/stream
- * 
- * CF Workers lifetime budget safe:
- * - Read-only loop: minimal subrequests (~1 per tick)
- * - Background refresh via waitUntil: doesn't block, uses separate budget
- * - Graceful close after MAX_TICKS_PER_CONNECTION (~2 min)
- * - Client EventSource auto-reconnects with fresh budget
+ * SSE endpoint handler: GET /api/quotes/stream[?since=<ISO cursor>]
+ *
+ * - No `since` (first connect / old client): full `marks` snapshot, then `marks-delta` events.
+ * - With `since` (reconnect): NO snapshot; the first tick is an immediate delta since the cursor.
  */
 export async function handleQuoteStream(c: Context) {
   markActivity();
@@ -60,7 +83,9 @@ export async function handleQuoteStream(c: Context) {
   // Track connection state
   let closed = false;
   let tickCount = 0;
-  let lastCursor: string | null = null; // Track last updated_at for incremental reads
+  // Cursor = newest updated_at delivered. A reconnecting client passes its own (?since=).
+  const sinceCursor = parseSinceCursor(c.req.query('since'));
+  let lastCursor: string | null = sinceCursor;
 
   // Create SSE stream with read-only loop (CLIENT drives refreshes, not SSE)
   const stream = new ReadableStream({
@@ -74,7 +99,8 @@ export async function handleQuoteStream(c: Context) {
             sseMessage('connected', {
               id: connectionId,
               timestamp: new Date().toISOString(),
-              tickInterval: STREAM_TICK_INTERVAL_MS,
+              tickInterval: streamTickMs(),
+              resumed: sinceCursor !== null,
               maxTicks: MAX_TICKS_PER_CONNECTION,
               // 2 = full `marks` snapshot on connect, then `marks-delta` events with changed rows only
               protocol: 2,
@@ -100,14 +126,29 @@ export async function handleQuoteStream(c: Context) {
           console.log(`[QuoteStream] ${connectionId}: snapshot sent (${Object.keys(data.marks).length} marks)`);
         };
 
+        const deltaCursor = createDeltaCursor(sinceCursor);
+        const sendDelta = async (cursor: string) => {
+          if (deltaCursor.value !== cursor) deltaCursor.advance(cursor);
+          const data = await listMarksDetailedIncremental(cursor, deltaCursor.overlapMs());
+          deltaCursor.advance(data.lastRefreshAt);
+          if (data.lastRefreshAt) lastCursor = data.lastRefreshAt;
+          // De-duplicate rows re-read by the small cursor overlap.
+          const changed = dedupeDelta(sent, data.marks);
+          if (lastCursor) pruneSent(sent, lastCursor);
+          if (Object.keys(changed).length > 0) {
+            enqueue('marks-delta', { ...data, marks: changed, incremental: true });
+          }
+        };
+
         try {
-          await sendSnapshot();
+          if (sinceCursor) await sendDelta(sinceCursor);
+          else await sendSnapshot();
         } catch (err) {
-          console.error(`[QuoteStream] ${connectionId}: initial snapshot failed:`, err);
+          console.error(`[QuoteStream] ${connectionId}: initial read failed:`, err);
         }
 
         while (!closed && tickCount < MAX_TICKS_PER_CONNECTION) {
-          await sleep(STREAM_TICK_INTERVAL_MS);
+          await sleep(streamTickMs());
           if (closed) break;
           tickCount++;
 
@@ -116,19 +157,7 @@ export async function handleQuoteStream(c: Context) {
               // Snapshot failed earlier (or DB was empty): retry the full read.
               await sendSnapshot();
             } else {
-              const data = await listMarksDetailedIncremental(lastCursor);
-              if (data.lastRefreshAt) lastCursor = data.lastRefreshAt;
-              // De-duplicate rows re-read by the cursor look-back window.
-              const changed: Record<string, (typeof data.marks)[string]> = {};
-              for (const [sym, m] of Object.entries(data.marks)) {
-                if (sent.get(sym) !== m.updatedAt) {
-                  changed[sym] = m;
-                  sent.set(sym, m.updatedAt);
-                }
-              }
-              if (Object.keys(changed).length > 0) {
-                enqueue('marks-delta', { ...data, marks: changed, incremental: true });
-              }
+              await sendDelta(lastCursor);
             }
           } catch (err) {
             console.error(`[QuoteStream] ${connectionId}: Failed to read/send marks:`, err);

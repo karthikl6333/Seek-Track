@@ -273,3 +273,11 @@ CREATE TABLE IF NOT EXISTS price_alerts (
 CREATE INDEX IF NOT EXISTS price_alerts_symbol_idx ON price_alerts (symbol);
 CREATE INDEX IF NOT EXISTS price_alerts_status_idx ON price_alerts (status);
 CREATE INDEX IF NOT EXISTS price_alerts_created_idx ON price_alerts (created_at DESC);
+
+-- v2 (D1 read budget): turn hot scans into index seeks.
+-- SSE / ?since= delta reads: WHERE updated_at > ? reads only changed rows.
+CREATE INDEX IF NOT EXISTS marks_updated_at_idx ON marks (updated_at);
+-- Alert evaluation: WHERE status = 'active' AND symbol IN (...)
+CREATE INDEX IF NOT EXISTS price_alerts_status_symbol_idx ON price_alerts (status, symbol);
+-- Pair resolution by underlying: WHERE underlying = ?
+CREATE INDEX IF NOT EXISTS pair_cache_underlying_idx ON pair_cache (underlying);

@@ -41,3 +41,8 @@ export function checkedAtAfter(
   if (!refreshSucceeded(outcome)) return prev;
   return latestIso(prev, now.toISOString());
 }
+
+/** Newest `updatedAt` among the marks we hold (the client's delta cursor), or null. */
+export function newestMarkStamp(details: Record<string, { updatedAt?: string | null }>): string | null {
+  return latestIso(...Object.values(details).map((m) => m?.updatedAt ?? null));
+}

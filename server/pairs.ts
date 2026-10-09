@@ -37,15 +37,27 @@ for (const p of SEED_PAIRS) {
   seedByUnder.set(p.underlying, list);
 }
 
+/** Per isolate: seed rows are inserted once (ON CONFLICT DO NOTHING), not on every pairs read. */
+let seedPairsEnsured = false;
+
 export async function ensureSeedPairsCached(): Promise<void> {
-  for (const p of SEED_PAIRS) {
-    await query(
-      `INSERT INTO pair_cache (etf, underlying, factor, theme, source, raw_name, resolved_at)
-       VALUES ($1, $2, $3, $4, $5, NULL, NOW())
-       ON CONFLICT (etf) DO NOTHING`,
-      [p.etf, p.underlying, p.factor, p.theme, 'seed'],
-    );
-  }
+  if (seedPairsEnsured || SEED_PAIRS.length === 0) return;
+  // One multi-row statement (5 params/row; seeds are few, far below the 100-param limit).
+  const values: string[] = [];
+  const params: unknown[] = [];
+  SEED_PAIRS.forEach((p, i) => {
+    const b = i * 5;
+    values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, NULL, NOW())`);
+    params.push(p.etf, p.underlying, p.factor, p.theme, 'seed');
+  });
+  if (params.length > 100) throw new Error('SEED_PAIRS exceeds D1 bound-parameter limit');
+  await query(
+    `INSERT INTO pair_cache (etf, underlying, factor, theme, source, raw_name, resolved_at)
+     VALUES ${values.join(', ')}
+     ON CONFLICT (etf) DO NOTHING`,
+    params,
+  );
+  seedPairsEnsured = true;
 }
 
 async function getCached(etf: string): Promise<PairDef | null> {

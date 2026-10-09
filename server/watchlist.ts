@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { query } from './db.js';
+import { cached } from './isolate-cache.js';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -60,8 +61,22 @@ async function setWatchlistSeededFlag(): Promise<void> {
   );
 }
 
+/** Per isolate: once the seeded flag is confirmed, the COUNT/settings check never runs again. */
+let seedVerified = false;
+
 /** Seed once from research_universe when empty; never re-seed after user clears. */
 export async function ensureWatchlistSeeded(): Promise<void> {
+  if (seedVerified) return;
+  await ensureWatchlistSeededUncached();
+  seedVerified = true;
+}
+
+export function __resetWatchlistStateForTests(): void {
+  seedVerified = false;
+  lastWatchlistRefreshAt = null;
+}
+
+async function ensureWatchlistSeededUncached(): Promise<void> {
   const res = await query<{ n: number }>(`SELECT COUNT(*) AS n FROM watchlist`);
   const count = Number(res.rows[0]?.n ?? 0);
   const alreadySeeded = await getWatchlistSeededFlag();
@@ -91,72 +106,94 @@ export async function ensureWatchlistSeeded(): Promise<void> {
 }
 
 async function listWatchlistSymbols(): Promise<string[]> {
-  const res = await query<{ symbol: string }>(
-    `SELECT symbol FROM watchlist ORDER BY sort_order ASC, symbol ASC`,
-  );
-  return res.rows.map((r) => r.symbol.toUpperCase());
+  return (await loadWatchlistRows()).symbols;
 }
 
-async function listWatchlistQuotes(symbols: string[]): Promise<Record<string, WatchlistQuoteRow>> {
-  if (!symbols.length) return {};
-  // Join marks (price + day%) with watchlist_quotes (metadata: bid/ask/volume/52w high/low)
-  // for unified display. Price/day% always come from marks (single source of truth).
-  // ANY($1) converted to IN (?, ?, ...) by db adapter
-  const res = await query<{
-    symbol: string;
-    last: number | null;
-    pct_change: number | null;
-    val_change: number | null;
-    bid: number | null;
-    ask: number | null;
-    market_cap: number | null;
-    volume: number | null;
-    week52_high: number | null;
-    week52_low: number | null;
-    updated_at: Date | string | null;
-  }>(
-    `SELECT 
-       COALESCE(m.symbol, wq.symbol) AS symbol,
-       -- marks is the source of truth; fall back to the last stored watchlist quote so a row
-       -- never shows blank when a marks row is missing.
-       COALESCE(m.price, wq.last) AS last,
-       COALESCE(m.day_pct, wq.pct_change) AS pct_change,
-       wq.val_change,
-       wq.bid,
-       wq.ask,
-       wq.market_cap,
-       wq.volume,
-       wq.week52_high,
-       wq.week52_low,
-       COALESCE(m.updated_at, wq.updated_at) AS updated_at
-     FROM marks m
-     FULL OUTER JOIN watchlist_quotes wq ON m.symbol = wq.symbol
-     WHERE COALESCE(m.symbol, wq.symbol) = ANY($1)`,
-    [symbols],
-  );
-  const out: Record<string, WatchlistQuoteRow> = {};
-  for (const r of res.rows) {
-    const updatedAt =
-      r.updated_at == null
-        ? null
-        : typeof r.updated_at === 'string'
-          ? r.updated_at
-          : r.updated_at.toISOString();
-    out[r.symbol.toUpperCase()] = {
-      symbol: r.symbol.toUpperCase(),
-      last: r.last != null ? Number(r.last) : null,
-      pctChange: r.pct_change != null ? Number(r.pct_change) : null,
-      valChange: r.val_change != null ? Number(r.val_change) : null,
-      bid: r.bid != null ? Number(r.bid) : null,
-      ask: r.ask != null ? Number(r.ask) : null,
-      marketCap: r.market_cap != null ? Number(r.market_cap) : null,
-      volume: r.volume != null ? Number(r.volume) : null,
-      week52High: r.week52_high != null ? Number(r.week52_high) : null,
-      week52Low: r.week52_low != null ? Number(r.week52_low) : null,
-      updatedAt,
-    };
-  }
-  return out;
+/** Watchlist rows cached per isolate; any write to these tables in this isolate drops it. */
+export const WATCHLIST_CACHE_TTL_MS = 20_000;
+const WATCHLIST_TABLES = ['watchlist', 'watchlist_quotes', 'marks', 'settings', 'research_universe'];
+
+/**
+ * ONE query: the watchlist (21 rows, sort index) LEFT JOINed to marks and watchlist_quotes by
+ * primary key (one seek each per symbol). Replaces SELECT watchlist + the FULL OUTER JOIN that
+ * scanned both tables (~165 rows) on every GET.
+ */
+function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteRow[] }> {
+  return cached('watchlist:rows', { ttlMs: WATCHLIST_CACHE_TTL_MS, tables: WATCHLIST_TABLES }, async () => {
+    const res = await query<{
+      symbol: string;
+      last: number | null;
+      pct_change: number | null;
+      val_change: number | null;
+      bid: number | null;
+      ask: number | null;
+      market_cap: number | null;
+      volume: number | null;
+      week52_high: number | null;
+      week52_low: number | null;
+      updated_at: Date | string | null;
+    }>(
+      `SELECT
+         UPPER(w.symbol) AS symbol,
+         -- marks is the source of truth; fall back to the last stored watchlist quote so a row
+         -- never shows blank when a marks row is missing.
+         COALESCE(m.price, wq.last) AS last,
+         COALESCE(m.day_pct, wq.pct_change) AS pct_change,
+         wq.val_change,
+         wq.bid,
+         wq.ask,
+         wq.market_cap,
+         wq.volume,
+         wq.week52_high,
+         wq.week52_low,
+         COALESCE(m.updated_at, wq.updated_at) AS updated_at
+       FROM watchlist w
+       LEFT JOIN marks m ON m.symbol = UPPER(w.symbol)
+       LEFT JOIN watchlist_quotes wq ON wq.symbol = UPPER(w.symbol)
+       ORDER BY w.sort_order ASC, w.symbol ASC`,
+    );
+    const symbols: string[] = [];
+    const rows: WatchlistQuoteRow[] = [];
+    const seen = new Set<string>();
+    for (const r of res.rows) {
+      const symbol = r.symbol.toUpperCase();
+      if (seen.has(symbol)) continue;
+      seen.add(symbol);
+      symbols.push(symbol);
+      rows.push(toWatchlistRow(r));
+    }
+    return { symbols, rows };
+  });
+}
+
+function toWatchlistRow(r: {
+  symbol: string;
+  last: number | null;
+  pct_change: number | null;
+  val_change: number | null;
+  bid: number | null;
+  ask: number | null;
+  market_cap: number | null;
+  volume: number | null;
+  week52_high: number | null;
+  week52_low: number | null;
+  updated_at: Date | string | null;
+}): WatchlistQuoteRow {
+  const updatedAt =
+    r.updated_at == null ? null : typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
+  return {
+    symbol: r.symbol.toUpperCase(),
+    last: r.last != null ? Number(r.last) : null,
+    pctChange: r.pct_change != null ? Number(r.pct_change) : null,
+    valChange: r.val_change != null ? Number(r.val_change) : null,
+    bid: r.bid != null ? Number(r.bid) : null,
+    ask: r.ask != null ? Number(r.ask) : null,
+    marketCap: r.market_cap != null ? Number(r.market_cap) : null,
+    volume: r.volume != null ? Number(r.volume) : null,
+    week52High: r.week52_high != null ? Number(r.week52_high) : null,
+    week52Low: r.week52_low != null ? Number(r.week52_low) : null,
+    updatedAt,
+  };
 }
 
 async function upsertWatchlistQuote(q: {
@@ -209,26 +246,8 @@ async function upsertWatchlistQuote(q: {
 
 export async function getWatchlistPayload(): Promise<WatchlistPayload> {
   await ensureWatchlistSeeded();
-  const symbols = await listWatchlistSymbols();
-  const quotes = await listWatchlistQuotes(symbols);
-  const rows: WatchlistQuoteRow[] = symbols.map((symbol) => {
-    const q = quotes[symbol];
-    return (
-      q ?? {
-        symbol,
-        last: null,
-        pctChange: null,
-        valChange: null,
-        bid: null,
-        ask: null,
-        marketCap: null,
-        volume: null,
-        week52High: null,
-        week52Low: null,
-        updatedAt: null,
-      }
-    );
-  });
+  const { symbols, rows } = await loadWatchlistRows();
+  // Not cached: the in-memory refresh stamp can move without any DB write (no-change refresh).
   let lastRefreshAt = lastWatchlistRefreshAt;
   if (!lastRefreshAt) {
     const times = rows.map((r) => r.updatedAt).filter(Boolean) as string[];

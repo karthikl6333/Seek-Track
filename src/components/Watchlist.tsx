@@ -16,6 +16,8 @@ export interface WatchlistRef {
    */
   reload: (opts?: { checkedAt?: string | null }) => Promise<void>;
   forceRefresh: () => Promise<void>; // Manual button: POST /api/watchlist/refresh
+  /** Symbols currently loaded (null until the first load), so App needn't GET /api/watchlist. */
+  getSymbols: () => string[] | null;
 }
 
 interface WatchlistRow {
@@ -196,11 +198,17 @@ export function Watchlist(props: WatchlistProps = {}) {
     }
   }, [applyPayload, reload]);
 
+  const loadedSymbolsRef = useRef<string[] | null>(null);
+  useEffect(() => {
+    if (rows.length > 0 || lastRefreshAt !== null) loadedSymbolsRef.current = rows.map((r) => r.symbol);
+  }, [rows, lastRefreshAt]);
+
   useImperativeHandle(
     watchlistRef,
     () => ({
       reload,
       forceRefresh,
+      getSymbols: () => loadedSymbolsRef.current,
     }),
     [reload, forceRefresh],
   );

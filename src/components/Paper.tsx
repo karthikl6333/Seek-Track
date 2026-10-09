@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
 import { loadPaperSummary, refreshPaperData } from '../lib/db';
 import type { PaperSummary } from '../types';
 import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
@@ -10,9 +11,9 @@ export function Paper() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (fresh = false) => {
     try {
-      const data = await loadPaperSummary();
+      const data = await loadPaperSummary({ fresh });
       setSummary(data);
       setLastRefreshAt(new Date().toISOString());
       setError(null);
@@ -37,7 +38,7 @@ export function Paper() {
     try {
       const result = await refreshPaperData();
       if (result.ok) {
-        const data = await loadPaperSummary();
+        const data = await loadPaperSummary({ fresh: true });
         setSummary(data);
         setLastRefreshAt(result.refreshedAt || new Date().toISOString());
       } else {
@@ -49,6 +50,15 @@ export function Paper() {
       setBusy(false);
     }
   }, []);
+
+  // After App's background Alpaca sync (≤ every 5 min while this tab is visible), re-read once.
+  useEffect(() => {
+    const onSynced = () => {
+      if (!document.hidden) void fetchData(true);
+    };
+    window.addEventListener(PAPER_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(PAPER_SYNCED_EVENT, onSynced);
+  }, [fetchData]);
 
   useEffect(() => {
     let cancelled = false;

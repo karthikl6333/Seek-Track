@@ -46,12 +46,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function loadAllTrades(): Promise<Trade[]> {
-  return api<Trade[]>('/api/trades');
+/**
+ * Trades list. The server caches it per isolate; pass `fresh` right after this client wrote trades
+ * (import / manual fill / note) so a cached copy in another isolate can't hide the change.
+ */
+export async function loadAllTrades(opts?: { fresh?: boolean }): Promise<Trade[]> {
+  return api<Trade[]>(opts?.fresh ? '/api/trades?fresh=1' : '/api/trades');
 }
 
 export async function getExistingHashes(): Promise<Set<string>> {
-  const trades = await loadAllTrades();
+  const trades = await loadAllTrades({ fresh: true });
   return new Set(trades.map((t) => t.rowHash));
 }
 
@@ -93,12 +97,17 @@ export async function loadMarks(): Promise<Record<string, number>> {
   return api<Record<string, number>>('/api/marks');
 }
 
-export async function loadMarksDetailed(): Promise<{
+/**
+ * Detailed marks. With `since` (the newest updatedAt this client already has) the server returns
+ * only rows changed after it (indexed delta, `incremental: true`); the store MERGES either way.
+ */
+export async function loadMarksDetailed(since?: string | null): Promise<{
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
   lastRefreshError: string | null;
+  incremental?: boolean;
 }> {
-  return api('/api/marks?detailed=1');
+  return api(since ? `/api/marks?detailed=1&since=${encodeURIComponent(since)}` : '/api/marks?detailed=1');
 }
 
 export async function setMark(symbol: string, price: number): Promise<void> {
@@ -140,8 +149,11 @@ export async function resolvePair(symbol: string): Promise<PairResolveResult> {
   return api(`/api/pairs/resolve?symbol=${encodeURIComponent(symbol)}`);
 }
 
-export async function listPairCache(): Promise<{ pairs: PairDef[]; note?: string }> {
-  return api('/api/pairs');
+/** `?fresh=1` asks the server to skip its per-isolate read cache (use right after own writes). */
+const freshQs = (fresh?: boolean, sep: '?' | '&' = '?') => (fresh ? `${sep}fresh=1` : '');
+
+export async function listPairCache(opts?: { fresh?: boolean }): Promise<{ pairs: PairDef[]; note?: string }> {
+  return api(`/api/pairs${freshQs(opts?.fresh)}`);
 }
 
 export async function loadJournal(): Promise<JournalEntry[]> {
@@ -159,9 +171,9 @@ export async function deleteJournalEntry(id: string): Promise<void> {
   await api(`/api/journal/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-export async function loadSettings(): Promise<AppSettings> {
+export async function loadSettings(opts?: { fresh?: boolean }): Promise<AppSettings> {
   try {
-    const data = await api<AppSettings>('/api/settings');
+    const data = await api<AppSettings>(`/api/settings${freshQs(opts?.fresh)}`);
     if (!data?.pairs || !data?.themes) return structuredClone(DEFAULT_SETTINGS);
     return {
       ...data,
@@ -181,8 +193,8 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   });
 }
 
-export async function loadPaperSummary(): Promise<import('../types').PaperSummary> {
-  return api<import('../types').PaperSummary>('/api/paper');
+export async function loadPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types').PaperSummary> {
+  return api<import('../types').PaperSummary>(`/api/paper${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshPaperData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {
@@ -191,8 +203,8 @@ export async function refreshPaperData(): Promise<{ ok: boolean; error?: string;
   });
 }
 
-export async function loadCryptoPaperSummary(): Promise<import('../types').CryptoPaperSummary> {
-  return api<import('../types').CryptoPaperSummary>('/api/crypto-paper');
+export async function loadCryptoPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types').CryptoPaperSummary> {
+  return api<import('../types').CryptoPaperSummary>(`/api/crypto-paper${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshCryptoPaperLivePnl(): Promise<{
@@ -208,8 +220,8 @@ export async function refreshCryptoPaperLivePnl(): Promise<{
   });
 }
 
-export async function loadPaperFlexSummary(): Promise<import('../types').PaperFlexSummary> {
-  return api<import('../types').PaperFlexSummary>('/api/paper-flex');
+export async function loadPaperFlexSummary(opts?: { fresh?: boolean }): Promise<import('../types').PaperFlexSummary> {
+  return api<import('../types').PaperFlexSummary>(`/api/paper-flex${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {

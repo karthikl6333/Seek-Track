@@ -97,6 +97,7 @@ export async function insertTradesIdempotent(
 }
 
 export async function listTrades(c: Context) {
+  // Served from the per-isolate cache (db.ts READ_CACHE_RULES); ?fresh=1 bypasses it (index.ts).
   const res = await query<TradeRow>(
     `SELECT * FROM trades ORDER BY date DESC, imported_at DESC`,
   );

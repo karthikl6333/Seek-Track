@@ -15,6 +15,7 @@
  * - Multiple refresh entry points (research.ts, watchlist.ts now delegate here)
  */
 
+import { cached } from './isolate-cache.js';
 import { query } from './db.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
@@ -402,7 +403,15 @@ export async function fetchQuotesBatch(
  * 
  * Optimized for CF Workers: Single query combining all sources
  */
+/** Universe cached per isolate; any write to a source table in this isolate invalidates it. */
+export const UNIVERSE_CACHE_TTL_MS = 30_000;
+const UNIVERSE_TABLES = ['trades', 'watchlist', 'research_universe', 'research_etf_map', 'pair_cache', 'price_alerts'];
+
 async function buildSymbolUniverse(): Promise<string[]> {
+  return cached('universe', { ttlMs: UNIVERSE_CACHE_TTL_MS, tables: UNIVERSE_TABLES }, buildSymbolUniverseUncached);
+}
+
+async function buildSymbolUniverseUncached(): Promise<string[]> {
   const symbols = new Set<string>();
 
   // Single query combining all symbol sources (1 Neon query instead of 5)
@@ -534,12 +543,12 @@ export function selectQuotesToPersist(
 async function persistQuotes(
   quotes: Map<string, QuoteData | null>,
   existingMarksMap: Map<string, ExistingMark>,
-): Promise<void> {
+): Promise<string[]> {
   const changedQuotes = selectQuotesToPersist(quotes, existingMarksMap);
 
   if (changedQuotes.size === 0) {
     console.log('[QuoteService] No price/session changes detected, skipping DB write');
-    return;
+    return [];
   }
 
   // Get watchlist symbols (cached, so only 1 query per minute across all chunks)
@@ -547,9 +556,11 @@ async function persistQuotes(
 
   console.log(`[QuoteService] Writing ${changedQuotes.size}/${quotes.size} changed quotes to DB`);
 
-  // D1 allows max 100 bound params per query - chunk marks updates
-  // Each mark row = 6 params (symbol, price, updated_at, source, day_pct, session)
-  const MAX_MARKS_PER_CHUNK = Math.floor(100 / 6); // 16 marks per chunk
+  // D1 allows max 100 bound params per query - chunk marks updates.
+  // Each mark row = 5 params (symbol, price, source, day_pct, session); updated_at is stamped by
+  // the DB at write time (NOW()) so the SSE / ?since= delta cursor follows commit order and can
+  // use a tiny overlap instead of re-reading a 15s window.
+  const MAX_MARKS_PER_CHUNK = Math.floor(100 / 5); // 20 marks per chunk
 
   const marksArray = Array.from(changedQuotes.entries());
   for (let i = 0; i < marksArray.length; i += MAX_MARKS_PER_CHUNK) {
@@ -560,17 +571,10 @@ async function persistQuotes(
 
     for (const [symbol, quote] of chunk) {
       marksValues.push(
-        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5})`
+        `($${paramIndex}, $${paramIndex + 1}, NOW(), $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4})`
       );
-      marksParams.push(
-        symbol,
-        quote.price,
-        quote.updatedAt,
-        quote.source,
-        quote.dayPct,
-        quote.session
-      );
-      paramIndex += 6;
+      marksParams.push(symbol, quote.price, quote.source, quote.dayPct, quote.session);
+      paramIndex += 5;
     }
 
     await query(
@@ -643,6 +647,8 @@ async function persistQuotes(
       watchlistParams
     );
   }
+
+  return Array.from(changedQuotes.keys());
 }
 
 /**
@@ -762,7 +768,7 @@ export async function refreshAllPrices(
     }
 
     // Only successful, usable quotes are written. Failed/skipped symbols keep their last mark.
-    await persistQuotes(quotes, existingMarks);
+    const changedSymbols = await persistQuotes(quotes, existingMarks);
 
     lastRefreshAt = new Date().toISOString();
     // Only an error when a symbol has NO price to show at all. Failures for symbols that still
@@ -772,10 +778,12 @@ export async function refreshAllPrices(
       noPrice.length > 0 && updated.length === 0 ? `No price available for ${noPrice.join(', ')}` : null;
 
     // Evaluate price alerts after marks are updated
-    if (updated.length > 0) {
+    // Only when a price actually changed, and only for those symbols (indexed lookup on
+    // price_alerts(status, symbol)): unchanged prices can't newly cross an alert threshold.
+    if (changedSymbols.length > 0) {
       try {
         const { evaluateAlerts } = await import('./alerts.js');
-        const alertResult = await evaluateAlerts();
+        const alertResult = await evaluateAlerts(changedSymbols);
         if (alertResult.triggered.length > 0) {
           console.log(`[QuoteService] Triggered ${alertResult.triggered.length} alerts`);
         }

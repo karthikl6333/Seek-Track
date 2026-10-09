@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
 import { loadCryptoPaperSummary, refreshCryptoPaperLivePnl } from '../lib/db';
 import type { CryptoPaperSummary } from '../types';
 import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
@@ -10,9 +11,9 @@ export function CryptoPaper() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (fresh = false) => {
     try {
-      const data = await loadCryptoPaperSummary();
+      const data = await loadCryptoPaperSummary({ fresh });
       setSummary(data);
       setLastRefreshAt(new Date().toISOString());
       setError(null);
@@ -27,7 +28,7 @@ export function CryptoPaper() {
     try {
       const result = await refreshCryptoPaperLivePnl();
       if (result.ok) {
-        await fetchData();
+        await fetchData(true);
       } else {
         setError(result.error || 'Failed to refresh from Alpaca');
       }
@@ -36,6 +37,15 @@ export function CryptoPaper() {
     } finally {
       setBusy(false);
     }
+  }, [fetchData]);
+
+  // After App's background Alpaca sync (≤ every 5 min while this tab is visible), re-read once.
+  useEffect(() => {
+    const onSynced = () => {
+      if (!document.hidden) void fetchData(true);
+    };
+    window.addEventListener(PAPER_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(PAPER_SYNCED_EVENT, onSynced);
   }, [fetchData]);
 
   useEffect(() => {

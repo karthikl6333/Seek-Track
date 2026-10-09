@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MarkInfo } from '../types';
+import { latestIso, newestMarkStamp } from '../lib/refreshStamp';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
@@ -36,6 +37,12 @@ export function useLiveQuotes(
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  /**
+   * Newest updatedAt received. Reconnects (graceful close every few minutes, network blips, tab
+   * becoming visible again) send it as ?since= so the server skips the full snapshot and sends
+   * only rows changed meanwhile. Survives hidden/visible cycles; reset only on page load.
+   */
+  const cursorRef = useRef<string | null>(null);
   
   // Stabilize onUpdate with ref to prevent effect cleanup on every render
   const onUpdateRef = useRef(onUpdate);
@@ -79,7 +86,10 @@ export function useLiveQuotes(
       }
 
       console.log('[LiveQuotes] Connecting to SSE stream...');
-      const es = new EventSource(`${API_BASE}/api/quotes/stream`);
+      const since = cursorRef.current;
+      const es = new EventSource(
+        `${API_BASE}/api/quotes/stream${since ? `?since=${encodeURIComponent(since)}` : ''}`,
+      );
       eventSourceRef.current = es;
 
       es.addEventListener('connected', (e) => {
@@ -92,6 +102,7 @@ export function useLiveQuotes(
         try {
           const data = JSON.parse(e.data) as LiveQuotesData;
           if (forceIncremental) data.incremental = true;
+          cursorRef.current = latestIso(cursorRef.current, data.lastRefreshAt, newestMarkStamp(data.marks ?? {}));
           onUpdateRef.current(data);
           setLastUpdate(new Date().toISOString());
           setError(null);

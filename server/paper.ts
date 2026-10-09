@@ -101,14 +101,14 @@ export async function getPaperSummary(c: Context) {
     status: string;
     created_at: string;
     filled_at: string | null;
-  }>(`SELECT * FROM paper_orders ORDER BY created_at DESC LIMIT 50`);
+  }>(`SELECT * FROM paper_orders ORDER BY created_at DESC LIMIT 20`);
 
   const journalRes = await query<{
     id: string;
     symbol: string | null;
     note: string;
     created_at: string;
-  }>(`SELECT * FROM paper_journal ORDER BY created_at DESC LIMIT 50`);
+  }>(`SELECT * FROM paper_journal ORDER BY created_at DESC LIMIT 20`);
 
   const state: PaperState = stateRes.rows[0]
     ? toCamelCase(stateRes.rows[0])

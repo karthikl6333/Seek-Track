@@ -20,6 +20,7 @@ import {
   nonTradingWindowAt,
   type NonTradingWindow,
 } from './lib/marketHours';
+import { refreshSucceeded } from './lib/refreshStamp';
 import type { ViewId } from './types';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
@@ -113,10 +114,12 @@ export default function App() {
       
       // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
       // Continue on failure (don't abort remaining chunks)
+      let anyChunkOk = false;
       for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
         const chunk = symbols.slice(i, i + CHUNK_SIZE);
         try {
-          await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
+          const res = await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
+          if (refreshSucceeded(res)) anyChunkOk = true;
           console.log(
             `[App] Holdings/watchlist chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(symbols.length / CHUNK_SIZE)} complete`
           );
@@ -126,10 +129,12 @@ export default function App() {
         }
       }
       
-      // Re-read marks and UI state
+      // Re-read marks and UI state. A successful check moves the watchlist "Last refreshed"
+      // stamp even when the server found no changes (and wrote nothing).
+      const watchlistCheckedAt = anyChunkOk && watchlistSymbols.length > 0 ? new Date().toISOString() : null;
       await Promise.allSettled([
         currentStore.refresh(),
-        watchlistRef.current?.reload(),
+        watchlistRef.current?.reload({ checkedAt: watchlistCheckedAt }),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),
         refreshPaperFlexData().catch(() => null),
@@ -162,10 +167,12 @@ export default function App() {
       
       // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
       // Continue on failure (don't abort remaining chunks)
+      let anyChunkOk = false;
       for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
         const chunk = universe.slice(i, i + CHUNK_SIZE);
         try {
-          await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
+          const res = await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
+          if (refreshSucceeded(res)) anyChunkOk = true;
           console.log(
             `[App] Full universe chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
           );
@@ -175,10 +182,10 @@ export default function App() {
         }
       }
       
-      // Re-read all client state from shared store
+      // Re-read all client state from shared store (universe includes the watchlist symbols)
       await Promise.allSettled([
         currentStore.refresh(),
-        watchlistRef.current?.reload(),
+        watchlistRef.current?.reload({ checkedAt: anyChunkOk ? new Date().toISOString() : null }),
         researchRef.current?.reload(),
         refreshPaperData().catch(() => null),
         refreshCryptoPaperLivePnl().catch(() => null),

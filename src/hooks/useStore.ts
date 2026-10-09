@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as db from '../lib/db';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
+import { checkedAtAfter } from '../lib/refreshStamp';
 import type {
   AppSettings,
   CalculatorState,
@@ -54,6 +55,8 @@ export function useStore() {
   const [marks, setMarks] = useState<Record<string, number>>({});
   const [markDetails, setMarkDetails] = useState<Record<string, MarkInfo>>({});
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+  /** Client time of the last successful refresh response (moves even when no price changed). */
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
@@ -289,6 +292,13 @@ export function useStore() {
           total: universe.length,
         };
 
+        // A successful check advances "last checked" even if the server skipped all row writes
+        // because nothing changed. A refresh with no successful response leaves it alone.
+        if (allResults.length > 0) {
+          const at = new Date();
+          setLastCheckedAt((prev) => checkedAtAfter(prev, aggregated, at));
+        }
+
         return aggregated;
       } catch (err) {
         setLastRefreshError(String(err));
@@ -455,6 +465,7 @@ export function useStore() {
     marks,
     markDetails,
     lastRefreshAt,
+    lastCheckedAt,
     lastRefreshError,
     settings,
     journal,
@@ -488,7 +499,7 @@ export function useStore() {
     hiddenSet,
     applyMarksUpdate,
   }), [
-    ready, error, authError, trades, marks, markDetails, lastRefreshAt, lastRefreshError,
+    ready, error, authError, trades, marks, markDetails, lastRefreshAt, lastCheckedAt, lastRefreshError,
     settings, journal, view, setView, importResult, setImportResult, analysis,
     calcA, setCalcA, whatIfA, calcB, setCalcB, whatIfB,
     importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, loadPositionIntoCalc,

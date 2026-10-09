@@ -254,7 +254,8 @@ export async function refreshWatchlistQuotes(): Promise<{
     const { forceRefresh } = await import('./quote-service.js');
     const result = await forceRefresh(symbols);
 
-    lastWatchlistRefreshAt = result.refreshedAt;
+    // Only a successful check advances the stamp (a failed refresh must not look fresh).
+    if (result.ok) lastWatchlistRefreshAt = result.refreshedAt;
     return result;
   })().finally(() => {
     watchlistRefreshInFlight = null;

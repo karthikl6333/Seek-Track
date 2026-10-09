@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, pnlClass } from '../lib/format';
+import { latestIso } from '../lib/refreshStamp';
 import { AddTradeForm } from './AddTradeForm';
 
 export function Positions({ store }: { store: Store }) {
@@ -23,8 +24,9 @@ export function Positions({ store }: { store: Store }) {
     }
   };
 
-  const lastUpdatedLabel = store.lastRefreshAt
-    ? new Date(store.lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
+  const lastCheckedStamp = latestIso(store.lastCheckedAt, store.lastRefreshAt);
+  const lastUpdatedLabel = lastCheckedStamp
+    ? new Date(lastCheckedStamp).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
     : null;
 
   return (

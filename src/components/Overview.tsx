@@ -10,6 +10,7 @@ import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { TickerLink } from '../lib/yahoo';
 import { STALE_AFTER_MS, staleAge } from '../lib/marks';
+import { latestIso } from '../lib/refreshStamp';
 import { nonTradingPricesLabel, nonTradingWindowAt } from '../lib/marketHours';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
@@ -68,8 +69,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
   const hasAllMarks = totalsPositions.length > 0 && unrealizedParts.every((u) => u !== null);
   const unrealized = totalsPositions.reduce((s, p) => s + (p.unrealizedPnl ?? 0), 0);
 
-  const lastUpdatedLabel = store.lastRefreshAt
-    ? new Date(store.lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) +
+  // Last successful check (client time) or last price change, whichever is newer. Per-row age
+  // labels below still use each price's own updatedAt.
+  const lastCheckedStamp = latestIso(store.lastCheckedAt, store.lastRefreshAt);
+  const lastUpdatedLabel = lastCheckedStamp
+    ? new Date(lastCheckedStamp).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) +
       ' IST'
     : totalsPositions
           .map((p) => store.markDetails[p.symbol]?.updatedAt)
@@ -392,7 +396,9 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             </div>
             {lastUpdatedLabel && (
               <p className="muted" style={{ fontSize: 12, marginBottom: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span>Prices last updated: {lastUpdatedLabel}</span>
+                <span title="Last successful price check. A check that finds no changes still counts; each row's age shows when its price last changed.">
+                  Prices last updated: {lastUpdatedLabel}
+                </span>
                 <span
                   style={{
                     fontSize: 11,

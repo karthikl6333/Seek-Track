@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
 import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../lib/marks';
+import { checkedAtAfter, latestIso } from '../lib/refreshStamp';
 import { TickerLink } from '../lib/yahoo';
 import type { PairDef } from '../types';
 
@@ -8,7 +9,12 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const FILTER_KEY = 'watchlist-filter-open';
 
 export interface WatchlistRef {
-  reload: () => Promise<void>; // Read-only: GET /api/watchlist (for auto-cycle)
+  /**
+   * Read-only: GET /api/watchlist (for auto-cycle). Pass `checkedAt` (client time) when the caller
+   * just completed a successful quote refresh that covered the watchlist symbols, so the
+   * "Last refreshed" stamp moves even if no price changed (server skipped the row writes).
+   */
+  reload: (opts?: { checkedAt?: string | null }) => Promise<void>;
   forceRefresh: () => Promise<void>; // Manual button: POST /api/watchlist/refresh
 }
 
@@ -123,6 +129,8 @@ export function Watchlist(props: WatchlistProps = {}) {
 
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+  /** Client time of the last successful refresh (moves even when nothing changed). */
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [symbol, setSymbol] = useState('');
@@ -147,7 +155,8 @@ export function Watchlist(props: WatchlistProps = {}) {
    * Read-only reload: GET /api/watchlist (re-reads marks join)
    * Used by App's auto-cycle after server refresh
    */
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (opts?: { checkedAt?: string | null }) => {
+    if (opts?.checkedAt) setCheckedAt((prev) => latestIso(prev, opts.checkedAt));
     try {
       const data = await apiGet<WatchlistPayload>('/api/watchlist');
       applyPayload(data);
@@ -166,11 +175,14 @@ export function Watchlist(props: WatchlistProps = {}) {
     setBusy(true);
     refreshInProgressRef.current = true;
     try {
-      const data = await apiSend<WatchlistPayload & { error?: string }>(
+      const data = await apiSend<WatchlistPayload & { error?: string; ok?: boolean }>(
         '/api/watchlist/refresh',
         'POST',
       );
       applyPayload(data);
+      // 200 with ok !== false = Yahoo was checked (even if nothing changed and no row was written).
+      const at = new Date();
+      setCheckedAt((prev) => checkedAtAfter(prev, data, at));
     } catch (e) {
       setError(String(e));
       try {
@@ -293,8 +305,9 @@ export function Watchlist(props: WatchlistProps = {}) {
     return sortDir === 1 ? ' ▲' : ' ▼';
   };
 
-  const lastLabel = lastRefreshAt
-    ? new Date(lastRefreshAt).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
+  const lastStamp = latestIso(checkedAt, lastRefreshAt);
+  const lastLabel = lastStamp
+    ? new Date(lastStamp).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
     : null;
 
   const columns: Array<[SortKey, string, string]> = [

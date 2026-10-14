@@ -86,6 +86,17 @@ export async function ensureSchema(): Promise<void> {
   // Execute all DDL statements in ONE transaction
   const queries = statements.map((stmt) => db.query(stmt, []));
   await db.transaction(queries);
+
+  // Seed initial plan rules (idempotent - won't duplicate)
+  try {
+    const { seedPlanRules } = await import('./seed-plan-rules.js');
+    const result = await seedPlanRules();
+    if (result.added > 0) {
+      console.log(`[Neon] Seeded ${result.added} plan rules`);
+    }
+  } catch (err) {
+    console.error('[Neon] Failed to seed plan rules:', err);
+  }
 }
 
 export interface QueryResult<T = any> {

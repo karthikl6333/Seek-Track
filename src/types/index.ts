@@ -311,3 +311,19 @@ export interface PriceAlert {
   lastPrice: number | null;
   notifiedAt: string | null;
 }
+
+export type PlanRuleType = 'target' | 'stop' | 'no-add-below' | 'deadline' | 'note';
+export type PlanRuleAccount = 'real' | 'paper-s0' | 'paper-a1' | 'paper-c0';
+
+export interface PlanRule {
+  id: string;
+  symbol: string;
+  account: PlanRuleAccount;
+  ruleType: PlanRuleType;
+  priceLevel: number | null;
+  deadlineDate: string | null;
+  note: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

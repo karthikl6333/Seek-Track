@@ -8,6 +8,7 @@ import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
+import { PlanVsPrice } from './PlanVsPrice';
 import { TickerLink } from '../lib/yahoo';
 import { STALE_AFTER_MS, staleAge } from '../lib/marks';
 import { latestIso } from '../lib/refreshStamp';
@@ -263,6 +264,12 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
 
       <div className="overview-layout">
         <div className="stack calc-main">
+          <PlanVsPrice
+            positions={visibleOpen}
+            marks={store.marks}
+            compact={false}
+          />
+
           <div className="card">
             <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
               <h3 style={{ margin: 0 }}>Holdings (open positions)</h3>

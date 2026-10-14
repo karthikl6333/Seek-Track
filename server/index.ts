@@ -76,6 +76,12 @@ import {
   deleteAlertHandler,
   postEvaluateAlertsHandler,
 } from './alerts.js';
+import {
+  getPlanRulesHandler,
+  postPlanRulesHandler,
+  patchPlanRuleHandler,
+  deletePlanRuleHandler,
+} from './plan-rules.js';
 
 const app = new Hono();
 
@@ -183,6 +189,11 @@ app.get('/api/alerts', getAlertsHandler);
 app.post('/api/alerts', postAlertsHandler);
 app.delete('/api/alerts/:id', deleteAlertHandler);
 app.post('/api/alerts/evaluate', postEvaluateAlertsHandler);
+
+app.get('/api/plan-rules', getPlanRulesHandler);
+app.post('/api/plan-rules', postPlanRulesHandler);
+app.patch('/api/plan-rules/:id', patchPlanRuleHandler);
+app.delete('/api/plan-rules/:id', deletePlanRuleHandler);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations

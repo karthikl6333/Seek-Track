@@ -76,6 +76,52 @@ import {
   deleteAlertHandler,
   postEvaluateAlertsHandler,
 } from './alerts.js';
+import {
+  getPlanRulesHandler,
+  postPlanRulesHandler,
+  patchPlanRuleHandler,
+  deletePlanRuleHandler,
+} from './plan-rules.js';
+
+let deadlineCheckInterval: NodeJS.Timeout | null = null;
+
+function startDeadlineCheckCron() {
+  if (typeof process === 'undefined' || !process.versions?.node) {
+    console.log('[DeadlineCheck] Not starting cron (not Node.js)');
+    return;
+  }
+
+  // Run once on startup after a delay
+  setTimeout(() => {
+    void checkDeadlinesOnce();
+  }, 10_000); // 10 seconds after startup
+
+  // Then schedule daily at midnight (or every 24 hours)
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  const msUntilMidnight = midnight.getTime() - now.getTime();
+
+  setTimeout(() => {
+    void checkDeadlinesOnce();
+    // Repeat daily
+    deadlineCheckInterval = setInterval(() => {
+      void checkDeadlinesOnce();
+    }, 24 * 60 * 60 * 1000);
+  }, msUntilMidnight);
+
+  console.log('[DeadlineCheck] Cron scheduled (daily at midnight)');
+}
+
+async function checkDeadlinesOnce() {
+  try {
+    const { evaluatePlanRuleNotifications } = await import('./plan-rule-notifications.js');
+    const result = await evaluatePlanRuleNotifications();
+    console.log(`[DeadlineCheck] Evaluated ${result.evaluated} rules, sent ${result.notified} notifications`);
+  } catch (err) {
+    console.error('[DeadlineCheck] Failed:', err);
+  }
+}
 
 const app = new Hono();
 
@@ -184,11 +230,19 @@ app.post('/api/alerts', postAlertsHandler);
 app.delete('/api/alerts/:id', deleteAlertHandler);
 app.post('/api/alerts/evaluate', postEvaluateAlertsHandler);
 
+app.get('/api/plan-rules', getPlanRulesHandler);
+app.post('/api/plan-rules', postPlanRulesHandler);
+app.patch('/api/plan-rules/:id', patchPlanRuleHandler);
+app.delete('/api/plan-rules/:id', deletePlanRuleHandler);
+
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations
 if (typeof process === 'undefined' || !process.versions?.node) {
   // Workers environment: disabled (use on-demand refresh only)
   startResearchRefreshCron(15 * 60 * 1000);
+} else {
+  // Node.js environment: start daily deadline check (runs at midnight)
+  startDeadlineCheckCron();
 }
 
 // Export app for Cloudflare Workers/Pages Functions (must be before any Node-specific code)

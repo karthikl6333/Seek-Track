@@ -281,3 +281,31 @@ CREATE INDEX IF NOT EXISTS marks_updated_at_idx ON marks (updated_at);
 CREATE INDEX IF NOT EXISTS price_alerts_status_symbol_idx ON price_alerts (status, symbol);
 -- Pair resolution by underlying: WHERE underlying = ?
 CREATE INDEX IF NOT EXISTS pair_cache_underlying_idx ON pair_cache (underlying);
+
+-- v3: Plan rules for Plan vs Price card
+CREATE TABLE IF NOT EXISTS plan_rules (
+  id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT 'real' CHECK (account IN ('real', 'paper-s0', 'paper-a1', 'paper-c0')),
+  rule_type TEXT NOT NULL CHECK (rule_type IN ('target', 'stop', 'no-add-below', 'deadline', 'note')),
+  price_level REAL,
+  deadline_date TEXT,
+  note TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS plan_rules_symbol_idx ON plan_rules (symbol);
+CREATE INDEX IF NOT EXISTS plan_rules_active_idx ON plan_rules (active);
+CREATE INDEX IF NOT EXISTS plan_rules_account_idx ON plan_rules (account);
+CREATE INDEX IF NOT EXISTS plan_rules_symbol_active_idx ON plan_rules (symbol, active);
+
+CREATE TABLE IF NOT EXISTS plan_rule_notifications (
+  rule_id TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('near', 'hit', 'deadline-tomorrow', 'deadline-today')),
+  notified_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  PRIMARY KEY (rule_id, event_type)
+);
+
+CREATE INDEX IF NOT EXISTS plan_rule_notifications_rule_idx ON plan_rule_notifications (rule_id);

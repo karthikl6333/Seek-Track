@@ -271,3 +271,43 @@ export async function loadWatchlistSymbols(): Promise<string[]> {
     .map((s) => s.toUpperCase().trim())
     .filter((s) => s.length > 0 && s !== 'TEST');
 }
+
+export async function loadPlanRules(account?: import('../types').PlanRuleAccount): Promise<{ rules: import('../types').PlanRule[] }> {
+  const qs = account ? `?account=${encodeURIComponent(account)}` : '';
+  return api(`/api/plan-rules${qs}`);
+}
+
+export async function createPlanRule(input: {
+  symbol: string;
+  account?: import('../types').PlanRuleAccount;
+  ruleType: import('../types').PlanRuleType;
+  priceLevel?: number | null;
+  deadlineDate?: string | null;
+  note?: string | null;
+}): Promise<{ rule: import('../types').PlanRule }> {
+  return api('/api/plan-rules', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updatePlanRule(
+  id: string,
+  updates: {
+    priceLevel?: number | null;
+    deadlineDate?: string | null;
+    note?: string | null;
+    active?: boolean;
+  },
+): Promise<{ ok: boolean }> {
+  return api(`/api/plan-rules/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deletePlanRule(id: string): Promise<{ ok: boolean }> {
+  return api(`/api/plan-rules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}

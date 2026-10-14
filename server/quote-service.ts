@@ -790,6 +790,17 @@ export async function refreshAllPrices(
       } catch (err) {
         console.error('[QuoteService] Alert evaluation failed:', err);
       }
+
+      // Evaluate plan rule notifications (near/hit events for changed prices)
+      try {
+        const { evaluatePlanRuleNotifications } = await import('./plan-rule-notifications.js');
+        const planResult = await evaluatePlanRuleNotifications();
+        if (planResult.notified > 0) {
+          console.log(`[QuoteService] Sent ${planResult.notified} plan rule notifications`);
+        }
+      } catch (err) {
+        console.error('[QuoteService] Plan rule notification evaluation failed:', err);
+      }
     }
 
     console.log(

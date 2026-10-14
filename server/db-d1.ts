@@ -11,12 +11,8 @@ let EMBEDDED_SCHEMA: string | null = null;
 
 import { recordQuery } from './read-budget.js';
 
-/**
- * Schema version - increment when schema changes. ensureSchema re-runs the (idempotent:
- * CREATE ... IF NOT EXISTS) schema once per DB when the stored version differs.
- * v2: read-budget indexes (marks.updated_at, price_alerts(status, symbol), pair_cache.underlying).
- */
-export const SCHEMA_VERSION = 2;
+import { SCHEMA_VERSION } from './schema-version.js';
+export { SCHEMA_VERSION };
 
 export interface QueryResult<T = any> {
   rows: T[];
@@ -135,23 +131,18 @@ export async function ensureSchema(): Promise<void> {
     await db.batch(batch);
   }
   
+  // Seed initial plan rules BEFORE recording the version: if seeding fails, the version stays old
+  // and the next isolate retries (the seed is idempotent, see seed-plan-rules.ts).
+  const { seedPlanRules } = await import('./seed-plan-rules.js');
+  const seeded = await seedPlanRules();
+  if (seeded.added > 0) console.log(`[D1] Seeded ${seeded.added} plan rules`);
+
   // Record schema version
   await db.prepare('CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)').run();
   await db.prepare('INSERT OR REPLACE INTO schema_meta (id, version) VALUES (1, ?)').bind(SCHEMA_VERSION).run();
-  
+
   schemaInitialized = true;
   console.log(`[D1] Schema initialized to version ${SCHEMA_VERSION}`);
-
-  // Seed initial plan rules (idempotent - won't duplicate)
-  try {
-    const { seedPlanRules } = await import('./seed-plan-rules.js');
-    const result = await seedPlanRules();
-    if (result.added > 0) {
-      console.log(`[D1] Seeded ${result.added} plan rules`);
-    }
-  } catch (err) {
-    console.error('[D1] Failed to seed plan rules:', err);
-  }
 }
 
 /**

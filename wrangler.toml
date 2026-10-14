@@ -7,6 +7,11 @@ pages_build_output_dir = "dist-cf"
 # Run: npm run build:cf
 # Then: wrangler pages deploy dist-cf --project-name=seek-track
 
+# Scheduled tasks (cron triggers)
+# Daily at midnight UTC for plan rule deadline notifications
+[triggers]
+crons = ["0 0 * * *"]
+
 # D1 Database binding (replaces Neon Postgres)
 [[d1_databases]]
 binding = "DB"

@@ -5,7 +5,6 @@
  */
 
 import { query } from './db.js';
-import { randomUUID } from 'node:crypto';
 
 interface SeedRule {
   symbol: string;
@@ -46,77 +45,50 @@ const SEED_RULES: SeedRule[] = [
   },
 ];
 
-/**
- * Check if a rule matching this spec already exists (active or deleted)
- * Matches on: symbol + rule_type + (price_level OR deadline_date)
- */
-async function ruleExists(seed: SeedRule): Promise<boolean> {
-  if (seed.priceLevel !== undefined) {
-    // Price-based rule: match on symbol, type, and price level (within 0.01)
-    const res = await query<{ count: number }>(
-      `SELECT COUNT(*) as count FROM plan_rules 
-       WHERE symbol = $1 AND rule_type = $2 
-       AND ABS(price_level - $3) < 0.01`,
-      [seed.symbol, seed.ruleType, seed.priceLevel]
-    );
-    return Number(res.rows[0]?.count ?? 0) > 0;
-  } else if (seed.deadlineDate) {
-    // Deadline rule: match on symbol, type, and deadline date
-    const res = await query<{ count: number }>(
-      `SELECT COUNT(*) as count FROM plan_rules 
-       WHERE symbol = $1 AND rule_type = $2 AND deadline_date = $3`,
-      [seed.symbol, seed.ruleType, seed.deadlineDate]
-    );
-    return Number(res.rows[0]?.count ?? 0) > 0;
-  }
-  return false;
+/** Deterministic primary key for a seed rule, so concurrent/re-run seeds can't duplicate it. */
+export function seedRuleId(seed: SeedRule): string {
+  const key = seed.priceLevel !== undefined ? String(seed.priceLevel) : seed.deadlineDate ?? '';
+  return `seed-${seed.symbol}-${seed.ruleType}-${key}`.toLowerCase().replace(/[^a-z0-9.-]+/g, '-');
 }
 
-export async function seedPlanRules(): Promise<{ added: number; skipped: number }> {
-  console.log('[SeedPlanRules] Starting idempotent seed...');
+export { SEED_RULES };
 
+/**
+ * Idempotent seed. Each rule is ONE atomic statement:
+ *  - deterministic id + ON CONFLICT (id) DO NOTHING: re-runs and racing isolates never duplicate;
+ *  - WHERE NOT EXISTS (same symbol + type + level/date): a matching rule created earlier (e.g. with
+ *    a random id, or already edited by the user) is never duplicated or overwritten.
+ * Existing rows are never UPDATEd.
+ */
+export async function seedPlanRules(): Promise<{ added: number; skipped: number }> {
   let added = 0;
   let skipped = 0;
 
   for (const seed of SEED_RULES) {
-    try {
-      // Check if rule already exists
-      if (await ruleExists(seed)) {
-        console.log(
-          `[SeedPlanRules] Skipped ${seed.symbol} ${seed.ruleType} (already exists)`
-        );
-        skipped++;
-        continue;
-      }
-
-      // Insert new rule
-      const id = randomUUID().replace(/-/g, '');
-      const now = new Date().toISOString();
-
-      await query(
-        `INSERT INTO plan_rules (id, symbol, account, rule_type, price_level, deadline_date, note, active, created_at, updated_at)
-         VALUES ($1, $2, 'real', $3, $4, $5, $6, 1, $7, $8)`,
-        [
-          id,
-          seed.symbol,
-          seed.ruleType,
-          seed.priceLevel ?? null,
-          seed.deadlineDate ?? null,
-          seed.note ?? null,
-          now,
-          now,
-        ]
-      );
-
-      console.log(`[SeedPlanRules] Added ${seed.symbol} ${seed.ruleType}`);
-      added++;
-    } catch (err) {
-      console.error(
-        `[SeedPlanRules] Failed to add ${seed.symbol} ${seed.ruleType}:`,
-        String(err)
-      );
-      skipped++;
-    }
+    const match =
+      seed.priceLevel !== undefined
+        ? 'p.price_level IS NOT NULL AND ABS(p.price_level - $4) < 0.01'
+        : 'p.deadline_date = $5';
+    const now = new Date().toISOString();
+    const res = await query(
+      `INSERT INTO plan_rules (id, symbol, account, rule_type, price_level, deadline_date, note, active, created_at, updated_at)
+       SELECT $1, $2, 'real', $3, $4, $5, $6, 1, $7, $7
+       WHERE NOT EXISTS (
+         SELECT 1 FROM plan_rules p WHERE p.symbol = $2 AND p.rule_type = $3 AND ${match}
+       )
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        seedRuleId(seed),
+        seed.symbol,
+        seed.ruleType,
+        seed.priceLevel ?? null,
+        seed.deadlineDate ?? null,
+        seed.note ?? null,
+        now,
+      ],
+    );
+    if ((res.rowCount ?? 0) > 0) added++;
+    else skipped++;
   }
 
   console.log(`[SeedPlanRules] Complete: added ${added}, skipped ${skipped}`);

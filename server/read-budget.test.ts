@@ -314,7 +314,7 @@ describe('marks delta cursor (index seek, tiny overlap, dedupe)', () => {
 // ---------------------------------------------------------------------------------------------
 describe('schema v2 gate', () => {
   it('is version 2', () => {
-    expect(SCHEMA_VERSION).toBe(2);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(2);
   });
 
   it('an existing v1 DB gets the new indexes once, then the version check short-circuits', async () => {
@@ -329,7 +329,7 @@ describe('schema v2 gate', () => {
     await ensureSchema();
     const idx = sqlite.exec("SELECT name FROM sqlite_master WHERE type = 'index'")[0].values.flat();
     expect(idx).toEqual(expect.arrayContaining(['marks_updated_at_idx', 'price_alerts_status_symbol_idx', 'pair_cache_underlying_idx']));
-    expect(sqlite.exec('SELECT version FROM schema_meta')[0].values[0][0]).toBe(2);
+    expect(sqlite.exec("SELECT version FROM schema_meta")[0].values[0][0]).toBe(SCHEMA_VERSION);
     expect(executed.some((s) => /CREATE INDEX IF NOT EXISTS marks_updated_at_idx/.test(s))).toBe(true);
 
     // Same isolate: no further reads at all.

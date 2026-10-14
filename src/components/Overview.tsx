@@ -264,12 +264,6 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
 
       <div className="overview-layout">
         <div className="stack calc-main">
-          <PlanVsPrice
-            positions={visibleOpen}
-            marks={store.marks}
-            compact={false}
-          />
-
           <div className="card">
             <div className="row-actions" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
               <h3 style={{ margin: 0 }}>Holdings (open positions)</h3>
@@ -521,6 +515,11 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             watchlistSymbols={[]}
           />
           <CsvImport onImport={store.importCsvText} lastResult={store.importResult} />
+          <PlanVsPrice
+            positions={visibleOpen}
+            marks={store.marks}
+            compact={false}
+          />
         </div>
       </div>
     </div>

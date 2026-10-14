@@ -312,32 +312,36 @@ describe('marks delta cursor (index seek, tiny overlap, dedupe)', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-describe('schema v2 gate', () => {
-  it('is version 2', () => {
-    expect(SCHEMA_VERSION).toBe(2);
+describe('schema v3 gate', () => {
+  it('is version 3', () => {
+    expect(SCHEMA_VERSION).toBe(3);
   });
 
-  it('an existing v1 DB gets the new indexes once, then the version check short-circuits', async () => {
-    // Simulate prod: v1 schema without the new indexes.
-    sqlite.run('DROP INDEX marks_updated_at_idx');
-    sqlite.run('DROP INDEX price_alerts_status_symbol_idx');
-    sqlite.run('DROP INDEX pair_cache_underlying_idx');
-    sqlite.run('UPDATE schema_meta SET version = 1 WHERE id = 1');
+  it('an existing v2 DB gets the plan_rules tables and new indexes once, then the version check short-circuits', async () => {
+    // Simulate prod: v2 schema without plan_rules tables.
+    // Drop the v3 tables if they exist
+    try {
+      sqlite.run('DROP TABLE IF EXISTS plan_rule_notifications');
+      sqlite.run('DROP TABLE IF EXISTS plan_rules');
+    } catch (e) {
+      // Ignore errors if tables don't exist
+    }
+    sqlite.run('UPDATE schema_meta SET version = 2 WHERE id = 1');
     __resetSchemaStateForTests();
     executed.length = 0;
 
     await ensureSchema();
-    const idx = sqlite.exec("SELECT name FROM sqlite_master WHERE type = 'index'")[0].values.flat();
-    expect(idx).toEqual(expect.arrayContaining(['marks_updated_at_idx', 'price_alerts_status_symbol_idx', 'pair_cache_underlying_idx']));
-    expect(sqlite.exec('SELECT version FROM schema_meta')[0].values[0][0]).toBe(2);
-    expect(executed.some((s) => /CREATE INDEX IF NOT EXISTS marks_updated_at_idx/.test(s))).toBe(true);
+    const tables = sqlite.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0].values.flat();
+    expect(tables).toEqual(expect.arrayContaining(['plan_rules', 'plan_rule_notifications']));
+    expect(sqlite.exec('SELECT version FROM schema_meta')[0].values[0][0]).toBe(3);
+    expect(executed.some((s) => /CREATE TABLE IF NOT EXISTS plan_rules/.test(s))).toBe(true);
 
     // Same isolate: no further reads at all.
     executed.length = 0;
     await ensureSchema();
     expect(executed).toEqual([]);
 
-    // New isolate on a v2 DB: one cheap version read, no DDL.
+    // New isolate on a v3 DB: one cheap version read, no DDL.
     __resetSchemaStateForTests();
     await ensureSchema();
     expect(executed).toEqual(['SELECT version FROM schema_meta WHERE id = 1']);

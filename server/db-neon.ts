@@ -7,6 +7,22 @@ import { neon } from '@neondatabase/serverless';
 
 let sql: ReturnType<typeof neon> | null = null;
 
+/**
+ * Schema version - increment when schema changes. ensureSchema re-runs the (idempotent:
+ * CREATE ... IF NOT EXISTS) schema once per DB when the stored version differs.
+ * v2: read-budget indexes (marks.updated_at, price_alerts(status, symbol), pair_cache.underlying).
+ * v3: Plan vs Price card (plan_rules, plan_rule_notifications tables).
+ */
+export const SCHEMA_VERSION = 3;
+
+// Per-process flag: once schema is verified in this process, skip rechecks
+let schemaInitialized = false;
+
+/** Test hook: forget the per-process "schema verified" flag. */
+export function __resetSchemaStateForTests(): void {
+  schemaInitialized = false;
+}
+
 // Embedded schema for fallback (injected at build time)
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;
@@ -41,7 +57,28 @@ function stripSqlLineComments(sqlText: string): string {
 }
 
 export async function ensureSchema(): Promise<void> {
+  // Fast path: if already initialized in this process, skip
+  if (schemaInitialized) {
+    return;
+  }
+
   const db = getSQL();
+  
+  // Check if schema is already at the current version (cheap read)
+  try {
+    const versionResult = await db('SELECT version FROM schema_meta WHERE id = 1', []);
+    const currentVersion = versionResult.rows?.[0]?.version as number | undefined;
+    
+    if (currentVersion === SCHEMA_VERSION) {
+      schemaInitialized = true;
+      return;
+    }
+    
+    console.log(`[Neon] Schema version mismatch: DB=${currentVersion ?? 'none'}, code=${SCHEMA_VERSION}. Running migration...`);
+  } catch (err) {
+    // schema_meta table doesn't exist yet, proceed with full schema init
+    console.log('[Neon] schema_meta not found, initializing schema...');
+  }
   
   let schemaText: string | null = EMBEDDED_SCHEMA;
   
@@ -86,6 +123,13 @@ export async function ensureSchema(): Promise<void> {
   // Execute all DDL statements in ONE transaction
   const queries = statements.map((stmt) => db.query(stmt, []));
   await db.transaction(queries);
+
+  // Record schema version
+  await db('CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)', []);
+  await db('INSERT INTO schema_meta (id, version) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version', [1, SCHEMA_VERSION]);
+  
+  schemaInitialized = true;
+  console.log(`[Neon] Schema initialized to version ${SCHEMA_VERSION}`);
 
   // Seed initial plan rules (idempotent - won't duplicate)
   try {

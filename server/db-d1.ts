@@ -15,8 +15,9 @@ import { recordQuery } from './read-budget.js';
  * Schema version - increment when schema changes. ensureSchema re-runs the (idempotent:
  * CREATE ... IF NOT EXISTS) schema once per DB when the stored version differs.
  * v2: read-budget indexes (marks.updated_at, price_alerts(status, symbol), pair_cache.underlying).
+ * v3: Plan vs Price card (plan_rules, plan_rule_notifications tables).
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface QueryResult<T = any> {
   rows: T[];

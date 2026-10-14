@@ -1,69 +1,124 @@
 /**
  * Seed initial plan rules for the user
- * Run once during initial setup or via manual API call
+ * Idempotent: only adds rules that don't exist (by symbol + rule_type + level/date)
+ * Safe to call multiple times - won't duplicate or re-add deleted rules
  */
 
-import { createPlanRule } from './plan-rules.js';
+import { query } from './db.js';
+import { randomUUID } from 'node:crypto';
 
-export async function seedPlanRules(): Promise<void> {
-  console.log('[Seed] Seeding initial plan rules...');
+interface SeedRule {
+  symbol: string;
+  ruleType: 'target' | 'stop' | 'no-add-below' | 'deadline';
+  priceLevel?: number;
+  deadlineDate?: string;
+  note?: string | null;
+}
 
-  const seeds = [
-    // SOXL target 150 (sell; note "don't rebuy before Nov 4")
-    {
-      symbol: 'SOXL',
-      ruleType: 'target' as const,
-      priceLevel: 150,
-      note: "don't rebuy before Nov 4",
-    },
-    // AVL target 35.44
-    {
-      symbol: 'AVL',
-      ruleType: 'target' as const,
-      priceLevel: 35.44,
-      note: null,
-    },
-    // AVL deadline of 2026-10-16 with note "sell at close if still under avg 38.04"
-    {
-      symbol: 'AVL',
-      ruleType: 'deadline' as const,
-      deadlineDate: '2026-10-16',
-      note: 'sell at close if still under avg 38.04',
-    },
-    // SMH stop 561.92
-    {
-      symbol: 'SMH',
-      ruleType: 'stop' as const,
-      priceLevel: 561.92,
-      note: null,
-    },
-    // SMH no-add-below 585.33 (note "max 20% of equity")
-    {
-      symbol: 'SMH',
-      ruleType: 'no-add-below' as const,
-      priceLevel: 585.33,
-      note: 'max 20% of equity',
-    },
-  ];
+const SEED_RULES: SeedRule[] = [
+  {
+    symbol: 'SOXL',
+    ruleType: 'target',
+    priceLevel: 150,
+    note: "don't rebuy before Nov 4",
+  },
+  {
+    symbol: 'AVL',
+    ruleType: 'target',
+    priceLevel: 35.44,
+  },
+  {
+    symbol: 'AVL',
+    ruleType: 'deadline',
+    deadlineDate: '2026-10-16',
+    note: 'sell at close if still under avg 38.04',
+  },
+  {
+    symbol: 'SMH',
+    ruleType: 'stop',
+    priceLevel: 561.92,
+  },
+  {
+    symbol: 'SMH',
+    ruleType: 'no-add-below',
+    priceLevel: 585.33,
+    note: 'max 20% of equity',
+  },
+];
+
+/**
+ * Check if a rule matching this spec already exists (active or deleted)
+ * Matches on: symbol + rule_type + (price_level OR deadline_date)
+ */
+async function ruleExists(seed: SeedRule): Promise<boolean> {
+  if (seed.priceLevel !== undefined) {
+    // Price-based rule: match on symbol, type, and price level (within 0.01)
+    const res = await query<{ count: number }>(
+      `SELECT COUNT(*) as count FROM plan_rules 
+       WHERE symbol = $1 AND rule_type = $2 
+       AND ABS(price_level - $3) < 0.01`,
+      [seed.symbol, seed.ruleType, seed.priceLevel]
+    );
+    return Number(res.rows[0]?.count ?? 0) > 0;
+  } else if (seed.deadlineDate) {
+    // Deadline rule: match on symbol, type, and deadline date
+    const res = await query<{ count: number }>(
+      `SELECT COUNT(*) as count FROM plan_rules 
+       WHERE symbol = $1 AND rule_type = $2 AND deadline_date = $3`,
+      [seed.symbol, seed.ruleType, seed.deadlineDate]
+    );
+    return Number(res.rows[0]?.count ?? 0) > 0;
+  }
+  return false;
+}
+
+export async function seedPlanRules(): Promise<{ added: number; skipped: number }> {
+  console.log('[SeedPlanRules] Starting idempotent seed...');
 
   let added = 0;
-  for (const seed of seeds) {
+  let skipped = 0;
+
+  for (const seed of SEED_RULES) {
     try {
-      await createPlanRule({
-        symbol: seed.symbol,
-        account: 'real',
-        ruleType: seed.ruleType,
-        priceLevel: seed.priceLevel ?? null,
-        deadlineDate: seed.deadlineDate ?? null,
-        note: seed.note ?? null,
-      });
+      // Check if rule already exists
+      if (await ruleExists(seed)) {
+        console.log(
+          `[SeedPlanRules] Skipped ${seed.symbol} ${seed.ruleType} (already exists)`
+        );
+        skipped++;
+        continue;
+      }
+
+      // Insert new rule
+      const id = randomUUID().replace(/-/g, '');
+      const now = new Date().toISOString();
+
+      await query(
+        `INSERT INTO plan_rules (id, symbol, account, rule_type, price_level, deadline_date, note, active, created_at, updated_at)
+         VALUES ($1, $2, 'real', $3, $4, $5, $6, 1, $7, $8)`,
+        [
+          id,
+          seed.symbol,
+          seed.ruleType,
+          seed.priceLevel ?? null,
+          seed.deadlineDate ?? null,
+          seed.note ?? null,
+          now,
+          now,
+        ]
+      );
+
+      console.log(`[SeedPlanRules] Added ${seed.symbol} ${seed.ruleType}`);
       added++;
-      console.log(`[Seed] Added ${seed.ruleType} rule for ${seed.symbol}`);
     } catch (err) {
-      // If it fails (e.g., already exists), just log and continue
-      console.warn(`[Seed] Skipped ${seed.ruleType} for ${seed.symbol}:`, String(err));
+      console.error(
+        `[SeedPlanRules] Failed to add ${seed.symbol} ${seed.ruleType}:`,
+        String(err)
+      );
+      skipped++;
     }
   }
 
-  console.log(`[Seed] Seeding complete. Added ${added}/${seeds.length} rules.`);
+  console.log(`[SeedPlanRules] Complete: added ${added}, skipped ${skipped}`);
+  return { added, skipped };
 }

@@ -1,6 +1,10 @@
 /**
  * Plan rule notifications: email alerts for near/hit/deadline events
  * Integrates with existing Resend email infrastructure
+ * 
+ * Deadline checks run during quote refresh (every 30s) with daily dedupe:
+ * - Each deadline event can only fire once per calendar day
+ * - Uses notification log to track last notification date per rule/event
  */
 
 import { query } from './db.js';
@@ -26,16 +30,31 @@ interface NotificationLog {
 const NEAR_THRESHOLD_PCT = 3; // 3% away triggers "near" alert
 
 /**
- * Check if we've already sent this notification (dedupe)
+ * Check if we've already sent this notification today (for deadlines) or ever (for price events)
  */
-async function hasBeenNotified(ruleId: string, eventType: string): Promise<boolean> {
-  const res = await query<NotificationLog>(
-    `SELECT rule_id, event_type, notified_at 
-     FROM plan_rule_notifications 
-     WHERE rule_id = $1 AND event_type = $2`,
-    [ruleId, eventType]
-  );
-  return res.rows.length > 0;
+async function hasBeenNotifiedToday(ruleId: string, eventType: string): Promise<boolean> {
+  const isDeadlineEvent = eventType.startsWith('deadline-');
+  
+  if (isDeadlineEvent) {
+    // For deadline events, check if we've notified today (calendar day in UTC)
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const res = await query<NotificationLog>(
+      `SELECT rule_id, event_type, notified_at 
+       FROM plan_rule_notifications 
+       WHERE rule_id = $1 AND event_type = $2 AND DATE(notified_at) = $3`,
+      [ruleId, eventType, today]
+    );
+    return res.rows.length > 0;
+  } else {
+    // For price events (near/hit), check if we've ever notified
+    const res = await query<NotificationLog>(
+      `SELECT rule_id, event_type, notified_at 
+       FROM plan_rule_notifications 
+       WHERE rule_id = $1 AND event_type = $2`,
+      [ruleId, eventType]
+    );
+    return res.rows.length > 0;
+  }
 }
 
 /**
@@ -91,6 +110,7 @@ function checkDeadline(deadlineDate: string): 'tomorrow' | 'today' | 'normal' {
 
 /**
  * Evaluate all active plan rules and send notifications for events
+ * Called during quote refresh (every 30s) - checks both price and deadline events
  */
 export async function evaluatePlanRuleNotifications(): Promise<{
   evaluated: number;
@@ -112,7 +132,7 @@ export async function evaluatePlanRuleNotifications(): Promise<{
 
       const status = calculateStatus(rule.ruleType, rule.priceLevel, lastPrice);
       if (status === 'near') {
-        const alreadyNotified = await hasBeenNotified(rule.id, 'near');
+        const alreadyNotified = await hasBeenNotifiedToday(rule.id, 'near');
         if (!alreadyNotified) {
           events.push({
             id: rule.id,
@@ -126,7 +146,7 @@ export async function evaluatePlanRuleNotifications(): Promise<{
           });
         }
       } else if (status === 'hit') {
-        const alreadyNotified = await hasBeenNotified(rule.id, 'hit');
+        const alreadyNotified = await hasBeenNotifiedToday(rule.id, 'hit');
         if (!alreadyNotified) {
           events.push({
             id: rule.id,
@@ -142,11 +162,11 @@ export async function evaluatePlanRuleNotifications(): Promise<{
       }
     }
 
-    // Deadline rules
+    // Deadline rules (checked every refresh, but deduped per calendar day)
     if (rule.ruleType === 'deadline' && rule.deadlineDate) {
       const deadlineStatus = checkDeadline(rule.deadlineDate);
       if (deadlineStatus === 'tomorrow') {
-        const alreadyNotified = await hasBeenNotified(rule.id, 'deadline-tomorrow');
+        const alreadyNotified = await hasBeenNotifiedToday(rule.id, 'deadline-tomorrow');
         if (!alreadyNotified) {
           events.push({
             id: rule.id,
@@ -160,7 +180,7 @@ export async function evaluatePlanRuleNotifications(): Promise<{
           });
         }
       } else if (deadlineStatus === 'today') {
-        const alreadyNotified = await hasBeenNotified(rule.id, 'deadline-today');
+        const alreadyNotified = await hasBeenNotifiedToday(rule.id, 'deadline-today');
         if (!alreadyNotified) {
           events.push({
             id: rule.id,

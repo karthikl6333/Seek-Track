@@ -141,6 +141,17 @@ export async function ensureSchema(): Promise<void> {
   
   schemaInitialized = true;
   console.log(`[D1] Schema initialized to version ${SCHEMA_VERSION}`);
+
+  // Seed initial plan rules (idempotent - won't duplicate)
+  try {
+    const { seedPlanRules } = await import('./seed-plan-rules.js');
+    const result = await seedPlanRules();
+    if (result.added > 0) {
+      console.log(`[D1] Seeded ${result.added} plan rules`);
+    }
+  } catch (err) {
+    console.error('[D1] Failed to seed plan rules:', err);
+  }
 }
 
 /**

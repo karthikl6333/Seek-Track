@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from 'react';
-import { resolveIdeaAsset } from '../../content/ideas';
-import { formatIdeaDate, readingMinutes, type Idea } from '../../lib/ideas';
+import { useEffect, useMemo, useState } from 'react';
+import { loadIdea, resolveIdeaImage } from '../../api/ideas';
+import { formatIdeaDate, type Idea } from '../../lib/ideas';
 import { createSanitizer, renderIdeaMarkdown } from './markdown';
 
 let sanitizer: ((dirty: string) => string) | null = null;
@@ -9,17 +9,38 @@ function sanitize(dirty: string): string {
   return sanitizer(dirty);
 }
 
-/** One report, rendered from Markdown (sanitized) with a Back button and a contents list. */
-export function IdeaReport({ idea, onBack }: { idea: Idea | undefined; onBack: () => void }) {
-  const slug = idea?.slug;
+type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'missing' } | { state: 'ready'; idea: Idea };
+
+/** One report: fetched from the authed API, rendered from Markdown (sanitized), with a Back button and contents. */
+export function IdeaReport({ slug, onBack }: { slug: string; onBack: () => void }) {
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoad({ state: 'loading' });
+    loadIdea(slug)
+      .then((idea) => {
+        if (!cancelled) setLoad({ state: 'ready', idea });
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        setLoad(/^404\b/.test(message) ? { state: 'missing' } : { state: 'error', message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, attempt]);
 
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [slug]);
 
+  const idea = load.state === 'ready' ? load.idea : null;
   const rendered = useMemo(() => {
     if (!idea) return null;
-    const { html, toc } = renderIdeaMarkdown(idea.body, resolveIdeaAsset);
+    const { html, toc } = renderIdeaMarkdown(idea.body, resolveIdeaImage);
     return { html: sanitize(html), toc };
   }, [idea]);
 
@@ -30,22 +51,23 @@ export function IdeaReport({ idea, onBack }: { idea: Idea | undefined; onBack: (
           ← All reports
         </button>
       </div>
-      {!idea || !rendered ? (
+      {load.state === 'loading' ? (
+        <p className="muted">Loading report…</p>
+      ) : load.state === 'error' ? (
+        <div className="caveat" role="alert">
+          Could not load this report: {load.message}{' '}
+          <button type="button" className="btn small" onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      ) : load.state === 'missing' || !idea || !rendered ? (
         <div className="empty-state muted">This report does not exist (it may have been renamed or removed).</div>
       ) : (
         <article className="card idea-article">
           <header className="idea-header">
             <h1>{idea.title}</h1>
             <p className="idea-card-meta muted">
-              {formatIdeaDate(idea.date)} · {readingMinutes(idea.body)} min read
-              {idea.source && (
-                <>
-                  {' · '}
-                  <a href={idea.source} target="_blank" rel="noopener noreferrer">
-                    Original source
-                  </a>
-                </>
-              )}
+              {formatIdeaDate(idea.date)} · {idea.minutes} min read
             </p>
             {idea.tags.length > 0 && (
               <span className="idea-tags">

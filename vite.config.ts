@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     // Only run tests from source; ignore compiled output under dist*/
-    include: ['server/**/*.test.ts', 'src/**/*.test.ts'],
-    exclude: ['node_modules', 'dist', 'dist-*', '.dist-*', '.wrangler'],
+    include: ['server/**/*.test.ts', 'src/**/*.test.ts', 'scripts/**/*.test.js'],
+    exclude: ['node_modules', 'dist', 'dist-*', '.dist-*', '.cf-build', '.wrangler'],
   },
 })

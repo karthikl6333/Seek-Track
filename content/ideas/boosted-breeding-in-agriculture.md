@@ -3,7 +3,6 @@ title: "Boosted Breeding in Agriculture: Global Landscape, India Players, Invest
 date: 2026-10-31
 summary: "A plain-language guide to boosted breeding (Ohalo's trademark plus speed breeding, genomic selection and gene editing), the Indian players, a scored investment view and where AI multiplies the gains. Research current to 31 Oct 2026."
 tags: [Agriculture, Gene editing, India, Investing, AI, Seed industry]
-source: https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/cc284b50-f5a6-4d40-b3d7-4c9960afc3a2
 ---
 
 *Original report title: Boosted Breeding in Agriculture: What It Is, Who Is Doing It in India, and Whether to Invest*

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSanitizer, headingId, renderIdeaMarkdown } from './markdown';
 
-const assets: Record<string, string> = { 'assets/t/a.jpg': '/assets/a-hash.jpg' };
+const assets: Record<string, string> = { 'assets/t/a.jpg': '/api/ideas/t/img/a.jpg' };
 const resolve = (ref: string) => assets[ref] ?? null;
 const sanitize = createSanitizer(window);
 const render = (md: string) => sanitize(renderIdeaMarkdown(md, resolve).html);
@@ -55,7 +55,7 @@ describe('renderIdeaMarkdown + sanitizer', () => {
   it('renders images: bundled paths resolved, external kept, lazy; unknown local images fall back to alt text', () => {
     const html = render('![Local](assets/t/a.jpg)\n\n![Remote](https://upload.wikimedia.org/x.jpg)\n\n![Missing](assets/t/nope.jpg)');
     const imgs = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('img')];
-    expect(imgs.map((i) => i.getAttribute('src'))).toEqual(['/assets/a-hash.jpg', 'https://upload.wikimedia.org/x.jpg']);
+    expect(imgs.map((i) => i.getAttribute('src'))).toEqual(['/api/ideas/t/img/a.jpg', 'https://upload.wikimedia.org/x.jpg']);
     for (const i of imgs) {
       expect(i.getAttribute('loading')).toBe('lazy');
     }

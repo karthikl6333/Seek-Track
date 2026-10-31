@@ -18,5 +18,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
+# Ideas reports are read from disk by the Node server (served only via the authed /api/ideas routes)
+COPY --from=build /app/content ./content
 EXPOSE 3000
 CMD ["node", "dist-server/index.js"]

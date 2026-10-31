@@ -3,7 +3,6 @@ title: "Hong Kong & Macau Family Adventure, 9–17 Jan 2027"
 date: 2026-10-31
 summary: "A family trip plan for two adults and an 8-year-old: six nights in Hong Kong and two in Macau, with animal outings, hands-on fun, markets and Indian dinners. Includes hotel picks, a day-by-day plan, a full activity catalog, a budget and taxi fares."
 tags: [Travel, Hong Kong, Macau, Family, Itinerary, Budget]
-source: https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/0f253b65-ea2a-4411-ba66-267b220e7ec9
 ---
 
 ![Hong Kong skyline and Victoria Harbour](assets/hong-kong-macau-family-trip-jan-2027/cover.jpg)

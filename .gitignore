@@ -9,6 +9,7 @@ dist-server
 dist-functions
 dist-cf
 .dist-cf-backup
+.cf-build
 node_modules
 
 .wrangler

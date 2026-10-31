@@ -5,37 +5,42 @@
  * Embeds schema.sql into db.js so it doesn't need filesystem access
  */
 
-import { existsSync, mkdirSync, cpSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, cpSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
 
 const rootDir = process.cwd();
 const distClient = join(rootDir, 'dist');
 const distServer = join(rootDir, 'dist-server');
 const cfDist = join(rootDir, 'dist-cf');
+// Server code and private report content are staged OUTSIDE the output dir: every file in dist-cf
+// is a public static asset (only /api/* is behind auth). They are bundled into _worker.js, which
+// Cloudflare Pages runs but never serves.
+const stage = join(rootDir, '.cf-build');
+const stageServer = join(stage, 'dist-server');
+const contentDir = join(rootDir, 'content', 'ideas');
 
-// Clean and create dist-cf directory
-if (existsSync(cfDist)) {
-  cpSync(cfDist, join(cfDist, '..', '.dist-cf-backup'), { recursive: true, force: true });
-  console.log('Backed up existing dist-cf/');
-}
-
+// Start clean so stale files (old chunks, an old dist-server/) never ship.
+rmSync(cfDist, { recursive: true, force: true });
+rmSync(stage, { recursive: true, force: true });
 mkdirSync(cfDist, { recursive: true });
+mkdirSync(stage, { recursive: true });
 
 // Copy static client assets
 console.log('Copying client assets from dist/ to dist-cf/...');
 cpSync(distClient, cfDist, { recursive: true });
 
-// Copy compiled server code
-console.log('Copying server code from dist-server/ to dist-cf/dist-server/...');
-const cfServerDir = join(cfDist, 'dist-server');
-mkdirSync(cfServerDir, { recursive: true });
-cpSync(distServer, cfServerDir, { recursive: true });
+// Stage compiled server code (NOT inside dist-cf)
+console.log('Staging server code from dist-server/ to .cf-build/dist-server/...');
+cpSync(distServer, stageServer, { recursive: true });
 
 // Read D1 schema and embed it into db-d1.js
 console.log('Embedding schema-d1.sql into db-d1.js for Workers compatibility...');
 const schemaPath = join(rootDir, 'server', 'schema-d1.sql');
 const schemaSql = readFileSync(schemaPath, 'utf8');
-const dbJsPath = join(cfServerDir, 'db-d1.js');
+const dbJsPath = join(stageServer, 'db-d1.js');
 let dbJsContent = readFileSync(dbJsPath, 'utf8');
 
 // Replace the placeholder with the actual schema as a string literal
@@ -55,6 +60,33 @@ dbJsContent = dbJsContent.replace(
 );
 writeFileSync(dbJsPath, dbJsContent, 'utf8');
 console.log('✅ Schema embedded successfully');
+
+// Embed the Ideas reports (content/ideas) into server/ideas/store.js. Workers have no filesystem, so
+// the reports + images travel inside the worker bundle and are served only by the authed /api/ideas routes.
+console.log('Embedding content/ideas into the worker bundle...');
+const storePath = join(stageServer, 'ideas', 'store.js');
+const storeMod = await import(pathToFileURL(storePath).href);
+const raw = await storeMod.readIdeaContentFromDisk(contentDir);
+const checked = storeMod.buildIdeaStore(raw);
+if (checked.errors.length > 0) {
+  console.error('❌ Some report files are invalid and would be hidden:', JSON.stringify(checked.errors));
+  process.exit(1);
+}
+if (checked.list.length === 0) {
+  console.error(`❌ No reports found in ${contentDir}`);
+  process.exit(1);
+}
+let storeJs = readFileSync(storePath, 'utf8');
+const ideasRe = /\/\/ @IDEAS_CONTENT_PLACEHOLDER@\r?\nconst EMBEDDED_IDEAS(?:: [^=]+)? = null;/;
+if (!ideasRe.test(storeJs)) {
+  console.error(`❌ Ideas placeholder not found in ${storePath}; cannot embed reports`);
+  process.exit(1);
+}
+// JSON is a valid JS expression; U+2028/2029 are escaped for older parsers.
+const ideasLiteral = JSON.stringify(raw).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+storeJs = storeJs.replace(ideasRe, () => `// Reports embedded at build time (private: served only via authed /api/ideas)\nconst EMBEDDED_IDEAS = ${ideasLiteral};`);
+writeFileSync(storePath, storeJs, 'utf8');
+console.log(`✅ Embedded ${checked.list.length} reports and ${Object.keys(raw.assets).length} images`);
 
 // Create _worker.js for Cloudflare Pages Advanced mode
 console.log('Creating _worker.js for Cloudflare Pages...');
@@ -131,7 +163,35 @@ export default {
 };
 `;
 
-writeFileSync(join(cfDist, '_worker.js'), workerJs.trim());
+writeFileSync(join(stage, 'worker-entry.js'), workerJs.trim());
+
+// Bundle the entry + server code + embedded content into ONE file: dist-cf/_worker.js.
+// packages: 'external' keeps bare imports (hono, node:*, ...) resolved by wrangler/Pages exactly as
+// before. No sourcemap on purpose (a .map in dist-cf would be a public static asset).
+await build({
+  entryPoints: [join(stage, 'worker-entry.js')],
+  outfile: join(cfDist, '_worker.js'),
+  bundle: true,
+  format: 'esm',
+  platform: 'neutral',
+  mainFields: ['module', 'main'],
+  conditions: ['workerd', 'worker', 'import'],
+  packages: 'external',
+  sourcemap: false,
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+rmSync(stage, { recursive: true, force: true });
+
+// Privacy guard: fail the build if any private report content reached the public static output.
+console.log('Scanning dist-cf/ for leaked report content...');
+const content = readContent(contentDir);
+const problems = [...workerEmbedsContent(cfDist, content), ...scanStaticOutput(cfDist, content)];
+if (problems.length > 0) {
+  console.error('❌ Static output privacy guard failed:\n  ' + problems.join('\n  '));
+  process.exit(1);
+}
+console.log('✅ No report text or images in the static output (only inside _worker.js)');
 
 console.log('✅ Cloudflare Pages build complete!');
 console.log('   Deploy dist-cf/ to Cloudflare Pages');

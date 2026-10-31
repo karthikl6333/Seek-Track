@@ -62,6 +62,9 @@ const EXPECTED = [
   'POST /api/plan-rules',
   'PATCH /api/plan-rules/:id',
   'DELETE /api/plan-rules/:id',
+  'GET /api/ideas',
+  'GET /api/ideas/:slug',
+  'GET /api/ideas/:slug/img/:name',
 ];
 
 describe('API route table', () => {

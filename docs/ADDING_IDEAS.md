@@ -1,10 +1,15 @@
 # Adding a report to the Ideas tab
 
-Reports are Markdown files in `src/content/ideas/`. Add a file, rebuild, done. No database, no API.
+Reports are Markdown files in `content/ideas/` (repo root). Add a file, rebuild, done. No database.
+
+**Privacy:** reports are served only by the authed `/api/ideas` routes and are embedded in the server
+bundle, never in the public static files. Do **not** put them under `src/` or `public/`: Vite would
+bundle them into `/assets/*`, which is public on prod. `npm run build:cf` runs a guard that fails if any
+report text or image reaches the static output.
 
 ## 1. Create the file
 
-`src/content/ideas/<slug>.md`. The file name (lowercase letters, digits, dashes) is the slug and the
+`content/ideas/<slug>.md`. The file name (lowercase letters, digits, dashes) is the slug and the
 deep link: `https://seek-track.pages.dev/#ideas/<slug>`.
 
 ```markdown
@@ -13,7 +18,6 @@ title: "Boosted Breeding in Agriculture: Global Landscape"
 date: 2026-10-31
 summary: "One or two sentences shown on the list card."
 tags: [Agriculture, India, Investing]
-source: https://example.com/where-this-came-from
 ---
 
 ## First section
@@ -27,10 +31,10 @@ Body text in Markdown.
 | `date` | yes | `YYYY-MM-DD`. The list is newest first. |
 | `summary` | yes | Plain text, 1-2 sentences. |
 | `tags` | no | `[A, B]` or a `- A` list. They become the filter chips (case-insensitive, duplicates merged). |
-| `source` | no | `http(s)` URL, shown as "Original source" on the report. |
 
 A file with a missing or malformed field is hidden and a warning listing it appears at the top of the
-Ideas tab. `npx vitest run` also fails (`src/content/ideas/content.test.ts`).
+Ideas tab and `build:cf` fails. `npx vitest run` also fails (`server/ideas/store.test.ts`). Unknown frontmatter
+keys (such as an old `source:` link) are ignored; do not add links back to where a private report came from.
 
 ## 2. What the reader renders
 
@@ -46,25 +50,25 @@ are three or more), paragraphs, bold/italic, lists, task lists (`* [ ] item`), t
 
 ## 3. Images
 
-Put files under `src/content/ideas/assets/<slug>/` (jpg, png, webp, gif, svg; keep each well under
-200 KB, resize and compress first) and reference them relative to `src/content/ideas/`:
+Put files under `content/ideas/assets/<slug>/` (jpg, png, webp, gif; no svg; keep each well under
+200 KB, resize and compress first) and reference them relative to `content/ideas/`:
 
 ```markdown
 ![Hong Kong skyline](assets/<slug>/cover.jpg)
 ```
 
-Vite fingerprints and serves them from `/assets/`. A path that does not exist renders as its alt text, and
-the content test fails. Remote images (`https://...`) also work; credit the source in the caption.
+The reader rewrites the reference to the authed `/api/ideas/<slug>/img/<file>`; images are never inlined as
+base64. A path that does not exist renders as its alt text, and the content test fails. Remote images (`https://...`) also work; credit the source in the caption.
 Images are lazy-loaded and never wider than the page.
 
 ## 4. Check and ship
 
 ```bash
-npx vitest run        # content + renderer tests
-npm run build:cf      # same build the deploy uses
+npx vitest run        # content, routes, renderer and leak-guard tests
+npm run build:cf      # same build the deploy uses; also runs the static-output leak guard
 ```
 
-Open `#ideas` locally (`npm run dev:client`) to check the card and the report. Commit the `.md` file
+Open `#ideas` locally (`npm run dev`, which runs the API too; the reports are not served by `dev:client` alone) to check the card and the report. Commit the `.md` file
 and its assets, then deploy as usual.
 
 Do not put reports under a `/reports` URL or static folder: the production deploy returns 404 for `/reports/*`.

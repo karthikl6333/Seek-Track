@@ -6,6 +6,7 @@ import { registerQuotesRoutes } from './quotes.js';
 import { registerResearchRoutes } from './research.js';
 import { registerPaperRoutes } from './paper.js';
 import { registerPlanRoutes } from './plan.js';
+import { registerIdeasRoutes } from './ideas.js';
 
 /** Registers middleware, then every API route group, on `app`. */
 export function registerApi(app: Hono): void {
@@ -16,4 +17,5 @@ export function registerApi(app: Hono): void {
   registerResearchRoutes(app);
   registerPaperRoutes(app);
   registerPlanRoutes(app);
+  registerIdeasRoutes(app);
 }

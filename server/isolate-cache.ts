@@ -73,11 +73,6 @@ export function invalidateTables(tables: readonly string[]): void {
   }
 }
 
-/** Drop entries by exact key or key prefix (e.g. 'research:'). */
-export function invalidateKeys(prefix: string): void {
-  for (const key of entries.keys()) if (key === prefix || key.startsWith(prefix)) entries.delete(key);
-}
-
 const WRITE_RE = /\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?([A-Za-z_][A-Za-z0-9_]*)/gi;
 
 /** Tables written by a SQL statement (empty for pure reads). */

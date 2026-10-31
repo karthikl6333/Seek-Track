@@ -107,8 +107,6 @@ export async function listMarksDetailed(symbolsFilter?: string[]): Promise<{
  * whole table.
  */
 export const INCREMENTAL_OVERLAP_MS = 2_000;
-/** @deprecated kept for older imports/tests; same as INCREMENTAL_OVERLAP_MS. */
-export const INCREMENTAL_LOOKBACK_MS = INCREMENTAL_OVERLAP_MS;
 
 export function cursorWithLookback(cursor: string, lookbackMs = INCREMENTAL_OVERLAP_MS): string {
   const t = Date.parse(cursor);
@@ -314,11 +312,6 @@ export async function refreshQuotesHandler(c: Context) {
   // (e.g. D1 error) and nothing was attempted. Clients must never treat this as "prices empty".
   const attempted = result.updated.length + result.failed.length > 0;
   return c.json(result, result.ok || attempted ? 200 : 502);
-}
-
-// Legacy cron function - now a no-op (replaced by quote-service)
-export function startQuoteRefreshCron(_intervalMs = 30_000): void {
-  console.log('[quotes.ts] startQuoteRefreshCron is deprecated - using quote-service instead');
 }
 
 /**

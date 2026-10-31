@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertQueryForD1 } from './db-d1.js';
-import { cursorWithLookback, INCREMENTAL_LOOKBACK_MS } from './quotes.js';
+import { cursorWithLookback, INCREMENTAL_OVERLAP_MS } from './quotes.js';
 
 describe('convertQueryForD1', () => {
   it('binds ANY($N) arrays as one JSON param without renumbering later params', () => {
@@ -50,10 +50,10 @@ describe('convertQueryForD1', () => {
 });
 
 describe('SSE cursor lookback', () => {
-  it('rewinds the cursor by INCREMENTAL_LOOKBACK_MS so concurrent writes are not skipped', () => {
+  it('rewinds the cursor by INCREMENTAL_OVERLAP_MS so concurrent writes are not skipped', () => {
     const cursor = '2026-10-08T12:00:00.000Z';
     const back = cursorWithLookback(cursor);
-    expect(Date.parse(cursor) - Date.parse(back)).toBe(INCREMENTAL_LOOKBACK_MS);
+    expect(Date.parse(cursor) - Date.parse(back)).toBe(INCREMENTAL_OVERLAP_MS);
   });
 
   it('passes through unparseable cursors unchanged', () => {

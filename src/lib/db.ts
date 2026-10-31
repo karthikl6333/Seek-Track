@@ -54,21 +54,6 @@ export async function loadAllTrades(opts?: { fresh?: boolean }): Promise<Trade[]
   return api<Trade[]>(opts?.fresh ? '/api/trades?fresh=1' : '/api/trades');
 }
 
-export async function getExistingHashes(): Promise<Set<string>> {
-  const trades = await loadAllTrades({ fresh: true });
-  return new Set(trades.map((t) => t.rowHash));
-}
-
-/** Append-only import: skips rows whose rowHash already exists. Never wipes history. */
-export async function appendTrades(trades: Trade[]): Promise<number> {
-  if (!trades.length) return 0;
-  const result = await api<ImportResult>('/api/trades', {
-    method: 'POST',
-    body: JSON.stringify(trades),
-  });
-  return result.added;
-}
-
 export async function importCsvText(
   csvText: string,
   overrideManual = true,
@@ -91,10 +76,6 @@ export async function updateTradeNote(id: string, note: string): Promise<void> {
     method: 'PATCH',
     body: JSON.stringify({ note }),
   });
-}
-
-export async function loadMarks(): Promise<Record<string, number>> {
-  return api<Record<string, number>>('/api/marks');
 }
 
 /**

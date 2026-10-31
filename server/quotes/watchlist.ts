@@ -15,6 +15,8 @@ export interface WatchlistQuoteRow {
   volume: number | null;
   week52High: number | null;
   week52Low: number | null;
+  /** Company name (Yahoo shortName/longName), stored with the quote; null until first seen. */
+  name: string | null;
   updatedAt: string | null;
 }
 
@@ -131,6 +133,7 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
       volume: number | null;
       week52_high: number | null;
       week52_low: number | null;
+      short_name: string | null;
       updated_at: Date | string | null;
     }>(
       `SELECT
@@ -146,6 +149,7 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
          wq.volume,
          wq.week52_high,
          wq.week52_low,
+         wq.short_name,
          COALESCE(m.updated_at, wq.updated_at) AS updated_at
        FROM watchlist w
        LEFT JOIN marks m ON m.symbol = UPPER(w.symbol)
@@ -177,6 +181,7 @@ function toWatchlistRow(r: {
   volume: number | null;
   week52_high: number | null;
   week52_low: number | null;
+  short_name?: string | null;
   updated_at: Date | string | null;
 }): WatchlistQuoteRow {
   const updatedAt =
@@ -192,6 +197,7 @@ function toWatchlistRow(r: {
     volume: r.volume != null ? Number(r.volume) : null,
     week52High: r.week52_high != null ? Number(r.week52_high) : null,
     week52Low: r.week52_low != null ? Number(r.week52_low) : null,
+    name: r.short_name ? String(r.short_name) : null,
     updatedAt,
   };
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // In-memory stand-in for the D1 adapter: records every statement and serves the marks table.
 const marks = new Map<string, { price: number; day_pct: number | null; session: string | null }>();
 const statements: Array<{ sql: string; params: unknown[] }> = [];
+let watchlistSymbols: string[] = [];
 
 vi.mock('../db.js', () => ({
   query: vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -14,6 +15,9 @@ vi.mock('../db.js', () => ({
           .map((s) => ({ symbol: s, ...marks.get(s)! })),
         rowCount: 0,
       };
+    }
+    if (/^\s*SELECT symbol FROM watchlist\s*$/i.test(sql)) {
+      return { rows: watchlistSymbols.map((symbol) => ({ symbol })), rowCount: 0 };
     }
     if (/INSERT INTO marks/i.test(sql)) {
       for (let i = 0; i < params.length; i += 6) {
@@ -30,7 +34,7 @@ vi.mock('../db.js', () => ({
 
 const { refreshAllPrices, __resetQuoteServiceStateForTests } = await import('./quote-service.js');
 
-function yahooOk(price: number) {
+function yahooOk(price: number, extra: Record<string, unknown> = {}) {
   return new Response(
     JSON.stringify({
       chart: {
@@ -39,6 +43,7 @@ function yahooOk(price: number) {
             meta: {
               regularMarketPrice: price,
               previousClose: price,
+              ...extra,
               currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } },
             },
             timestamp: [1],
@@ -103,5 +108,48 @@ describe('refreshAllPrices keeps last known marks on failure', () => {
     const res = await refreshAllPrices(['NEWX']);
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/NEWX/);
+  });
+});
+
+describe('watchlist_quotes persistence of name / 52-wk from the one chart response', () => {
+  beforeEach(() => {
+    __resetQuoteServiceStateForTests();
+    marks.clear();
+    statements.length = 0;
+    watchlistSymbols = ['AVGO'];
+    marks.set('AVGO', { price: 370, day_pct: -1.5, session: 'regular' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        yahooOk(371.25, { shortName: 'Broadcom Inc.', fiftyTwoWeekHigh: 495, fiftyTwoWeekLow: 289.96, regularMarketVolume: 1234 }),
+      ),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    watchlistSymbols = [];
+  });
+
+  it('writes short_name + 52-wk in the SAME watchlist_quotes upsert (13 params/row), with no extra reads', async () => {
+    await refreshAllPrices(['AVGO']);
+    const w = statements.filter((s) => /INSERT INTO watchlist_quotes/i.test(s.sql));
+    expect(w).toHaveLength(1);
+    expect(w[0].sql).toMatch(/short_name/);
+    expect(w[0].sql).toMatch(/short_name = COALESCE\(EXCLUDED\.short_name, watchlist_quotes\.short_name\)/);
+    expect(w[0].params).toHaveLength(13);
+    expect(w[0].params).toEqual(expect.arrayContaining(['AVGO', 'Broadcom Inc.', 495, 289.96, 1234]));
+    // The only reads are the pre-existing ones (marks lookup, symbol sets); nothing touches watchlist_quotes.
+    const reads = statements.filter((s) => /^\s*SELECT/i.test(s.sql));
+    expect(reads.some((r) => /watchlist_quotes/i.test(r.sql))).toBe(false);
+  });
+
+  it('chunks watchlist rows so no statement exceeds 100 bound params', async () => {
+    watchlistSymbols = Array.from({ length: 10 }, (_, i) => `S${i}`);
+    for (const s of watchlistSymbols) marks.set(s, { price: 1, day_pct: 0, session: 'regular' });
+    await refreshAllPrices(watchlistSymbols);
+    const w = statements.filter((s) => /INSERT INTO watchlist_quotes/i.test(s.sql));
+    expect(w.length).toBeGreaterThan(1);
+    for (const st of w) expect(st.params.length).toBeLessThanOrEqual(100);
+    expect(w.reduce((n, st) => n + st.params.length / 13, 0)).toBe(10);
   });
 });

@@ -44,6 +44,8 @@ export interface QuoteData {
   week52Low: number | null;
   valChange: number | null;
   sessionOpen: number | null;
+  /** Company name from the same chart meta (shortName, else longName). */
+  shortName: string | null;
 }
 
 export interface YahooMeta {
@@ -60,6 +62,8 @@ export interface YahooMeta {
   marketCap?: number;
   fiftyTwoWeekHigh?: number;
   fiftyTwoWeekLow?: number;
+  shortName?: string;
+  longName?: string;
   symbol?: string;
   currentTradingPeriod?: {
     pre?: { start?: number; end?: number };
@@ -262,6 +266,7 @@ export function parseYahooChart(
     if (lastVol != null) volume = Number(lastVol);
   }
 
+  const cleanName = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Number(v) : null);
 
   return {
@@ -279,6 +284,7 @@ export function parseYahooChart(
     week52Low: num(meta.fiftyTwoWeekLow),
     valChange,
     sessionOpen,
+    shortName: cleanName(meta.shortName) ?? cleanName(meta.longName),
   };
 }
 
@@ -591,8 +597,8 @@ async function persistQuotes(
   }
 
   // Bulk upsert to watchlist_quotes (only watchlist symbols)
-  // Each watchlist_quotes row = 12 params
-  const MAX_WATCHLIST_PER_CHUNK = Math.floor(100 / 12); // 8 quotes per chunk
+  // Each watchlist_quotes row = 13 params
+  const MAX_WATCHLIST_PER_CHUNK = Math.floor(100 / 13); // 7 quotes per chunk
 
   const watchlistArray = Array.from(changedQuotes.entries()).filter(([symbol]) =>
     watchlistSet.has(symbol)
@@ -608,7 +614,7 @@ async function persistQuotes(
       watchlistValues.push(
         `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, ` +
           `$${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, ` +
-          `$${paramIndex + 10}, $${paramIndex + 11})`
+          `$${paramIndex + 10}, $${paramIndex + 11}, $${paramIndex + 12})`
       );
       watchlistParams.push(
         symbol,
@@ -622,15 +628,16 @@ async function persistQuotes(
         quote.volume,
         quote.week52High,
         quote.week52Low,
+        quote.shortName,
         quote.updatedAt
       );
-      paramIndex += 12;
+      paramIndex += 13;
     }
 
     await query(
       `INSERT INTO watchlist_quotes
          (symbol, last, pct_change, val_change, session_open, bid, ask, market_cap, volume,
-          week52_high, week52_low, updated_at)
+          week52_high, week52_low, short_name, updated_at)
        VALUES ${watchlistValues.join(', ')}
        ON CONFLICT (symbol) DO UPDATE SET
          last = COALESCE(EXCLUDED.last, watchlist_quotes.last),
@@ -643,6 +650,7 @@ async function persistQuotes(
          volume = COALESCE(EXCLUDED.volume, watchlist_quotes.volume),
          week52_high = COALESCE(EXCLUDED.week52_high, watchlist_quotes.week52_high),
          week52_low = COALESCE(EXCLUDED.week52_low, watchlist_quotes.week52_low),
+         short_name = COALESCE(EXCLUDED.short_name, watchlist_quotes.short_name),
          updated_at = EXCLUDED.updated_at`,
       watchlistParams
     );

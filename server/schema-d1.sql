@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS watchlist_quotes (
   week52_high REAL,
   week52_low REAL,
   session_open REAL,
+  short_name TEXT,
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 

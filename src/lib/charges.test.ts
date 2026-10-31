@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeCharges, listChargeRows } from './charges';
+import {
+  summarizeCharges,
+  listChargeRows,
+  chargeKindCounts,
+  filterChargeRows,
+  totalChargeRows,
+  type ChargeKind,
+} from './charges';
 import type { Trade } from '../types';
 
 describe('summarizeCharges', () => {
@@ -611,5 +618,75 @@ describe('listChargeRows', () => {
     expect(rows.some(r => r.kind === 'fee')).toBe(true);
     expect(rows.some(r => r.kind === 'margin_interest')).toBe(true);
     expect(rows.some(r => r.kind === 'credit_interest')).toBe(true);
+  });
+});
+
+describe('charge filter + totals', () => {
+  const mk = (over: Partial<Trade>): Trade => ({
+    id: 'x',
+    rowHash: 'h',
+    date: '2026-09-30',
+    action: '',
+    symbol: '',
+    description: '',
+    quantity: 0,
+    price: 0,
+    fees: 0,
+    amount: 0,
+    importedAt: '2026-09-30T12:00:00Z',
+    ...over,
+  });
+  const trades: Trade[] = [
+    mk({ id: '1', action: 'Buy', symbol: 'AAPL', quantity: 100, price: 150, fees: 1.5, amount: -15001.5 }),
+    mk({ id: '2', action: 'Sell', symbol: 'MSFT', quantity: 10, price: 400, fees: 0.25, amount: 3999.75 }),
+    mk({ id: '3', action: 'Margin Interest', amount: -120.1 }),
+    mk({ id: '4', action: 'Margin Interest', amount: -30.2 }),
+    mk({ id: '5', action: 'Credit Interest', amount: 4.5 }),
+    mk({ id: '6', action: 'Cash Dividend', symbol: 'AVL', description: 'CASH DIVIDEND', amount: 2377.08 }),
+    mk({ id: '7', action: 'NRA Tax Adj', symbol: 'AVL', description: 'NRA TAX ADJUSTMENT', amount: -713.12 }),
+    mk({ id: '8', action: 'Cash Dividend', symbol: 'AVGO', description: 'CASH DIVIDEND', amount: 999 }),
+  ];
+  const rows = listChargeRows(trades);
+
+  it('lists only kinds present, in display order, with counts', () => {
+    expect(chargeKindCounts(rows)).toEqual([
+      { kind: 'fee', count: 2 },
+      { kind: 'margin_interest', count: 2 },
+      { kind: 'credit_interest', count: 1 },
+      { kind: 'dividend_income', count: 1 },
+      { kind: 'other_charge', count: 1 },
+    ]);
+    expect(chargeKindCounts([])).toEqual([]);
+    expect(chargeKindCounts(rows.filter((r) => r.kind === 'fee'))).toEqual([{ kind: 'fee', count: 2 }]);
+  });
+
+  it('empty selection returns all rows; selection filters by kind (multi-select)', () => {
+    expect(filterChargeRows(rows, new Set())).toBe(rows);
+    expect(filterChargeRows(rows, new Set<ChargeKind>(['margin_interest'])).map((r) => r.id).sort()).toEqual(['3', '4']);
+    expect(
+      filterChargeRows(rows, new Set<ChargeKind>(['dividend_income', 'other_charge'])).map((r) => r.id).sort(),
+    ).toEqual(['6', '7']);
+  });
+
+  it('totals the currently filtered rows (AVGO excluded), cent-rounded', () => {
+    const all = totalChargeRows(rows);
+    expect(all.count).toBe(7);
+    expect(all.fees).toBe(1.75);
+    expect(all.amount).toBe(-9483.59);
+    expect(all.debits).toBe(865.17);
+    expect(all.credits).toBe(2381.58);
+    expect(all.netCharge).toBe(-1516.41);
+
+    const margin = totalChargeRows(filterChargeRows(rows, new Set<ChargeKind>(['margin_interest'])));
+    expect(margin).toEqual({ count: 2, fees: 0, amount: -150.3, debits: 150.3, credits: 0, netCharge: 150.3 });
+
+    const divs = totalChargeRows(filterChargeRows(rows, new Set<ChargeKind>(['dividend_income'])));
+    expect(divs).toEqual({ count: 1, fees: 0, amount: 2377.08, debits: 0, credits: 2377.08, netCharge: -2377.08 });
+  });
+
+  it('totals of an empty set are all zero (no -0)', () => {
+    const t = totalChargeRows([]);
+    expect(t).toEqual({ count: 0, fees: 0, amount: 0, debits: 0, credits: 0, netCharge: 0 });
+    expect(Object.is(t.netCharge, -0)).toBe(false);
   });
 });

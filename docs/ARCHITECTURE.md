@@ -44,7 +44,7 @@ can't hide a write.
 |-----|----------|
 | `api/` | `client.ts`: the typed API client (auth errors, trades, marks, settings, ...). `http.ts`: small `apiGet`/`apiSend` helpers used by Research and Watchlist. |
 | `app/` | Shell: `Sidebar`, `Topbar`, `StatusScreens`, `nav` (tab definitions), `logout`. |
-| `pages/` | One folder per tab: `overview` (Overview, Watchlist, Calculator, CSV import, alerts, plan vs price), `positions`, `trades`, `charges`, `charts`, `research` (page plus types, sector themes, format helpers, cards), `paper` (Paper, PaperFlex, CryptoPaper). |
+| `pages/` | One folder per tab: `overview` (Overview, Watchlist, Calculator, CSV import, alerts, plan vs price), `positions`, `trades`, `charges`, `charts`, `research` (page plus types, sector themes, format helpers, cards), `paper` (Paper, PaperFlex, CryptoPaper), `ideas` (saved research reports, see below). |
 | `components/` | Shared UI: `TickerLink`, `FilterChips`. |
 | `hooks/` | `useStore` (data), `useLiveQuotes` / `useMarksStream` / `useLiveQuotesToggle` (SSE prices), `useRefreshScheduler` (timed refresh), `usePaperSync`. |
 | `lib/` | Pure logic with tests: FIFO lots/P&L (`lots`), charges, formatting, market hours and holidays (`marketHours`, `pollGate`), marks merging, `chunkedRefresh`, `refreshStamp`. |
@@ -56,6 +56,16 @@ Driven by `hooks/useRefreshScheduler.ts` using `lib/marketHours.ts` / `lib/pollG
 30 s regular session, 60 s pre/after-hours, 10 min when closed on weekdays, no automatic refresh from
 Fri 20:00 ET to Mon 04:00 ET and on NYSE holidays. Manual refresh always works. Prices are never
 shown blank: the last known mark is kept when a refresh fails or a symbol has no new quote.
+
+## Ideas tab
+
+Research reports to read later. Markdown files with frontmatter live in `src/content/ideas/` and are
+bundled at build time with `import.meta.glob(... ?raw)`: no API, no D1, no runtime fetch. The tab is the
+hash view `#ideas`; `#ideas/<slug>` deep-links a report. It deliberately does not use a `/reports`
+URL path (the prod deploy returns 404 for `/reports/*`). `src/lib/ideas.ts` is the pure logic
+(frontmatter, sorting, tag filter, search, hash parsing); `src/pages/ideas/markdown.ts` renders with
+`marked` and sanitizes with DOMPurify. The page is lazy-loaded so the main bundle does not grow.
+See `docs/ADDING_IDEAS.md`.
 
 ## Commands
 

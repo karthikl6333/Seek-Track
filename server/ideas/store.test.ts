@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PRIVATE_ASSET_PREFIX, buildIdeaStore, imageContentType, readExternalImage, isValidImageName, isValidSlug, readIdeaContentFromDisk } from './store.js';
+import { EMBED_IMAGE_BYTES, PRIVATE_ASSET_PREFIX, buildIdeaStore, imageContentType, readExternalImage, isValidImageName, isValidSlug, readIdeaContentFromDisk } from './store.js';
 
 const md = (title: string, date: string) => `---\ntitle: ${title}\ndate: ${date}\nsummary: Sum ${title}.\ntags: [T]\n---\n\nBody ${title}\n`;
 const b64 = (s: string) => Buffer.from(s).toString('base64');
@@ -101,6 +104,41 @@ describe('readExternalImage', () => {
   });
 });
 
+describe('readIdeaContentFromDisk: where Markdown report images go', () => {
+  const setup = (sizes: Record<string, number>) => {
+    const root = mkdtempSync(join(tmpdir(), 'ideas-disk-'));
+    mkdirSync(join(root, 'assets', 'r'), { recursive: true });
+    writeFileSync(join(root, 'r.md'), md('R', '2026-01-01'));
+    for (const [n, size] of Object.entries(sizes)) writeFileSync(join(root, 'assets', 'r', n), Buffer.alloc(size, 7));
+    return root;
+  };
+  it('embeds a small image set as base64', async () => {
+    const root = setup({ 'a.webp': 1000 });
+    try {
+      const raw = await readIdeaContentFromDisk(root);
+      expect(Object.keys(raw.assets)).toEqual(['r/a.webp']);
+      expect(raw.external).toEqual({});
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('keeps a report whose images add up to more than EMBED_IMAGE_BYTES out of the worker bundle', async () => {
+    const root = setup({ 'a.webp': EMBED_IMAGE_BYTES / 2, 'b.webp': EMBED_IMAGE_BYTES / 2 + 1 });
+    try {
+      const raw = await readIdeaContentFromDisk(root);
+      expect(raw.assets).toEqual({});
+      expect(Object.keys(raw.external!).sort()).toEqual(['r/a.webp', 'r/b.webp']);
+      const store = buildIdeaStore(raw);
+      expect(store.errors).toEqual([]);
+      expect(store.image('r', 'a.webp')).toBeNull(); // not embedded
+      expect(store.externalImage('r', 'a.webp')?.contentType).toBe('image/webp');
+      expect(store.externalImage('r', '../a.webp')).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('name validation', () => {
   it('slugs: lowercase letters, digits, dashes only', () => {
     for (const ok of ['a', 'abc-1', '0x']) expect(isValidSlug(ok)).toBe(true);
@@ -118,6 +156,7 @@ describe('name validation', () => {
 
 const ALLOWED_CANVAS_LINKS = [
   'https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/cb74e521-df34-423b-99ce-d3f175e23711',
+  'https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/cc284b50-f5a6-4d40-b3d7-4c9960afc3a2',
 ];
 
 describe('bundled content (content/ideas)', () => {
@@ -136,7 +175,7 @@ describe('bundled content (content/ideas)', () => {
       for (const m of body.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)) {
         if (/^https?:\/\//.test(m[1])) continue;
         const r = /^assets\/([a-z0-9-]+)\/([^/]+)$/.exec(m[1]);
-        expect(r && store.image(r[1], r[2]), `${meta.slug}: ${m[1]}`).toBeTruthy();
+        expect(r && (store.image(r[1], r[2]) ?? store.externalImage(r[1], r[2])), `${meta.slug}: ${m[1]}`).toBeTruthy();
       }
     }
     // embedded (Markdown report) images are under 200 KB each

@@ -12,16 +12,21 @@ import { parseIdea, slugFromPath, sortIdeas, SLUG_RE, type IdeaMeta, type Parsed
  */
 
 /**
- * Where brochure images live in the Cloudflare static output. The prefix is PRIVATE even though the
+ * Where large report images (brochure photos, and Markdown reports' images over EMBED_IMAGE_BYTES) live in
+ * the Cloudflare static output. The prefix is PRIVATE even though the
  * files are static assets: the worker never lets a request reach env.ASSETS for it (see the gate in
  * scripts/prepare-cf-pages.js); only the authed /api/ideas/:slug/img route fetches these, server-side.
  */
 export const PRIVATE_ASSET_PREFIX = '/_private/ideas';
 
+/** A report whose images total more than this is not embedded in the worker (see readContentFromDisk). */
+export const EMBED_IMAGE_BYTES = 64 * 1024;
+
 /**
  * Raw content. `files["<slug>.md"]` = report text, `assets["<slug>/<name>"]` = base64 image bytes (small
- * images, embedded in the worker). Brochures (`format: brochure`) are too big to embed: their HTML is
- * `pages["<slug>.html"]` and their images are `external["<slug>/<name>"]` = a location: a file path in
+ * images, embedded in the worker). Brochures (`format: brochure`) and reports with more than EMBED_IMAGE_BYTES of
+ * images are too big to embed: a brochure's HTML is `pages["<slug>.html"]` and its (or the report's) images are
+ * `external["<slug>/<name>"]` = a location: a file path in
  * Node, or a PRIVATE_ASSET_PREFIX static path on Cloudflare.
  */
 export interface RawIdeaContent {
@@ -72,7 +77,7 @@ export interface IdeaStore {
   image(slug: string, name: string): { bytes: Uint8Array; contentType: string } | null;
   /** The brochure page HTML of a `format: brochure` report, else null. */
   page(slug: string): string | null;
-  /** A brochure image kept outside the worker bundle: where to read it, or null when unknown/invalid. */
+  /** A report or brochure image kept outside the worker bundle: where to read it, or null when unknown/invalid. */
   externalImage(slug: string, name: string): { location: string; contentType: string } | null;
 }
 
@@ -180,11 +185,14 @@ export async function readIdeaContentFromDisk(dir?: string): Promise<RawIdeaCont
     for (const slug of readdirSync(assetsDir)) {
       const sub = join(assetsDir, slug);
       if (!statSync(sub).isDirectory()) continue;
-      // Brochure images stay on disk (they are big); Markdown report images are embedded.
-      const brochure = out.pages![`${slug}.html`] !== undefined;
-      for (const name of readdirSync(sub)) {
-        if (!isValidImageName(name)) continue;
-        if (brochure) out.external![`${slug}/${name}`] = join(sub, name);
+      // Brochure images, and the images of any report whose pictures add up to more than
+      // EMBED_IMAGE_BYTES, stay outside the worker bundle (disk path in Node, hashed private static file
+      // on Cloudflare). Only small image sets are embedded as base64.
+      const names = readdirSync(sub).filter((n) => isValidImageName(n));
+      const total = names.reduce((a, n) => a + statSync(join(sub, n)).size, 0);
+      const external = out.pages![`${slug}.html`] !== undefined || total > EMBED_IMAGE_BYTES;
+      for (const name of names) {
+        if (external) out.external![`${slug}/${name}`] = join(sub, name);
         else out.assets[`${slug}/${name}`] = bytesToBase64(readFileSync(join(sub, name)));
       }
     }

@@ -337,3 +337,240 @@
     font-size: 20px;
   }
 }
+
+/* ---- Charts and flowcharts (inline SVG from viz.ts). Colours: app tokens, so the seasonal accent applies. ---- */
+.idea-body {
+  --viz-0: var(--accent);
+  --viz-1: var(--accent-2);
+  --viz-2: #e6b450;
+  --viz-3: #a78bfa;
+  --viz-4: #5fb4d6;
+  --viz-5: #8b9bb4;
+}
+.idea-viz {
+  margin: 16px 0 18px;
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.idea-viz-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.idea-viz-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.idea-body .idea-viz-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.viz-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.idea-viz-scroll {
+  overflow-x: auto;
+}
+.idea-viz-scroll > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.idea-viz-min-480 > svg { min-width: 480px; }
+.idea-viz-min-560 > svg { min-width: 560px; }
+.idea-viz-min-640 > svg { min-width: 640px; }
+.idea-viz-min-720 > svg { min-width: 720px; }
+.idea-viz-min-800 > svg { min-width: 800px; }
+.idea-viz-min-900 > svg { min-width: 900px; }
+.idea-viz-min-1000 > svg { min-width: 1000px; }
+/* Cap very wide flowcharts so text does not grow beyond its design size on wide screens. */
+.idea-viz-flow .idea-viz-scroll > svg,
+.idea-viz-bar .idea-viz-scroll > svg,
+.idea-viz-stacked .idea-viz-scroll > svg {
+  max-width: 1100px;
+}
+.idea-viz-note {
+  margin: 8px 0 0 !important;
+  font-size: 12px;
+  color: var(--muted);
+}
+.idea-viz-error {
+  border-color: var(--danger) !important;
+}
+
+.viz text {
+  font-family: var(--font);
+  font-size: 13px;
+  fill: var(--text);
+}
+.viz .viz-tick,
+.viz .viz-edge-label,
+.viz .viz-quad,
+.viz .viz-node-sub,
+.viz .viz-group-label {
+  font-size: 11.5px;
+  fill: var(--muted);
+}
+.viz .viz-val {
+  font-size: 12px;
+  font-weight: 600;
+}
+.viz .viz-seg,
+.viz .viz-fun-value,
+.viz .viz-fun-tag,
+.viz .viz-fun-label,
+.viz .viz-fun-status {
+  fill: var(--on-accent);
+}
+.viz .viz-seg {
+  font-size: 12px;
+  font-weight: 600;
+}
+.viz .viz-fun-value {
+  font-size: 17px;
+  font-weight: 700;
+}
+.viz .viz-fun-label {
+  font-size: 11px;
+}
+.viz .viz-fun-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.viz .viz-fun-status {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.viz .viz-head,
+.viz .viz-head-left {
+  font-size: 14px;
+  font-weight: 700;
+}
+.viz .viz-head-left {
+  font-size: 15px;
+}
+.viz .viz-edge-label {
+  fill: var(--accent-2);
+  font-weight: 600;
+}
+.viz .viz-group-label {
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.viz .viz-label {
+  font-size: 12.5px;
+}
+
+.viz-f0 { fill: var(--viz-0); background: var(--viz-0); }
+.viz-f1 { fill: var(--viz-1); background: var(--viz-1); }
+.viz-f2 { fill: var(--viz-2); background: var(--viz-2); }
+.viz-f3 { fill: var(--viz-3); background: var(--viz-3); }
+.viz-f4 { fill: var(--viz-4); background: var(--viz-4); }
+.viz-f5 { fill: var(--viz-5); background: var(--viz-5); }
+/* the swatch is an <i>, which only needs the background; svg shapes only need the fill */
+svg .viz-f0, svg .viz-f1, svg .viz-f2, svg .viz-f3, svg .viz-f4, svg .viz-f5 { background: none; }
+i.viz-sw { fill: none; }
+.viz .viz-fun-est text {
+  fill: var(--text);
+}
+.viz .viz-est {
+  fill-opacity: 0.45;
+  stroke: var(--text);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.viz .viz-track {
+  fill: var(--bg-elev-2);
+  stroke: var(--border);
+}
+.viz .viz-axis,
+.viz .viz-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.viz .viz-circle {
+  fill-opacity: 0.55;
+  stroke: var(--bg-elev);
+  stroke-width: 1.5;
+}
+.viz .viz-series {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.viz .viz-dash {
+  stroke-dasharray: 6 5;
+}
+.viz .viz-dot {
+  fill: var(--accent);
+  stroke: var(--bg-elev);
+  stroke-width: 2;
+}
+.viz .viz-dot-est {
+  fill: var(--bg-elev);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.viz .viz-pt {
+  stroke: var(--bg-elev);
+  stroke-width: 2;
+}
+.viz .viz-edge {
+  stroke: var(--muted);
+  stroke-width: 1.6;
+}
+.viz .viz-arrow {
+  fill: var(--muted);
+}
+.viz .viz-group {
+  fill: color-mix(in srgb, var(--accent) 4%, transparent);
+  stroke: var(--border);
+  stroke-dasharray: 5 4;
+}
+.viz .viz-node {
+  fill: var(--bg-elev-2);
+  stroke: var(--border);
+  stroke-width: 1.4;
+}
+.viz .viz-node-key {
+  fill: color-mix(in srgb, var(--accent) 16%, var(--bg-elev-2));
+  stroke: var(--accent);
+}
+.viz .viz-node-decision {
+  fill: color-mix(in srgb, var(--accent-2) 12%, var(--bg-elev-2));
+  stroke: var(--accent-2);
+}
+.viz .viz-node-good {
+  fill: color-mix(in srgb, var(--accent-2) 18%, var(--bg-elev-2));
+  stroke: var(--accent-2);
+}
+.viz .viz-node-muted {
+  stroke-dasharray: 5 4;
+}
+.viz .viz-node-text {
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .idea-viz {
+    padding: var(--space-2) var(--space-3);
+  }
+}

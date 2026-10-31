@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CANARIES, GATE_MARKER, PRIVATE_DIR, buildNeedles, privateAssetName, readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
+import { CANARIES, GATE_MARKER, escapedForms, PRIVATE_DIR, buildNeedles, privateAssetName, readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
 
 const contentDir = join(process.cwd(), 'content', 'ideas');
 const content = readContent(contentDir);
@@ -187,5 +187,52 @@ describe.skipIf(!existsSync(join(cf, '_worker.js')))('real dist-cf output', () =
     expect(workerEmbedsContent(cf, content)).toEqual([]);
     expect(existsSync(join(cf, 'dist-server'))).toBe(false);
     expect(readFileSync(join(cf, '_worker.js'), 'utf8')).not.toMatch(/sourceMappingURL/);
+  });
+});
+
+describe('escaped spellings (the bundler writes non-ASCII as \\uXXXX)', () => {
+  it('escapedForms adds upper and lower case escapes only when there is non-ASCII text', () => {
+    expect(escapedForms('plain text')).toEqual(['plain text']);
+    expect(escapedForms('\u20b9451 x')).toEqual(['\u20b9451 x', '\\u20B9451 x', '\\u20b9451 x']);
+  });
+  it('the worker check accepts an escaped canary and still fails when it is missing', () => {
+    const c = CANARIES.find((x) => /[^\x00-\x7f]/.test(x));
+    expect(c, 'at least one canary has a non-ASCII character (a rupee amount), so this path is exercised').toBeTruthy();
+    const all = CANARIES.map((x) => escapedForms(x).at(-1)).join('\n');
+    const d = tmp();
+    writeFileSync(join(d, '_worker.js'), `${all}\n${GATE_MARKER}`);
+    expect(workerEmbedsContent(d, content)).toEqual([]);
+    writeFileSync(join(d, '_worker.js'), `${GATE_MARKER}`);
+    expect(workerEmbedsContent(d, content).join('\n')).toContain(c);
+  });
+  it('a leak spelled with escapes in a static JS file is caught', () => {
+    const c = CANARIES.find((x) => /[^\x00-\x7f]/.test(x));
+    const d = tmp();
+    mkdirSync(join(d, 'assets'));
+    writeFileSync(join(d, 'assets', 'x.js'), `var x="${escapedForms(c)[1]}";`);
+    expect(scanStaticOutput(d, content).join('\n')).toContain(c);
+  });
+});
+
+describe('Markdown report images are private too', () => {
+  it('every report image is a known private asset: the guard allows exactly its hashed file, nothing else', () => {
+    const d = tmp();
+    for (const [k, b] of Object.entries(content.images)) {
+      mkdirSync(join(d, PRIVATE_DIR), { recursive: true });
+      writeFileSync(join(d, PRIVATE_DIR, privateAssetName(k, b)), b);
+    }
+    writeFileSync(join(d, '_worker.js'), `function ${GATE_MARKER}p){}`);
+    expect(scanStaticOutput(d, content)).toEqual([]);
+  });
+  it('the camera and breeding report images are covered (a copy in assets/ is flagged)', () => {
+    const keys = Object.keys(content.images);
+    expect(keys.filter((k) => k.startsWith('ai-retail-theft-camera/')).length).toBe(4);
+    expect(keys.filter((k) => k.startsWith('boosted-breeding-in-agriculture/')).length).toBe(4);
+    for (const k of keys.filter((x) => /^(ai-retail|boosted)/.test(x))) {
+      const d = tmp();
+      mkdirSync(join(d, 'assets'));
+      writeFileSync(join(d, 'assets', 'pic.webp'), content.images[k]);
+      expect(scanStaticOutput(d, content).join('\n'), k).toContain(`copy of private image ${k}`);
+    }
   });
 });

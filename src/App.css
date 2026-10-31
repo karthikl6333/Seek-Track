@@ -29,6 +29,22 @@
   display: block;
 }
 
+.brand {
+  position: relative;
+}
+
+/* Hairline under the brand picks up the seasonal accent */
+.brand::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2) 45%, transparent);
+  opacity: 0.7;
+}
+
 .brand h1 {
   margin: 0;
   font-size: 18px;
@@ -42,6 +58,11 @@
 }
 
 .nav-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
@@ -49,6 +70,7 @@
   padding: 10px 12px;
   color: var(--muted);
   min-height: 40px;
+  transition: background var(--ease), color var(--ease), border-color var(--ease);
 }
 
 .nav-btn:hover {
@@ -56,10 +78,45 @@
   color: var(--text);
 }
 
+.nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .nav-btn.active {
-  background: var(--bg-elev-2);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, var(--bg-elev-2)) 0%, var(--bg-elev-2) 70%);
   border-color: var(--border);
   color: var(--text);
+}
+
+/* Active-tab indicator: accent bar on the left edge */
+.nav-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.nav-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--ease);
+}
+
+.nav-btn:hover .nav-key,
+.nav-btn.active .nav-key {
+  opacity: 0.8;
 }
 
 .main {
@@ -71,10 +128,318 @@
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: var(--space-3);
+}
+
+/* Seasonal header ornament: accent gradient hairline */
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 28%, transparent 70%);
+  opacity: 0.55;
+}
+
+.topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.season-ornament {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: ornament-glow 4s ease-in-out infinite;
+  user-select: none;
+}
+
+@keyframes ornament-glow {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.topbar-btn {
+  min-height: 40px;
+  height: 40px;
+  padding-left: 12px;
+  padding-right: 12px;
+  font-size: 13px;
+}
+
+.topbar-icon-btn {
+  min-width: 40px;
+  width: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 50%;
+}
+
+.topbar-icon-btn[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Market session pill */
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.session-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.session-label {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.session-next {
+  color: var(--muted);
+}
+
+.session-regular .session-dot {
+  background: var(--gain);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--gain) 60%, transparent);
+  animation: session-pulse 2s ease-out infinite;
+}
+.session-premarket .session-dot,
+.session-afterhours .session-dot {
+  background: var(--warn);
+}
+.session-premarket,
+.session-afterhours {
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+.session-regular {
+  border-color: color-mix(in srgb, var(--gain) 40%, var(--border));
+}
+.session-weekend .session-label,
+.session-holiday .session-label,
+.session-closed .session-label {
+  color: var(--muted);
+}
+
+@keyframes session-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gain) 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Popovers (appearance, shortcuts) */
+.popover-root {
+  position: relative;
+}
+
+.popover-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  min-width: 240px;
+  max-width: 300px;
+  padding: var(--space-4);
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  animation: pop-in 0.12s ease-out;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+
+.popover-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 12px;
+}
+
+.popover-field select {
+  background: #070b11;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.popover-field select:focus-visible {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.popover-note {
+  font-size: 11px;
+  margin: var(--space-3) 0 0;
+  line-height: 1.5;
+}
+
+.shortcut-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12px;
+}
+
+.shortcut-row dt {
+  min-width: 56px;
+}
+
+.shortcut-row dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+}
+
+/* Price tick flash (green/red = P&L colors, independent of the seasonal theme) */
+.price-flash {
+  border-radius: 3px;
+}
+.price-flash.flash-up {
+  animation: flash-up 0.9s ease-out;
+}
+.price-flash.flash-down {
+  animation: flash-down 0.9s ease-out;
+}
+@keyframes flash-up {
+  0% { background: color-mix(in srgb, var(--gain) 40%, transparent); }
+  100% { background: transparent; }
+}
+@keyframes flash-down {
+  0% { background: color-mix(in srgb, var(--loss) 40%, transparent); }
+  100% { background: transparent; }
+}
+
+/* Loading skeletons and boot screens */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--bg-elev) 0%, var(--bg-elev-2) 50%, var(--bg-elev) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s linear infinite;
+  border: 1px solid var(--border);
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.skeleton-card {
+  height: 84px;
+}
+.skeleton-table {
+  height: 320px;
+}
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.boot-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 100vh;
+}
+.boot-error-card {
+  max-width: 460px;
+  text-align: center;
+  padding: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--loss) 35%, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-1);
+}
+.boot-error-card h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 18px;
+}
+.boot-btn {
+  min-width: 120px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .skeleton-grid { grid-template-columns: 1fr 1fr; }
+  .topbar-actions { flex-wrap: wrap; }
+}
+
+/* Motion: keep the UI still for users who ask for it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .price-flash.flash-up,
+  .price-flash.flash-down {
+    animation: none;
+  }
 }
 
 .topbar h2 {
@@ -188,10 +553,13 @@
 
 .overview-layout {
   display: grid;
-  grid-template-columns: 3fr 2fr; /* 60/40 */
+  /* Main column flexes; right column (watchlist, alerts, CSV, plan) keeps a usable 320-380px.
+     minmax(0, 1fr) lets wide tables scroll inside their card instead of squeezing the right column. */
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
   gap: 16px;
   align-items: start;
 }
+.overview-layout > * { min-width: 0; }
 .overview-layout .calc-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
 .dual-calculator-container {
   display: grid;
@@ -199,6 +567,7 @@
   gap: 12px;
   align-items: start;
 }
+@media (max-width: 1180px) { .overview-layout { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } .dual-calculator-container { grid-template-columns: 1fr; } }
 
 .watchlist-side {
@@ -542,7 +911,7 @@
 
 .import-drop.drag {
   border-color: var(--accent);
-  background: rgba(61, 139, 253, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Mobile improvements for CSV import and forms */
@@ -577,7 +946,7 @@
   padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--accent, #3d8bfd);
-  background: rgba(61, 139, 253, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .leverage-headline {
@@ -702,7 +1071,7 @@
 }
 
 .ticker-chip.active {
-  background: rgba(61, 139, 253, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .ticker-chip .ticker-main {
@@ -793,7 +1162,7 @@
 }
 
 table.data tr.row-selected td {
-  background: rgba(61, 139, 253, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 @media (max-width: 900px) {
@@ -861,15 +1230,15 @@ table.data tr.row-selected td {
   font: inherit;
 }
 .etf-focus-item:hover {
-  background: rgba(61, 139, 253, 0.08);
-  border-color: rgba(61, 139, 253, 0.25);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .etf-focus-item.focused {
-  background: rgba(61, 139, 253, 0.14);
-  border-color: rgba(61, 139, 253, 0.45);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .etf-map-row { cursor: pointer; }
-.etf-map-row:hover td { background: rgba(61, 139, 253, 0.06); }
+.etf-map-row:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 
 .etf-info-card .etf-info-name {
   font-size: 13px;

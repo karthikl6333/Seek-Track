@@ -145,11 +145,11 @@ export function Calculator({
         </p>
       )}
       <div className="grid-2">
-        <div className="field">
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
           <label>Symbol</label>
           <div className="row-actions" style={{ justifyContent: 'stretch', gap: 6 }}>
             <input
-              style={{ flex: 1 }}
+              style={{ flex: 1, minWidth: 0 }}
               value={calc.symbol}
               onChange={(e) => set({ symbol: e.target.value.toUpperCase() })}
             />

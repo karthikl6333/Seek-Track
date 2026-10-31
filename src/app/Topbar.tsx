@@ -1,4 +1,8 @@
-import { nonTradingBadge, nonTradingTooltip, type NonTradingWindow } from '../lib/marketHours';
+import { nonTradingTooltip, type NonTradingWindow } from '../lib/marketHours';
+import type { SeasonPref, SeasonTheme } from '../lib/seasons';
+import { AppearanceMenu } from './AppearanceMenu';
+import { SessionPill } from './SessionPill';
+import { ShortcutHelp } from './ShortcutHelp';
 import type { ViewId } from '../types/index';
 import { NAV } from './nav';
 
@@ -13,6 +17,11 @@ export interface TopbarProps {
   onToggleLive: () => void;
   onLogout: () => void;
   onManualRefresh: () => void;
+  seasonPref: SeasonPref;
+  seasonTheme: SeasonTheme | null;
+  onSeasonChange: (p: SeasonPref) => void;
+  helpOpen: boolean;
+  onHelpOpenChange: (open: boolean) => void;
 }
 
 /** Page title, Live/Delayed badge and the live / logout / refresh controls. */
@@ -27,11 +36,24 @@ export function Topbar({
   onToggleLive,
   onLogout,
   onManualRefresh,
+  seasonPref,
+  seasonTheme,
+  onSeasonChange,
+  helpOpen,
+  onHelpOpenChange,
 }: TopbarProps) {
   return (
     <div className="topbar">
-      <h2>{NAV.find((n) => n.id === view)?.label}</h2>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="topbar-title">
+        {seasonTheme && (
+          <span className="season-ornament" aria-hidden="true" title={`${seasonTheme.label} theme`}>
+            {seasonTheme.ornament}
+          </span>
+        )}
+        <h2>{NAV.find((n) => n.id === view)?.label}</h2>
+        <SessionPill />
+      </div>
+      <div className="topbar-actions">
         {/* Live/Delayed badge */}
         <div
           style={{
@@ -57,7 +79,7 @@ export function Topbar({
             ? (liveConnected ? 'Live streaming active (~5s updates)' : 'Connecting to live stream...')
             : 'Session-aware delayed refresh'}
         >
-          {closedWindow ? nonTradingBadge(closedWindow) : liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
+          {closedWindow ? 'Paused' : liveQuotesEnabled ? (liveConnected ? '● Live' : '○ Connecting') : 'Delayed'}
         </div>
       
         {/* Live quotes toggle */}
@@ -94,6 +116,8 @@ export function Topbar({
             ⚠ {lastRefreshError.split('\n')[0].slice(0, 100)}
           </div>
         )}
+        <AppearanceMenu pref={seasonPref} theme={seasonTheme} onChange={onSeasonChange} />
+        <ShortcutHelp open={helpOpen} onOpenChange={onHelpOpenChange} />
         <button
           type="button"
           className="btn"
@@ -115,7 +139,7 @@ export function Topbar({
           className="btn"
           onClick={() => void onManualRefresh()}
           disabled={refreshing}
-          title="Refresh all prices now (auto: 30s)"
+          title="Refresh all prices now (R) · auto: 30s"
           style={{
             minWidth: 40,
             minHeight: 40,
@@ -131,7 +155,7 @@ export function Topbar({
             animation: refreshing ? 'spin 1s linear infinite' : 'none',
             transition: 'all 0.15s ease',
             background: refreshComplete ? 'var(--accent, #3d8bfd)' : undefined,
-            boxShadow: refreshComplete ? '0 0 12px rgba(61, 139, 253, 0.5)' : undefined,
+            boxShadow: refreshComplete ? '0 0 12px color-mix(in srgb, var(--accent) 55%, transparent)' : undefined,
           }}
         >
           {refreshComplete ? '✓' : '↻'}

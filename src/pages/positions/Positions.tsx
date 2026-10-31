@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PriceFlash } from '../../components/PriceFlash';
 import type { Store } from '../../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, pnlClass } from '../../lib/format';
 import { latestIso } from '../../lib/refreshStamp';
@@ -105,7 +106,7 @@ export function Positions({ store }: { store: Store }) {
                     <td className="mono">{fmtQty(p.quantity)}</td>
                     <td className="mono">{fmtMoney(p.avgCost, 4)}</td>
                     <td className="mono">
-                      {fmtMoney(p.markPrice, 4)}
+                      <PriceFlash value={p.markPrice}>{fmtMoney(p.markPrice, 4)}</PriceFlash>
                       {store.markDetails[p.symbol] && (
                         <span className="muted" style={{ display: 'block', fontSize: 11 }}>
                           {store.markDetails[p.symbol].source}

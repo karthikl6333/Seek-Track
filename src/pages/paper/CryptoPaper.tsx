@@ -92,7 +92,7 @@ export function CryptoPaper() {
   if (!summary) {
     return (
       <div className="stack">
-        <p className="muted">No crypto paper trading data available.</p>
+        <p className="muted empty-state">No crypto paper trading data available.</p>
       </div>
     );
   }
@@ -219,7 +219,7 @@ export function CryptoPaper() {
       <div className="card">
         <h3>Open Crypto Positions</h3>
         {positions.length === 0 ? (
-          <p className="muted">No open positions yet. Trading agent will post updates here.</p>
+          <p className="muted empty-state">No open positions yet. Trading agent will post updates here.</p>
         ) : (
           <div className="table-wrap">
             <table className="data">
@@ -253,7 +253,7 @@ export function CryptoPaper() {
       <div className="card">
         <h3>Recent Orders &amp; Fills</h3>
         {recentOrders.length === 0 ? (
-          <p className="muted">No orders yet. Trading agent will post updates here.</p>
+          <p className="muted empty-state">No orders yet. Trading agent will post updates here.</p>
         ) : (
           <div className="table-wrap">
             <table className="data">

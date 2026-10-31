@@ -76,6 +76,28 @@ with esbuild (Cloudflare runs it but never serves it); the compiled server is no
 `dist-cf/` and **fails the build** if any report text, image or `dist-server/` shows up in a file other than
 `_worker.js`.
 
+**Brochure reports** (`format: brochure`) are a full designed HTML page (`content/ideas/pages/<slug>.html`)
+plus photos, shown in the tab inside a sandboxed iframe (`allow-scripts allow-popups
+allow-popups-to-escape-sandbox`, no `allow-same-origin`, so the page runs in an opaque origin). The HTML
+(about 120 KB) is embedded in `_worker.js` like markdown; the photos (optimized webp, several MB) are too big
+for the worker bundle, so `build:cf` copies them to **`dist-cf/_private/ideas/<sha256>.webp`**. That prefix
+is public static output as far as Cloudflare is concerned, so it is protected like this:
+
+- `dist-cf/_worker.js` handles every request (there is no `_routes.json`; the guard fails the build if one
+  appears). A gate (`scripts/private-path.js`, embedded verbatim) sends any `/_private...` request (any
+  case, percent-encoding, backslash or double slash) into the Hono app instead of `env.ASSETS`: Basic-auth
+  middleware first (401), then a `/_private/*` route that always answers 404. The static files are therefore
+  never served directly, to anyone.
+- The photos reach the browser only via the authed `GET /api/ideas/:slug/img/:name`, which fetches the file
+  from `env.ASSETS` server-side, using a location from the embedded index (never from the request).
+- File names are content hashes (not guessable). This is defense in depth for Pages' **"Fail open"**
+  setting: on the Workers Free plan, once the daily Functions allowance is used up, Pages can serve static
+  assets without running the worker. Set Pages > Settings > Functions > **Fail closed** to keep the photos
+  private in that case too.
+- `static-leak-guard.js` allows exactly the hash-named files under `dist-cf/_private/ideas/`, requires the gate in
+  the worker, and still bans any report text or other report image anywhere else in `dist-cf/`.
+- Disk reads (Node server, tests) use `content/ideas/assets/<slug>/` directly, with the same checks.
+
 Client: the tab is the hash view `#ideas`; `#ideas/<slug>` deep-links a report (not a `/reports` URL path;
 the prod deploy returns 404 for `/reports/*`). `src/api/ideas.ts` fetches via the shared API client,
 `src/lib/ideas.ts` is the pure logic (tag filter, search, hash parsing, image URL mapping),

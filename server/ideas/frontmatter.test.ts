@@ -14,6 +14,7 @@ describe('splitFrontmatter / parseIdea', () => {
       summary: 'Short one.',
       tags: ['Alpha', 'Beta, gamma'], // "alpha" is a case-insensitive duplicate
       minutes: 1,
+      format: 'markdown',
       body: '## Hi\n\ntext',
     });
   });
@@ -58,3 +59,19 @@ describe('sortIdeas', () => {
     expect(out.map((x) => x.title)).toEqual(['Z', 'A', 'B']);
   });
 });
+
+describe('format: brochure', () => {
+  const head = (extra: string) => `title: B title\ndate: 2026-10-31\nsummary: S.\n${extra}`;
+  it('defaults to markdown; brochure needs a page and takes its reading time from the page text', () => {
+    expect(parseIdea('a.md', doc(head('tags: [T]'), 'x')).format).toBe('markdown');
+    expect(() => parseIdea('a.md', doc(head('format: brochure'), ''))).toThrow(/pages\/a\.html/);
+    const page = `<style>.x{color:red}</style><script>var a="${'w '.repeat(900)}"</script><p>${'word '.repeat(440)}</p>`;
+    const i = parseIdea('a.md', doc(head('format: brochure'), ''), page);
+    expect(i.format).toBe('brochure');
+    expect(i.minutes).toBe(2); // 440 visible words; style and script do not count
+  });
+  it('rejects an unknown format', () => {
+    expect(() => parseIdea('a.md', doc(head('format: pdf'), 'x'))).toThrow(/format/);
+  });
+});
+

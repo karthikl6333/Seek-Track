@@ -1,4 +1,4 @@
-import { parseIdea, sortIdeas, SLUG_RE, type IdeaMeta, type ParsedIdea } from './frontmatter.js';
+import { parseIdea, slugFromPath, sortIdeas, SLUG_RE, type IdeaMeta, type ParsedIdea } from './frontmatter.js';
 
 /**
  * Server-side store for the Ideas reports (privacy: the reports contain personal travel details and
@@ -11,10 +11,24 @@ import { parseIdea, sortIdeas, SLUG_RE, type IdeaMeta, type ParsedIdea } from '.
  *    and bundles everything into the single _worker.js (which is not served as a static file).
  */
 
-/** Raw files: `files["<slug>.md"]` = text, `assets["<slug>/<name>"]` = base64 bytes. */
+/**
+ * Where brochure images live in the Cloudflare static output. The prefix is PRIVATE even though the
+ * files are static assets: the worker never lets a request reach env.ASSETS for it (see the gate in
+ * scripts/prepare-cf-pages.js); only the authed /api/ideas/:slug/img route fetches these, server-side.
+ */
+export const PRIVATE_ASSET_PREFIX = '/_private/ideas';
+
+/**
+ * Raw content. `files["<slug>.md"]` = report text, `assets["<slug>/<name>"]` = base64 image bytes (small
+ * images, embedded in the worker). Brochures (`format: brochure`) are too big to embed: their HTML is
+ * `pages["<slug>.html"]` and their images are `external["<slug>/<name>"]` = a location: a file path in
+ * Node, or a PRIVATE_ASSET_PREFIX static path on Cloudflare.
+ */
 export interface RawIdeaContent {
   files: Record<string, string>;
   assets: Record<string, string>;
+  pages?: Record<string, string>;
+  external?: Record<string, string>;
 }
 
 // @IDEAS_CONTENT_PLACEHOLDER@
@@ -56,6 +70,10 @@ export interface IdeaStore {
   get(slug: string): ParsedIdea | null;
   /** Image bytes, or null when the slug/name is invalid or the file does not exist. */
   image(slug: string, name: string): { bytes: Uint8Array; contentType: string } | null;
+  /** The brochure page HTML of a `format: brochure` report, else null. */
+  page(slug: string): string | null;
+  /** A brochure image kept outside the worker bundle: where to read it, or null when unknown/invalid. */
+  externalImage(slug: string, name: string): { location: string; contentType: string } | null;
 }
 
 function fromBase64(b64: string): Uint8Array {
@@ -75,16 +93,26 @@ function bytesToBase64(bytes: Uint8Array): string {
 export function buildIdeaStore(raw: RawIdeaContent): IdeaStore {
   const bySlug = new Map<string, ParsedIdea>();
   const errors: IdeaLoadError[] = [];
+  const pagesRaw = raw.pages ?? {};
+  const externalRaw = raw.external ?? {};
+  const pages = new Map<string, string>();
   for (const [file, text] of Object.entries(raw.files)) {
     try {
-      const idea = parseIdea(file, text);
+      const slug = slugFromPath(file);
+      const page = pagesRaw[`${slug}.html`];
+      const idea = parseIdea(file, text, page);
       if (bySlug.has(idea.slug)) throw new Error(`duplicate slug "${idea.slug}"`);
+      if (idea.format === 'brochure') {
+        checkBrochureImages(idea.slug, page ?? '', externalRaw);
+        pages.set(idea.slug, page ?? '');
+      }
       bySlug.set(idea.slug, idea);
     } catch (e) {
       errors.push({ file, message: e instanceof Error ? e.message : String(e) });
     }
   }
   const assets = new Map(Object.entries(raw.assets));
+  const external = new Map(Object.entries(externalRaw));
   const list = sortIdeas([...bySlug.values()].map(({ body: _body, ...meta }) => meta));
   return {
     list,
@@ -97,7 +125,29 @@ export function buildIdeaStore(raw: RawIdeaContent): IdeaStore {
       const b64 = assets.get(`${slug}/${name}`);
       return b64 === undefined ? null : { bytes: fromBase64(b64), contentType: type };
     },
+    page: (slug) => (isValidSlug(slug) ? (pages.get(slug) ?? null) : null),
+    externalImage: (slug, name) => {
+      const type = imageContentType(name);
+      if (!isValidSlug(slug) || !isValidImageName(name) || !type) return null;
+      const location = external.get(`${slug}/${name}`);
+      return location === undefined ? null : { location, contentType: type };
+    },
   };
+}
+
+/**
+ * A brochure may only use images that ship with it: every <img src> must be "img/<name>" and have a
+ * file in content/ideas/assets/<slug>/ (no data: URIs that bloat the worker, no remote images).
+ */
+function checkBrochureImages(slug: string, html: string, external: Record<string, string>): void {
+  for (const m of html.matchAll(/<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)) {
+    const src = m[1] ?? m[2] ?? '';
+    const name = /^img\/([^/?#]+)$/.exec(src)?.[1];
+    if (!name || !isValidImageName(name)) {
+      throw new Error(`brochure image "${src.slice(0, 40)}" must be a relative "img/<file>" reference, not inline or remote`);
+    }
+    if (external[`${slug}/${name}`] === undefined) throw new Error(`brochure image "${name}" is missing from content/ideas/assets/${slug}/`);
+  }
 }
 
 /** Node only: reads content/ideas/*.md and content/ideas/assets/<slug>/<image>. */
@@ -110,11 +160,19 @@ export async function readIdeaContentFromDisk(dir?: string): Promise<RawIdeaCont
     ? [dir]
     : [join(process.cwd(), 'content', 'ideas'), join(here, '..', '..', 'content', 'ideas')];
   const root = candidates.find((p) => existsSync(p));
-  const out: RawIdeaContent = { files: {}, assets: {} };
+  const out: RawIdeaContent = { files: {}, assets: {}, pages: {}, external: {} };
   if (!root) return out;
   for (const f of readdirSync(root)) {
     if (f.toLowerCase().endsWith('.md') && statSync(join(root, f)).isFile()) {
       out.files[f] = readFileSync(join(root, f), 'utf8');
+    }
+  }
+  const pagesDir = join(root, 'pages');
+  if (existsSync(pagesDir)) {
+    for (const f of readdirSync(pagesDir)) {
+      if (f.toLowerCase().endsWith('.html') && statSync(join(pagesDir, f)).isFile()) {
+        out.pages![f] = readFileSync(join(pagesDir, f), 'utf8');
+      }
     }
   }
   const assetsDir = join(root, 'assets');
@@ -122,12 +180,39 @@ export async function readIdeaContentFromDisk(dir?: string): Promise<RawIdeaCont
     for (const slug of readdirSync(assetsDir)) {
       const sub = join(assetsDir, slug);
       if (!statSync(sub).isDirectory()) continue;
+      // Brochure images stay on disk (they are big); Markdown report images are embedded.
+      const brochure = out.pages![`${slug}.html`] !== undefined;
       for (const name of readdirSync(sub)) {
-        if (isValidImageName(name)) out.assets[`${slug}/${name}`] = bytesToBase64(readFileSync(join(sub, name)));
+        if (!isValidImageName(name)) continue;
+        if (brochure) out.external![`${slug}/${name}`] = join(sub, name);
+        else out.assets[`${slug}/${name}`] = bytesToBase64(readFileSync(join(sub, name)));
       }
     }
   }
   return out;
+}
+
+/**
+ * Reads a brochure image from an `external` location. A location is only ever a value taken from the
+ * content index (never from a request): a PRIVATE_ASSET_PREFIX path is fetched from the Pages ASSETS
+ * binding; anything else is a file path (Node).
+ */
+export async function readExternalImage(
+  location: string,
+  assets: { fetch(request: Request): Promise<Response> } | undefined,
+  origin: string,
+): Promise<Uint8Array | null> {
+  if (location.startsWith(`${PRIVATE_ASSET_PREFIX}/`)) {
+    if (!assets) return null;
+    const res = await assets.fetch(new Request(new URL(location, origin), { redirect: 'manual' }));
+    return res.status === 200 ? new Uint8Array(await res.arrayBuffer()) : null;
+  }
+  const { readFile } = await import('node:fs/promises');
+  try {
+    return new Uint8Array(await readFile(location));
+  } catch {
+    return null;
+  }
 }
 
 let cached: Promise<IdeaStore> | null = null;

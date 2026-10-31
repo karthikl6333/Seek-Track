@@ -15,7 +15,11 @@ export interface IdeaMeta {
   tags: string[];
   /** Reading time in minutes. */
   minutes: number;
+  /** "markdown": rendered by the app. "brochure": a full HTML page shown in a sandboxed iframe. */
+  format: IdeaFormat;
 }
+
+export type IdeaFormat = 'markdown' | 'brochure';
 
 /** One report from GET /api/ideas/:slug. */
 export interface Idea extends IdeaMeta {
@@ -30,6 +34,18 @@ export interface IdeaListResponse {
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** URL of a brochure report's HTML page (authed; same origin as the app, or API_BASE in dev). Null for a bad slug. */
+export function ideaPageUrl(slug: string, base = ''): string | null {
+  return SLUG_RE.test(slug) && slug.length <= 100 ? `${base}/api/ideas/${slug}/page` : null;
+}
+
+/**
+ * Sandbox for the brochure iframe. Scripts (its photo slideshows) and popups (external links open in a
+ * new, normal tab) only; NOT allow-same-origin, so the page runs in an opaque origin and cannot touch the
+ * app, its storage or its API.
+ */
+export const BROCHURE_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox';
 
 export interface TagCount {
   tag: string;

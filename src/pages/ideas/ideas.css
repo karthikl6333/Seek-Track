@@ -308,7 +308,28 @@
   max-width: 460px;
 }
 
+/* Brochure reports: the page fills the width and (most of) the viewport height and scrolls inside */
+.idea-report-brochure .idea-report-bar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.idea-brochure-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 150px);
+  height: calc(100dvh - 150px);
+  min-height: 480px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-lg, 12px);
+  background: #fff8f1;
+}
+
 @media (max-width: 720px) {
+  .idea-brochure-frame {
+    height: calc(100vh - 130px);
+    height: calc(100dvh - 130px);
+    border-radius: var(--radius-md, 8px);
+  }
   .idea-article {
     padding: var(--space-4);
   }

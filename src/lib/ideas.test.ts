@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterIdeas, formatIdeaDate, ideaAssetUrl, ideaHash, ideaSlugFromHash, tagCounts, type IdeaMeta } from './ideas';
+import { BROCHURE_SANDBOX, filterIdeas, formatIdeaDate, ideaAssetUrl, ideaPageUrl, ideaHash, ideaSlugFromHash, tagCounts, type IdeaMeta } from './ideas';
 
 describe('tags and search', () => {
   const mk = (slug: string, date: string, title: string, tags: string[], summary = 's'): IdeaMeta => ({
@@ -9,6 +9,7 @@ describe('tags and search', () => {
     summary,
     tags,
     minutes: 1,
+    format: 'markdown',
   });
   const a = mk('a', '2026-10-01', 'Alpha', ['Travel', 'Budget']);
   const b = mk('b', '2026-10-31', 'Bravo', ['AI'], 'Gene editing in rice');
@@ -62,6 +63,21 @@ describe('ideaAssetUrl', () => {
   it('never produces a data: URI, a static /assets path, or anything for odd refs', () => {
     for (const bad of ['', 'cover.jpg', 'assets/trip/a.svg', 'assets/trip/../a.jpg', 'assets/Trip/a.jpg', 'assets/trip/sub/a.jpg', 'data:image/png;base64,AAAA', 'https://x/a.jpg', '/assets/a.jpg', 'assets/trip/a..b.jpg']) {
       expect(ideaAssetUrl(bad), bad).toBeNull();
+    }
+  });
+});
+
+describe('brochure helpers', () => {
+  it('builds the authed page URL only for a valid slug', () => {
+    expect(ideaPageUrl('hong-kong-macau-family-trip-jan-2027')).toBe('/api/ideas/hong-kong-macau-family-trip-jan-2027/page');
+    expect(ideaPageUrl('a', 'https://api.test')).toBe('https://api.test/api/ideas/a/page');
+    for (const bad of ['', '../x', 'A', 'a/b', 'a b', 'x'.repeat(101)]) expect(ideaPageUrl(bad)).toBeNull();
+  });
+  it('sandbox: scripts and popups only, never same-origin or top navigation', () => {
+    const t = BROCHURE_SANDBOX.split(' ');
+    expect(t).toEqual(expect.arrayContaining(['allow-scripts', 'allow-popups', 'allow-popups-to-escape-sandbox']));
+    for (const forbidden of ['allow-same-origin', 'allow-top-navigation', 'allow-forms', 'allow-modals']) {
+      expect(t.some((x) => x.startsWith(forbidden))).toBe(false);
     }
   });
 });

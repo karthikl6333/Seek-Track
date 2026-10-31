@@ -61,6 +61,24 @@ The reader rewrites the reference to the authed `/api/ideas/<slug>/img/<file>`; 
 base64. A path that does not exist renders as its alt text, and the content test fails. Remote images (`https://...`) also work; credit the source in the caption.
 Images are lazy-loaded and never wider than the page.
 
+## Brochure-style pages (HTML)
+
+For a fully designed page (like the Hong Kong & Macau trip) use `format: brochure` in the frontmatter (body
+stays empty, the card text comes from `title`, `date`, `summary`, `tags`) and put the page in
+`content/ideas/pages/<slug>.html`:
+
+- One self-contained file: inline `<style>` and an optional inline `<script>`; no `<iframe>`, `<form>`,
+  `<base>`, `<link>`, `<object>` or `<embed>`, no remote scripts or styles. The page is served with
+  `default-src 'none'; img-src 'self'; style-src/script-src 'unsafe-inline'` and shown in a sandboxed iframe
+  without `allow-same-origin`, so it cannot reach the app.
+- Photos as files in `content/ideas/assets/<slug>/`, referenced as `<img src="img/<file>">` (resolved to the authed
+  `/api/ideas/<slug>/img/<file>`; the content test fails on a reference with no file). Use webp, about 150 KB
+  or less each, and do not base64-inline anything.
+- External links need `target="_blank" rel="noopener noreferrer"` (a plain link would navigate the iframe;
+  the content test checks this).
+- The page is embedded in the worker, the photos go to the private static prefix (see ARCHITECTURE.md, "Brochure
+  reports", including the Pages "Fail closed" recommendation).
+
 ## 4. Check and ship
 
 ```bash

@@ -5,11 +5,12 @@
  * Embeds schema.sql into db.js so it doesn't need filesystem access
  */
 
-import { mkdirSync, cpSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import { readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
+import { isPrivatePath } from './private-path.js';
+import { privateAssetName, readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
 
 const rootDir = process.cwd();
 const distClient = join(rootDir, 'dist');
@@ -67,6 +68,19 @@ console.log('Embedding content/ideas into the worker bundle...');
 const storePath = join(stageServer, 'ideas', 'store.js');
 const storeMod = await import(pathToFileURL(storePath).href);
 const raw = await storeMod.readIdeaContentFromDisk(contentDir);
+// Brochure images are too big for the worker bundle (Workers limit: ~3 MB gzipped on the free plan). They
+// go into the static output under a PRIVATE prefix with unguessable content-hash names; the worker gate
+// below never lets a request reach them directly, only the authed /api/ideas/:slug/img route fetches them
+// (server-side, through env.ASSETS). `raw.external` is rewritten from disk paths to those static paths.
+const privateDir = join(cfDist, ...storeMod.PRIVATE_ASSET_PREFIX.split('/').filter(Boolean));
+let privateImages = 0;
+for (const [key, diskPath] of Object.entries(raw.external ?? {})) {
+  const staticName = privateAssetName(key, readFileSync(diskPath));
+  mkdirSync(privateDir, { recursive: true });
+  copyFileSync(diskPath, join(privateDir, staticName));
+  raw.external[key] = `${storeMod.PRIVATE_ASSET_PREFIX}/${staticName}`;
+  privateImages++;
+}
 const checked = storeMod.buildIdeaStore(raw);
 if (checked.errors.length > 0) {
   console.error('❌ Some report files are invalid and would be hidden:', JSON.stringify(checked.errors));
@@ -86,7 +100,9 @@ if (!ideasRe.test(storeJs)) {
 const ideasLiteral = JSON.stringify(raw).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 storeJs = storeJs.replace(ideasRe, () => `// Reports embedded at build time (private: served only via authed /api/ideas)\nconst EMBEDDED_IDEAS = ${ideasLiteral};`);
 writeFileSync(storePath, storeJs, 'utf8');
-console.log(`✅ Embedded ${checked.list.length} reports and ${Object.keys(raw.assets).length} images`);
+console.log(
+  `✅ Embedded ${checked.list.length} reports, ${Object.keys(raw.assets).length} images and ${Object.keys(raw.pages ?? {}).length} brochure pages; ${privateImages} brochure images in the private static prefix`,
+);
 
 // Create _worker.js for Cloudflare Pages Advanced mode
 console.log('Creating _worker.js for Cloudflare Pages...');
@@ -98,6 +114,9 @@ import app from './dist-server/index.js';
 import { ensureSchema, setD1Database } from './dist-server/db.js';
 
 let schemaInitialized = false;
+
+// Private-prefix gate (scripts/private-path.js, embedded verbatim so the tested code is the shipped code)
+${isPrivatePath.toString()}
 
 export default {
   async fetch(request, env, ctx) {
@@ -141,6 +160,13 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) {
       return app.fetch(request, env, ctx);
+    }
+
+    // PRIVATE static prefix (brochure images): never reaches env.ASSETS from outside. The request is
+    // handed to the Hono app (auth middleware first: 401 without credentials), whose /_private/* route
+    // answers 404. The same bytes are served only through the authed /api/ideas/:slug/img route.
+    if (isPrivatePath(url.pathname)) {
+      return app.fetch(new Request(new URL('/_private/', request.url), request), env, ctx);
     }
 
     // Static assets served by Cloudflare Pages ASSETS binding

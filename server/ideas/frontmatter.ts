@@ -3,6 +3,10 @@
  * header under content/ideas/ (docs/ADDING_IDEAS.md). Pure functions, no I/O.
  */
 
+/** How a report is presented: Markdown rendered by the app, or a self-contained HTML brochure page shown in a sandboxed iframe. */
+export type IdeaFormat = 'markdown' | 'brochure';
+export const IDEA_FORMATS: readonly IdeaFormat[] = ['markdown', 'brochure'];
+
 export interface IdeaMeta {
   /** URL slug: the file name without ".md". Used in "#ideas/<slug>" and "/api/ideas/<slug>". */
   slug: string;
@@ -13,6 +17,7 @@ export interface IdeaMeta {
   tags: string[];
   /** Rough reading time in minutes (about 220 words per minute, at least 1). */
   minutes: number;
+  format: IdeaFormat;
 }
 
 export interface ParsedIdea extends IdeaMeta {
@@ -96,8 +101,19 @@ export function readingMinutes(body: string): number {
   return Math.max(1, Math.round(words / 220));
 }
 
-/** Parses one report file. Throws a readable Error when a required field is missing or malformed. */
-export function parseIdea(path: string, raw: string): ParsedIdea {
+/** Visible text of an HTML page (tags, style and script removed), for the reading-time estimate. */
+export function htmlText(html: string): string {
+  return html
+    .replace(/<(style|script)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ');
+}
+
+/**
+ * Parses one report file. Throws a readable Error when a required field is missing or malformed.
+ * `pageHtml` is the brochure page for `format: brochure` (used only for the reading-time estimate).
+ */
+export function parseIdea(path: string, raw: string, pageHtml?: string): ParsedIdea {
   const slug = slugFromPath(path);
   if (!SLUG_RE.test(slug)) throw new Error(`file name must be lowercase letters, digits and dashes: "${slug}"`);
   const { data, body } = splitFrontmatter(raw);
@@ -113,9 +129,17 @@ export function parseIdea(path: string, raw: string): ParsedIdea {
   }
   const summary = str('summary');
   if (!summary) throw new Error('frontmatter "summary" is required');
+  const format = str('format') || 'markdown';
+  if (!IDEA_FORMATS.includes(format as IdeaFormat)) {
+    throw new Error(`frontmatter "format" must be one of: ${IDEA_FORMATS.join(', ')}`);
+  }
+  if (format === 'brochure' && pageHtml === undefined) {
+    throw new Error(`format "brochure" needs content/ideas/pages/${slug}.html`);
+  }
   const rawTags = data.tags;
   const tagList = Array.isArray(rawTags) ? rawTags : typeof rawTags === 'string' ? splitList(rawTags) : [];
-  return { slug, title, date, summary, tags: dedupeTags(tagList), minutes: readingMinutes(body), body };
+  const minutes = format === 'brochure' ? readingMinutes(htmlText(pageHtml ?? '')) : readingMinutes(body);
+  return { slug, title, date, summary, tags: dedupeTags(tagList), minutes, format: format as IdeaFormat, body };
 }
 
 function dedupeTags(tags: string[]): string[] {

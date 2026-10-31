@@ -44,7 +44,7 @@ can't hide a write.
 |-----|----------|
 | `api/` | `client.ts`: the typed API client (auth errors, trades, marks, settings, ...). `http.ts`: small `apiGet`/`apiSend` helpers used by Research and Watchlist. |
 | `app/` | Shell: `Sidebar`, `Topbar`, `StatusScreens`, `nav` (tab definitions), `logout`. |
-| `pages/` | One folder per tab: `overview` (Overview, Watchlist, Calculator, CSV import, alerts, plan vs price), `positions`, `trades`, `charges`, `charts`, `research` (page plus types, sector themes, format helpers, cards), `paper` (Paper, PaperFlex, CryptoPaper). |
+| `pages/` | One folder per tab: `overview` (Overview, Watchlist, Calculator, CSV import, alerts, plan vs price), `positions`, `trades`, `charges`, `charts`, `research` (page plus types, sector themes, format helpers, cards), `paper` (Paper, PaperFlex, CryptoPaper), `ideas` (saved research reports, see below). |
 | `components/` | Shared UI: `TickerLink`, `FilterChips`. |
 | `hooks/` | `useStore` (data), `useLiveQuotes` / `useMarksStream` / `useLiveQuotesToggle` (SSE prices), `useRefreshScheduler` (timed refresh), `usePaperSync`. |
 | `lib/` | Pure logic with tests: FIFO lots/P&L (`lots`), charges, formatting, market hours and holidays (`marketHours`, `pollGate`), marks merging, `chunkedRefresh`, `refreshStamp`. |
@@ -56,6 +56,31 @@ Driven by `hooks/useRefreshScheduler.ts` using `lib/marketHours.ts` / `lib/pollG
 30 s regular session, 60 s pre/after-hours, 10 min when closed on weekdays, no automatic refresh from
 Fri 20:00 ET to Mon 04:00 ET and on NYSE holidays. Manual refresh always works. Prices are never
 shown blank: the last known mark is kept when a refresh fails or a symbol has no new quote.
+
+## Ideas tab
+
+Research reports to read later. They can hold private details (family names, travel dates), so they are
+**never part of the static client bundle**: on prod only `/api/*` is behind Basic auth and everything in
+the static output (`/assets/*`) is public. Markdown files with frontmatter and their images live in
+`content/ideas/` (outside `src/` and `server/`, so Vite never bundles them). `build:cf` embeds them into
+`_worker.js` (a placeholder in `server/ideas/store.ts`, same pattern as the D1 schema); the Node server reads
+the folder from disk (the Docker image copies `content/`). They are served only by authed routes
+(`server/routes/ideas.ts`, behind the same Basic-auth middleware as the rest of `/api`):
+`GET /api/ideas` (list), `GET /api/ideas/:slug` (markdown + metadata), `GET /api/ideas/:slug/img/:name`
+(image bytes, `Cache-Control: private`). Slug and image name are validated with strict patterns and looked up
+in an index (never joined into a file path), so traversal is impossible.
+
+`scripts/prepare-cf-pages.js` bundles the server and the embedded content into one `dist-cf/_worker.js`
+with esbuild (Cloudflare runs it but never serves it); the compiled server is no longer copied into
+`dist-cf/` (that made `/dist-server/*` public). After bundling, `scripts/static-leak-guard.js` scans
+`dist-cf/` and **fails the build** if any report text, image or `dist-server/` shows up in a file other than
+`_worker.js`.
+
+Client: the tab is the hash view `#ideas`; `#ideas/<slug>` deep-links a report (not a `/reports` URL path;
+the prod deploy returns 404 for `/reports/*`). `src/api/ideas.ts` fetches via the shared API client,
+`src/lib/ideas.ts` is the pure logic (tag filter, search, hash parsing, image URL mapping),
+`src/pages/ideas/markdown.ts` renders with `marked` and sanitizes with DOMPurify. The page is lazy-loaded
+and has loading, error (with retry) and empty states. See `docs/ADDING_IDEAS.md`.
 
 ## Commands
 

@@ -11,6 +11,7 @@ const VIEW_MAP: Record<ViewId, true> = {
   paper: true,
   paperFlex: true,
   cryptoPaper: true,
+  ideas: true,
 };
 
 export const VALID_VIEWS = Object.keys(VIEW_MAP) as ViewId[];
@@ -19,4 +20,13 @@ export const VALID_VIEWS = Object.keys(VIEW_MAP) as ViewId[];
 export function viewFromHash(hash: string): ViewId {
   const raw = (hash || '').replace(/^#\/?/, '').split(/[/?#]/)[0];
   return Object.prototype.hasOwnProperty.call(VIEW_MAP, raw) ? (raw as ViewId) : 'overview';
+}
+
+/**
+ * The hash to write for `view`. A deep link inside the same view ("#ideas/<slug>") is kept as is;
+ * anything else is normalised to "#<view>".
+ */
+export function hashForView(view: ViewId, currentHash: string): string {
+  const next = `#${view}`;
+  return currentHash === next || currentHash.startsWith(`${next}/`) ? currentHash : next;
 }

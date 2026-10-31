@@ -5,6 +5,12 @@ summary: "A plain-language guide to boosted breeding (Ohalo's trademark plus spe
 tags: [Agriculture, Gene editing, India, Investing, AI, Seed industry]
 ---
 
+Full interactive version: [Open the Page](https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/cc284b50-f5a6-4d40-b3d7-4c9960afc3a2)
+
+![A speed-breeding growth chamber with a technician](assets/boosted-breeding-in-agriculture/breeding-hero.webp)
+
+*Illustration (generated, not a photograph).*
+
 *Original report title: Boosted Breeding in Agriculture: What It Is, Who Is Doing It in India, and Whether to Invest*
 
 ## Bottom line
@@ -35,6 +41,19 @@ Most likely you saw either Ohalo's trademarked platform or an article on speed b
 
 ### Timeline compression versus conventional breeding
 
+```viz
+{
+"type": "flow",
+"title": "Conventional versus speed breeding, as a flow",
+"cellW": 180,
+"gapX": 34,
+"gapY": 56,
+"nodes": [{"id": "c1", "label": "Cross parents", "col": 0, "row": 0}, {"id": "c2", "label": "Advance generations", "col": 1, "row": 0, "sub": "chickpea: 3 a year"}, {"id": "c3", "label": "Field selection and multi-year trials", "col": 2, "row": 0}, {"id": "c4", "label": "Release", "col": 3, "row": 0, "kind": "muted", "sub": "about 12 years (chickpea), about 15 years (pigeonpea)"}, {"id": "s1", "label": "Cross parents", "col": 0, "row": 1}, {"id": "s2", "label": "Rapid generation advance", "col": 1, "row": 1, "kind": "key", "sub": "chickpea: up to 7 a year"}, {"id": "s3", "label": "Early selection", "col": 2, "row": 1, "sub": "markers or seed-chip genotyping"}, {"id": "s4", "label": "Registration trials", "col": 3, "row": 1, "sub": "3 to 4 years, pigeonpea"}, {"id": "s5", "label": "Release", "col": 4, "row": 1, "kind": "good", "sub": "about 6 years (chickpea), about 5 years (pigeonpea)"}],
+"edges": [{"from": "c1", "to": "c2"}, {"from": "c2", "to": "c3"}, {"from": "c3", "to": "c4"}, {"from": "s1", "to": "s2"}, {"from": "s2", "to": "s3"}, {"from": "s3", "to": "s4"}, {"from": "s4", "to": "s5"}],
+"groups": [{"label": "CONVENTIONAL", "nodes": ["c1", "c2", "c3", "c4"]}, {"label": "SPEED + MARKERS", "nodes": ["s1", "s2", "s3", "s4", "s5"]}]
+}
+```
+
 | Approach | Time to a usable variety | Evidence |
 | --- | --- | --- |
 | Conventional breeding | 10 to 15 years in general; chickpea about 12 years; pigeonpea about 15 years (ICRISAT quote) | ASSOCHAM and Grant Thornton report (Business Line, Aug 2026); CGIAR and ICRISAT releases |
@@ -43,6 +62,15 @@ Most likely you saw either Ohalo's trademarked platform or an article on speed b
 | Genomic selection | Faster cycles raise yearly gain: projected about 3x MAS in maize and 2x in winter wheat; CIMMYT rapid-cycle wheat gained 12.3% over three cycles | <https://doi.org/10.2135/cropsci2009.11.0662> and <https://pmc.ncbi.nlm.nih.gov/articles/PMC10085763/> |
 | Gene editing | ICAR rice: research started 2018, varieties released May 2025. Mandrake Bio (company claim) says 7 to 8 years could fall to about 2; KWS says 20% to 30% shorter | <https://www.icar.org.in/en/union-agriculture-minister-shri-shivraj-singh-chouhan-announces-two-genome-edited-rice-varieties> |
 | Ohalo Boosted Breeding | No timeline figure published; company says cross outcomes become predictable and cycles shorter | <https://www.ohalo.com/boosted-breeding> |
+
+```viz
+{
+"type": "bar",
+"title": "Years to a usable variety (ICRISAT quotes)",
+"series": ["Conventional", "Speed breeding"],
+"items": [{"label": "Chickpea", "values": [12, 6], "displays": ["12 years", "6 years"]}, {"label": "Pigeonpea", "values": [15, 5], "displays": ["15 years", "5 years"]}]
+}
+```
 
 So the headline "10 to 15 years to 3 to 5" is a best case, shown credibly only for legumes with combined speed breeding and genotyping. Treat it as a ceiling, not an average.
 
@@ -55,6 +83,15 @@ So the headline "10 to 15 years to 3 to 5" is a best case, shown credibly only f
 | Pigeonpea speed breeding | 2 to 4 | ICRISAT |
 | Chickpea before the new protocol | 3 | ICRISAT |
 | Rice, normal field practice | 1 to 2 | IRRI |
+
+```viz
+{
+"type": "bar",
+"title": "Generations per year, selected protocols",
+"note": "Bar length is the upper end of each range.",
+"items": [{"label": "Chickpea, rapid generation advance", "value": 7, "display": "up to 7"}, {"label": "Rice, SpeedFlower", "value": 5.5, "display": "4.9 to 5.5", "c": 1}, {"label": "Pigeonpea, speed breeding", "value": 4, "display": "2 to 4", "c": 2}, {"label": "Chickpea, before the new protocol", "value": 3, "display": "3", "c": 5}, {"label": "Rice, normal field practice", "value": 2, "display": "1 to 2", "c": 5}]
+}
+```
 
 Sources: <https://oar.icrisat.org/11379/1/main.pdf>, <https://pmc.ncbi.nlm.nih.gov/articles/PMC11022788/>, <https://link.springer.com/article/10.1186/s13007-024-01155-w>
 
@@ -100,11 +137,36 @@ Sources: <https://inari.com/news/corteva-and-inari-reach-settlement-agreement/>,
 | Avalo Series B (Jun 2026, reported) | $30M |  |
 | Mandrake Bio, India (Jul 2026) | $1.7M | Rs 16 crore |
 
+```viz
+{
+"type": "bar",
+"title": "Latest disclosed funding rounds, US$ millions",
+"note": "Different years and stages. The gap between Indian and global rounds is the point.",
+"items": [{"label": "Ohalo Series B (reported)", "value": 165, "display": "$165M"}, {"label": "Inari Series G", "value": 144, "display": "$144M"}, {"label": "Tropic Series C", "value": 105, "display": "$105M"}, {"label": "Pairwise Series C", "value": 40, "display": "$40M"}, {"label": "Avalo Series B (reported)", "value": 30, "display": "$30M"}, {"label": "Mandrake Bio, India", "value": 1.7, "display": "$1.7M", "c": 1}]
+}
+```
+
 Mandrake converted at about Rs 95 per USD (30 Oct 2026 close was between Rs 94.76 and Rs 95.25 depending on source). The gap between Indian and global rounds is the main point.
 
 ## 3. India: who is doing it
 
+![Paddy field, a farmer, cows, a vet and seed sacks](assets/boosted-breeding-in-agriculture/breeding-india-fields-livestock.webp)
+
 ### Policy and regulation status
+
+![DNA, editing scissors, a petri dish, a greenhouse and a rice field](assets/boosted-breeding-in-agriculture/breeding-gene-edit-pipeline.webp)
+
+```viz
+{
+"type": "flow",
+"title": "The gene-edit pipeline and where Indian rules bite",
+"cellW": 200,
+"gapX": 34,
+"gapY": 34,
+"nodes": [{"id": "a", "label": "Pick a target gene", "col": 0, "row": 0, "sub": "ICAR: 178 target genes in 24 field crops"}, {"id": "b", "label": "Design the editor", "col": 1, "row": 0, "sub": "Cas9, Cas12a or AI-designed enzymes; licences gate use"}, {"id": "c", "label": "Edit plant cells, regenerate plants", "col": 2, "row": 0}, {"id": "d", "label": "Foreign DNA in the final plant?", "col": 2, "row": 1, "kind": "decision"}, {"id": "x", "label": "SDN-1 or SDN-2: exempt from GM rules in India since Mar 2022", "col": 1, "row": 1, "kind": "good"}, {"id": "y", "label": "SDN-3: regulated like GM; GM-style review first", "col": 3, "row": 1, "kind": "muted"}, {"id": "t", "label": "Multi-location trials", "col": 2, "row": 2}, {"id": "r", "label": "Release and seed multiplication", "col": 2, "row": 3, "kind": "key", "sub": "ICAR rice: research from 2018, release 4 May 2025"}],
+"edges": [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}, {"from": "c", "to": "d"}, {"from": "d", "to": "x", "exit": "left", "enter": "right", "label": "no"}, {"from": "d", "to": "y", "exit": "right", "enter": "left", "label": "yes"}, {"from": "x", "to": "t", "exit": "bottom", "enter": "left"}, {"from": "y", "to": "t", "exit": "bottom", "enter": "right"}, {"from": "t", "to": "r"}]
+}
+```
 
 | Date | Development | Why it matters |
 | --- | --- | --- |
@@ -129,6 +191,26 @@ Mandrake converted at about Rs 95 per USD (30 Oct 2026 close was between Rs 94.7
 | Pipeline | ICAR has mapped 178 target genes in 24 field crops and 43 in 16 horticultural crops; pulses mission targets 15 tur, urad and masoor varieties over 2028 to 2031 | Rs 500 crore (about $53M) genome-editing research allocation in 2023-24 |
 
 Sources: <https://www.thehindu.com/sci-tech/agriculture/how-did-india-develop-genome-edited-rice-explained/article69576634.ece>, <https://www.indiatoday.in/science/story/india-genomics-agriculture-genome-editing-crispr-rice-mustard-banana-india-today-science-news-2882139-2026-03-15>, <https://pressroom.icrisat.org/icrisat-and-cimmyt-launch-new-initiative-to-fast-track-climate-resilient-crops-for-dryland-farmers-in-africa-and-india>, <https://www.irri.org/news-and-events/news/speedbreed-crop-breeding-center-built-speed>, <https://indianexpress.com/article/explained/explained-sci-tech/first-2-new-genome-edited-rice-varieties-significance-agri-9981869/>
+
+#### Field evidence: yield gain of ICAR genome-edited rice over the parent
+
+```viz
+{
+"type": "bar",
+"title": "Yield gain of ICAR genome-edited rice over the parent, percent",
+"note": "ICAR institute results, not independently audited here. Gains are largest where the trait targets stress.",
+"items": [{"label": "Pusa DST Rice 1, coastal salinity", "value": 30.4, "display": "+30.4%"}, {"label": "Kamala (DRR Dhan 100)", "value": 19, "display": "+19%", "c": 1}, {"label": "Pusa DST Rice 1, alkaline soil", "value": 14.66, "display": "+14.66%"}, {"label": "Pusa DST Rice 1, inland salinity", "value": 9.66, "display": "+9.66%"}]
+}
+```
+
+| Variety | Gain versus parent |
+|---|---|
+| Pusa DST Rice 1, coastal salinity | +30.4% |
+| Kamala (DRR Dhan 100): 5.37 versus 4.5 t/ha | +19% |
+| Pusa DST Rice 1, alkaline soil | +14.66% |
+| Pusa DST Rice 1, inland salinity | +9.66% |
+
+ICAR institute results, not independently audited here. Gains are largest where the trait targets stress.
 
 ### Private companies and start-ups
 
@@ -159,6 +241,24 @@ Sources: <https://www.pairwise.com/insights/pairwise-licenses-fulcrum-r-platform
 
 Sources: <https://www.pib.gov.in/PressReleasePage.aspx?PRID=2241601&lang=1&reg=3>, <https://dairydimension.com/pm-modi-inaugurates-sex-sorted-semen-facility-purnia-2025/>, <https://www.thehindu.com/news/cities/Hyderabad/indian-immunologicals-unveils-ivf-media-for-bovine-embryo-transfer-developed-in-partnership-with-nddb/article68638427.ece>, <https://dairynews7x7.com/news/private-sector-innovations-to-improve-productivity-in-indian-cattle>
 
+#### Percent of target (Computed)
+
+| Programme | Reported | Percent of target (Computed) |
+|---|---|---|
+| Genomic selection, animals tested | 82,058 against 50,000 | 164% |
+| Sex-sorted semen, doses promoted | 13.5 million against 12.2 million | 111% |
+| IVF, embryos transferred | 36,536 against 115,000 | 32% |
+
+```viz
+{
+"type": "bar",
+"title": "Rashtriya Gokul Mission, percent of target (Computed)",
+"note": "Cheap, simple tools overshoot the target; the costly one falls short.",
+"max": 180,
+"items": [{"label": "Genomic selection, animals tested", "value": 164, "display": "164%"}, {"label": "Sex-sorted semen, doses promoted", "value": 111, "display": "111%", "c": 1}, {"label": "IVF, embryos transferred", "value": 32, "display": "32%", "c": 2}]
+}
+```
+
 ## 4. Investment analysis
 
 ### Market size
@@ -171,6 +271,36 @@ Sources: <https://www.pib.gov.in/PressReleasePage.aspx?PRID=2241601&lang=1&reg=3
 | CRISPR in agriculture (NextMSC) | $3.26B | from $1.34B in 2025 |
 | Ag CRISPR and Cas genes (Grand View) | $1.02B | from $0.46B in 2024 |
 
+#### Market growth, 2025 to the end year (third-party estimates)
+
+| Market | Start | End | Source |
+|---|---|---|---|
+| Global agrigenomics | $5.0B (2025), $5.49B (2026) | $8.74B (2031), 9.76% CAGR | Mordor Intelligence |
+| India AI in agriculture | $84.8M (2025) | $415.5M (2034), 18.73% CAGR | IMARC |
+| India animal genetics | $349.6M (2025) | $703.0M (2033), 9.3% CAGR | Grand View Research |
+| Gene editing in crops | $2.76B (2025) | $4.77B (2030) | GII Research |
+| CRISPR in agriculture | $1.34B (2025) | $3.26B (2030) | NextMSC |
+
+```viz
+{
+"type": "bar",
+"title": "Market growth, US$ billions",
+"series": ["2025 (start)", "End year"],
+"note": "Third-party estimates; scopes differ.",
+"items": [{"label": "Global agrigenomics (to 2031)", "values": [5.0, 8.74], "displays": ["$5.0B", "$8.74B"]}, {"label": "Gene editing in crops (to 2030)", "values": [2.76, 4.77], "displays": ["$2.76B", "$4.77B"]}, {"label": "CRISPR in agriculture (to 2030)", "values": [1.34, 3.26], "displays": ["$1.34B", "$3.26B"]}]
+}
+```
+
+```viz
+{
+"type": "bar",
+"title": "India market growth, US$ millions",
+"series": ["2025 (start)", "End year"],
+"note": "Third-party estimates; scopes differ.",
+"items": [{"label": "India AI in agriculture (to 2034)", "values": [84.8, 415.5], "displays": ["$84.8M", "$415.5M"]}, {"label": "India animal genetics (to 2033)", "values": [349.6, 703.0], "displays": ["$349.6M", "$703.0M"]}]
+}
+```
+
 #### India seed market, 2025
 
 | Item | Value |
@@ -179,6 +309,97 @@ Sources: <https://www.pib.gov.in/PressReleasePage.aspx?PRID=2241601&lang=1&reg=3
 | Mordor Intelligence | $3.82B (about Rs 36,300 crore) |
 
 Third-party research estimates differ by 2x to 4x depending on scope, so treat all of these as rough ranges. No dedicated speed-breeding market report turned up; the nearest is Smart Breeding at $1.945B in 2024 growing to $2.907B by 2031 (6.0% CAGR). Sources: <https://www.researchandmarkets.com/reports/5717192/india-seed-market-share-analysis-industry> and <https://www.imarcgroup.com/seed-industry-in-india> for India; GII Research, NextMSC, Grand View Horizon and Valuates report summaries for gene editing and smart breeding (found through search; I did not open the paid reports).
+
+```viz
+{
+"type": "bar",
+"title": "India seed market, 2025, US$ billions",
+"note": "Two research firms, 2x apart on scope.",
+"items": [{"label": "IMARC", "value": 8.6, "display": "$8.6B"}, {"label": "Mordor Intelligence", "value": 3.82, "display": "$3.82B", "c": 1}]
+}
+```
+
+### Addressable market: TAM, SAM and SOM
+
+Two methods. **Top-down** starts from third-party seed reports (the pool the technology sits inside) and narrows to technology and genetics pools. **Bottom-up** builds India from four revenue layers: seed, trait licensing, breeding services, genomics and AI tools. Funnel shapes are not to scale.
+
+#### Headline numbers
+
+| Level | Global | India | Status |
+|---|---|---|---|
+| TAM | $55.7B commercial seed (2024, S&P Global, excludes farmer-saved seed) | $3.8B to $8.6B seed (2025; Mordor and IMARC, 2x apart) | Sourced, third-party |
+| SAM | $5.0B agrigenomics (2025, Mordor; overlaps seed, not additive) | $434.4M sized pools = $84.8M AI in agriculture + $349.6M animal genetics (about ₹4,127 crore) | Global: sourced; India: **Computed** sum, pools may overlap and sit partly outside seed |
+| SOM | n/a | 1% / 3% / 5% of SAM = $4.3M / $13.0M / $21.7M (about ₹41 / ₹124 / ₹207 crore) | **Estimate**, illustrative scenarios, not forecasts |
+
+India's seed TAM is about 6.9% to 15.4% of the global figure (**Computed**, definitions differ).
+
+```viz
+{
+"type": "funnel",
+"title": "TAM, SAM and SOM: global and India (not to scale)",
+"columns": [{"heading": "Global", "levels": [{"tag": "TAM", "value": "$55.7B", "label": "commercial seed (2024)", "status": "Sourced, third-party"}, {"tag": "SAM", "value": "$5.0B", "label": "agrigenomics (2025)", "status": "Sourced, third-party"}, {"tag": "India pools", "value": "$434M", "label": "India-reachable pools", "status": "Computed", "estimate": true}, {"tag": "SOM, 3%", "value": "$13.0M", "label": "scenario", "status": "Estimate", "estimate": true}]}, {"heading": "India", "levels": [{"tag": "TAM", "value": "$3.8B to $8.6B", "label": "commercial seed (2025)", "status": "Sourced, third-party"}, {"tag": "SAM", "value": "$434M", "label": "sized tech and genetics pools", "status": "Computed", "estimate": true}, {"tag": "SOM, 3%", "value": "$13.0M", "label": "scenario", "status": "Estimate", "estimate": true}]}]
+}
+```
+
+```viz
+{
+"type": "bar",
+"title": "India SOM scenarios, US$ millions",
+"note": "1%, 3% and 5% of the $434.4M SAM. Illustrative scenarios, not forecasts.",
+"items": [{"label": "1% of SAM", "value": 4.3, "display": "$4.3M (about ₹41 crore)"}, {"label": "3% of SAM", "value": 13.0, "display": "$13.0M (about ₹124 crore)", "c": 1}, {"label": "5% of SAM", "value": 21.7, "display": "$21.7M (about ₹207 crore)", "c": 2}]
+}
+```
+
+#### Method A: top-down
+
+| Layer | Figure | Source |
+|---|---|---|
+| Global commercial seed | $55.687B in 2024; Asia-Pacific $13.724B | S&P Global via SAA: <https://www.saaseed.org/sitio/en/getfile/documentos/1148> |
+| Global agrigenomics | $5.0B (2025) to $8.74B (2031) | <https://www.mordorintelligence.com/industry-reports/agrigenomics-market> |
+| Global bovine genetics | $3.9B (2025) to $6.7B (2033), 7.1% CAGR | <https://www.grandviewresearch.com/industry-analysis/bovine-genetics-market-report> |
+| India AI in agriculture | $84.8M (2025) | <https://www.imarcgroup.com/india-ai-in-agriculture-market> |
+| India animal genetics | $349.6M (2025) | <https://www.grandviewresearch.com/horizon/outlook/animal-genetics-market/india> |
+| India agritech, all | $974M (2025) to $2.52B (2034) | <https://www.imarcgroup.com/india-agritech-market> |
+
+The technology pools are one-tenth or less of seed, so the report favours picks and shovels attached to the seed industry. Different firms and years: use for orders of magnitude only.
+
+#### Method B: bottom-up for India, four revenue layers
+
+| Layer | What is counted | Number | Status |
+|---|---|---|---|
+| 1. Seed sales | Listed seed revenue in this report | Kaveri H1 FY27 ₹940.44 crore; Bioseed FY26 ₹665.8 crore; Rallis seeds FY26 ₹481 crore (different periods, not summed); TAM is ₹36,300 to ₹81,700 crore | Sourced company data; layer not fully built |
+| 2. Trait licensing | Royalty and licence fees | Vylor $400M licence revenue in 2026 (global); India not sized | Single data point |
+| 3. Breeding services | Genotyping, speed-breeding space, analytics | Not sized | Gap |
+| 4. Genomics and AI tools | India AI in agriculture plus animal genetics | $434.4M (2025) | Sourced pools, **Computed** sum |
+| Livestock check | Sexed semen 13.5M doses x ₹250; IVF 36,536 embryos x ₹2,000 | ₹337.5 crore + ₹7.3 crore = ₹344.8 crore (about $36.3M) | **Computed** upper bound: doses promoted are not sold; Gujarat priced at ₹50 |
+
+The livestock check (about $36M) is roughly a tenth of the $349.6M top-down animal genetics figure, so either the top-down scope is much wider or ₹250 per dose overstates real prices. Layers 1 to 3 are the gap: only the technology and livestock layers can be sized from the sources I have.
+
+#### Adjacent markets and expansion scope
+
+| Adjacent market | Size | Status |
+|---|---|---|
+| Global bovine genetics | $3.9B (2025) to $6.7B (2033) | Sourced, third-party |
+| India agritech, all segments | $974M (2025) to $2.52B (2034) | Sourced, third-party |
+| Smart breeding (nearest to speed breeding) | $1.945B (2024) to $2.907B (2031) | Sourced, third-party |
+| Other species and crops (poultry, aquaculture, fruit, vegetables) | Not sized | Expansion options |
+
+- Crops: ICAR covers 24 field crops and 178 target genes; rice first, then pulses and oilseeds with speed breeding.
+- Livestock: sexed semen, then genomic selection, then IVF as embryo cost falls (reported ₹5,000 to ₹2,000).
+- Services and tools: genotyping, phenomics and AI breeding software can be sold to many seed companies without owning germplasm.
+- Geography: ICRISAT and CIMMYT's AI predictive-breeding initiative targets dryland farmers in Africa and India (May 2026); not sized.
+- Licences are the gate: Cas9 and Cas12a access and Indian seed law decide how fast these open.
+
+#### Assumptions
+
+| Assumption | Value | Type | If wrong |
+|---|---|---|---|
+| SOM share | 1%, 3% or 5% of India-reachable pools | Estimate, scenario | No evidence base yet |
+| Summing the two India pools | $84.8M + $349.6M | Computed | Overlap would shrink SAM |
+| Seed as TAM | S&P $55.7B; India $3.8B to $8.6B | Sourced, definitions differ | The 2x range is a scope gap |
+| Sexed-semen price | ₹250 per dose; embryo ₹2,000 | Sourced prices, applied to every unit | Gujarat's ₹50 would cut those doses by 80% |
+| Exchange rate | ₹95 per USD | Sourced, 30 Oct 2026 approx | Figures move |
+| Not sized | India trait licensing, breeding services, other species | Gap | True TAM larger than the sum of sized pools |
 
 ### Business models
 
@@ -200,6 +421,16 @@ Third-party research estimates differ by 2x to 4x depending on scope, so treat a
 | KWS FY 2025/26 | 21.1% | 19.3% adjusted |
 | Rallis seeds FY26 | 14.3% | Rs 69 crore on Rs 481 crore (computed) |
 | Bioseed FY26 (PBDIT) | 8.6% | Rs 57.5 crore on Rs 665.8 crore (computed) |
+
+```viz
+{
+"type": "bar",
+"title": "EBITDA margin across the value chain, percent",
+"note": "Rallis and Bioseed are computed from reported figures (Bioseed on PBDIT). Vylor 2029 is a target.",
+"max": 40,
+"items": [{"label": "Kaveri Seed (Q1 FY27)", "value": 35, "display": "35%"}, {"label": "Vylor 2029 target", "value": 30, "display": "30%", "estimate": true}, {"label": "Vylor 2026", "value": 27, "display": "27%"}, {"label": "KWS FY 2025/26", "value": 21.1, "display": "21.1%"}, {"label": "Rallis seeds FY26", "value": 14.3, "display": "14.3%"}, {"label": "Bioseed FY26 (PBDIT)", "value": 8.6, "display": "8.6%"}]
+}
+```
 
 ### Listed vehicles
 
@@ -247,6 +478,17 @@ Indian residents buying foreign shares must check current overseas-investment li
 | Early AI gene-editor start-ups (Mandrake Bio type) | 5 | 1 | 3 | 1 | 3 | 13 / 25 |
 | Global private platforms (Ohalo, Inari, Pairwise type) | 5 | 2 | 3 | 2 | 1 | 13 / 25 |
 
+```viz
+{
+"type": "stacked",
+"title": "Scored opportunity matrix, each criterion 1 (weak) to 5 (strong)",
+"note": "My judgement, equal weights, out of 25. Use it to rank, not to size positions.",
+"normalize": false,
+"max": 25,
+"rows": [{"label": "Global listed seed and trait leaders", "total": "20 / 25", "parts": [{"label": "Upside", "value": 3, "display": "3"}, {"label": "Proof today", "value": 5, "display": "5"}, {"label": "Regulatory clarity", "value": 4, "display": "4"}, {"label": "Time to cash", "value": 5, "display": "5"}, {"label": "Access for you", "value": 3, "display": "3"}]}, {"label": "Kaveri Seed", "total": "19 / 25", "parts": [{"label": "Upside", "value": 3, "display": "3"}, {"label": "Proof today", "value": 4, "display": "4"}, {"label": "Regulatory clarity", "value": 3, "display": "3"}, {"label": "Time to cash", "value": 4, "display": "4"}, {"label": "Access for you", "value": 5, "display": "5"}]}, {"label": "Advanta Enterprises IPO", "total": "18 / 25", "parts": [{"label": "Upside", "value": 4, "display": "4"}, {"label": "Proof today", "value": 4, "display": "4"}, {"label": "Regulatory clarity", "value": 3, "display": "3"}, {"label": "Time to cash", "value": 4, "display": "4"}, {"label": "Access for you", "value": 3, "display": "3"}]}, {"label": "DCM Shriram (Bioseed) and Rallis (Metahelix)", "total": "16 / 25", "parts": [{"label": "Upside", "value": 2, "display": "2"}, {"label": "Proof today", "value": 3, "display": "3"}, {"label": "Regulatory clarity", "value": 3, "display": "3"}, {"label": "Time to cash", "value": 4, "display": "4"}, {"label": "Access for you", "value": 4, "display": "4"}]}, {"label": "Livestock genetics", "total": "16 / 25", "parts": [{"label": "Upside", "value": 3, "display": "3"}, {"label": "Proof today", "value": 3, "display": "3"}, {"label": "Regulatory clarity", "value": 4, "display": "4"}, {"label": "Time to cash", "value": 4, "display": "4"}, {"label": "Access for you", "value": 2, "display": "2"}]}, {"label": "Indian genotyping and breeding-as-a-service", "total": "15 / 25", "parts": [{"label": "Upside", "value": 3, "display": "3"}, {"label": "Proof today", "value": 3, "display": "3"}, {"label": "Regulatory clarity", "value": 4, "display": "4"}, {"label": "Time to cash", "value": 3, "display": "3"}, {"label": "Access for you", "value": 2, "display": "2"}]}, {"label": "Early AI gene-editor start-ups", "total": "13 / 25", "parts": [{"label": "Upside", "value": 5, "display": "5"}, {"label": "Proof today", "value": 1, "display": "1"}, {"label": "Regulatory clarity", "value": 3, "display": "3"}, {"label": "Time to cash", "value": 1, "display": "1"}, {"label": "Access for you", "value": 3, "display": "3"}]}, {"label": "Global private platforms", "total": "13 / 25", "parts": [{"label": "Upside", "value": 5, "display": "5"}, {"label": "Proof today", "value": 2, "display": "2"}, {"label": "Regulatory clarity", "value": 3, "display": "3"}, {"label": "Time to cash", "value": 2, "display": "2"}, {"label": "Access for you", "value": 1, "display": "1"}]}]
+}
+```
+
 Scores are my judgement from 1 (weak) to 5 (strong), equal weights, built only from the evidence in this report. 'Access for you' reflects retail availability to an India-based investor. Use them to rank, not to size positions.
 
 | Point | Access (0 = Hard to access, 1 = Easy to access) | Upside (0 = Lower upside, 1 = Higher upside) | Quadrant |
@@ -280,6 +522,17 @@ Thesis: India's regulatory door for SDN-1 and SDN-2 edits is open, the first pro
 - Price caps and weather volatility squeeze seed margins; Kaveri-like names stay cyclical.
 - Ohalo-type claims fail at commercial scale, as other platforms (Benson Hill) failed on cost.
 
+```viz
+{
+"type": "scatter",
+"title": "Access versus upside (my judgement)",
+"xLabel": "Access (0 = hard to access, 1 = easy to access)",
+"yLabel": "Upside (0 = lower, 1 = higher)",
+"quadrants": ["Higher upside, hard to access", "Higher upside, easy to access", "Lower upside, hard to access", "Lower upside, easy to access"],
+"points": [{"label": "Kaveri Seed", "x": 0.88, "y": 0.45}, {"label": "DCM Shriram, Rallis", "x": 0.78, "y": 0.2}, {"label": "Global listed leaders", "x": 0.68, "y": 0.6}, {"label": "Advanta IPO", "x": 0.55, "y": 0.76}, {"label": "AI editor start-ups", "x": 0.42, "y": 0.94}, {"label": "Genotyping services", "x": 0.28, "y": 0.58}, {"label": "Livestock genetics", "x": 0.18, "y": 0.38}, {"label": "Global private platforms", "x": 0.07, "y": 0.88}]
+}
+```
+
 ## 5. AI inclusion
 
 | AI layer | What it does | Evidence and examples | Maturity |
@@ -291,6 +544,20 @@ Thesis: India's regulatory door for SDN-1 and SDN-2 edits is open, the first pro
 | Genotype by environment (GxE) and climate modelling | Predicts which variety wins in which place and season, guiding what to breed and where to test | ICRISAT-CIMMYT initiative aims to double genetic gain rates and cut cycles by at least two years; Bayer pairs short corn with digital decision tools; Friedberg's Climate Corporation precedent | Growing; Indian data sharing is the gap |
 
 Sources: <https://www.pnas.org/doi/10.1073/pnas.2421738122>, <https://www.nature.com/articles/s42003-024-06465-2>, <https://icrisat.org/services/phenotyping>, <https://inari.com/seedesign-platform/>, <https://www.agnavigator.com/Article/2025/03/25/combining-ai-with-gene-editing-set-to-boost-stagnating-corn-yields-says-inari/>, <https://economictimes.indiatimes.com/tech/artificial-intelligence/mandrake-bio-raises-rs-16-crore-to-build-ai-powered-gene-editing-platform-for-agriculture-medicine/articleshow/132431719.cms>
+
+![A drone, dashboard, neural net and DNA arranged in a loop](assets/boosted-breeding-in-agriculture/breeding-ai-loop.webp)
+
+```viz
+{
+"type": "flow",
+"title": "The AI breeding loop",
+"cellW": 200,
+"gapX": 34,
+"gapY": 40,
+"nodes": [{"id": "p", "label": "Phenotype", "col": 0, "row": 0, "sub": "drones, NIRS, computer vision"}, {"id": "g", "label": "Genotype", "col": 0, "row": 1, "sub": "seed-chip, marker panels"}, {"id": "pr", "label": "Predict", "col": 1, "row": 0, "kind": "key", "sub": "genomic selection, GxE"}, {"id": "sc", "label": "Select and cross", "col": 2, "row": 0}, {"id": "sp", "label": "Speed-breed", "col": 3, "row": 0, "sub": "up to 7 a year in chickpea"}, {"id": "rl", "label": "Best lines: test and release", "col": 3, "row": 1, "kind": "good"}],
+"edges": [{"from": "p", "to": "pr"}, {"from": "g", "to": "pr", "exit": "right", "enter": "bottom"}, {"from": "pr", "to": "sc"}, {"from": "sc", "to": "sp"}, {"from": "sp", "to": "rl", "label": "best lines"}, {"from": "sp", "to": "p", "exit": "top", "enter": "top", "label": "next cycle: back to phenotype and genotype", "dashed": true}]
+}
+```
 
 ### How AI boosts outcomes
 

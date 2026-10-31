@@ -10,6 +10,10 @@ Full interactive version: [Open the Page](https://cursor.com/canvas/store-a14936
 > [!NOTE]
 > Prepared 31 Oct 2026. Currency: INR and USD at about ₹95 per USD. Anything marked **(Estimate)** or **(Judgement)** is my own working assumption, not a sourced fact. Not legal advice. Hardware prices were checked in Oct 2026 and Jetson prices have been unusually volatile.
 
+![Supermarket aisle with ceiling cameras, an edge box and a phone alert](assets/ai-retail-theft-camera/camera-hero.webp)
+
+*Illustration (generated, not a photograph).*
+
 ## 0. The idea in one paragraph
 
 Build a camera-based "loss intelligence" layer that sits on top of cameras a store already owns. It watches for **behaviour** (concealment gestures, bypassing the scanner, return abuse, gathering and repeat patterns), not identity, and sends a short clip to a human (staff member, then remote reviewer) who decides what to do. The key product decisions are where the AI runs (store edge, central cloud, or both), how alerts become *safe, lawful, proportionate* action, and where the economics work in India, where reported shrink is much lower than in the US/EU.
@@ -38,6 +42,16 @@ Build a camera-based "loss intelligence" layer that sits on top of cameras a sto
 | US trend 2025 vs 2024 | NRF 2026 survey (66 companies): shoplifting incidents -12.4%, merchandise theft -8.1%; NRF credits security technology, training, store hardening and loss-pattern analysis | [NRF press release](https://nrf.com/media-center/press-releases/retailers-see-fraud-schemes-evolve-as-shoplifting-declines-nrf-study-finds) |
 | Self-checkout | Stores with self-checkout had about 33% higher losses; losses rose about 22% in the first year after installation (39 retailers) | [University of Leicester](https://le.ac.uk/news/2026/june/retail-loss-self-checkout), [ECR Retail Loss](https://ecrloss.com/research-paper/self-checkout-loss-report-2026/), [The Grocer](https://www.thegrocer.co.uk/news/self-checkouts-increase-store-losses-by-22-in-first-year-major-study-finds/720246.article) |
 
+```viz
+{
+"type": "bar",
+"title": "Retailers reporting an increase in each loss type (IHL 2026)",
+"note": "Share of surveyed retailers that report an increase. Retailer-reported perception, not measured loss.",
+"max": 100,
+"items": [{"label": "Shoplifting", "value": 69, "display": "69%"}, {"label": "Return fraud", "value": 68, "display": "68%"}, {"label": "Organised retail crime", "value": 65, "display": "65%"}, {"label": "Employee theft", "value": 64, "display": "64%"}, {"label": "Supplier fraud", "value": 55, "display": "55%"}, {"label": "Sweethearting", "value": 54, "display": "54%"}]
+}
+```
+
 **Reading between the lines (Judgement):** US shoplifting incident counts are no longer rising, while return fraud, internal theft and fraud at POS are growing in retailers' perception. A pure "catch shoplifters" product addresses only about a quarter of loss. A broader "retail loss intelligence" product is the stronger business.
 
 > [!NOTE]
@@ -52,6 +66,16 @@ Build a camera-based "loss intelligence" layer that sits on top of cameras a sto
 | Listed chains (reported, FY24) | Trent 0.41% (up from 0.22%), V-Mart 0.5% (from 0.4%), Woodland about 0.2% | [Economic Times](https://economictimes.indiatimes.com/industry/services/retail/stop-thief-retail-in-a-spot-as-customers-go-big-on-stocktaking/articleshow/111006169.cms), [Business Standard](https://www.business-standard.com/industry/news/shoplifting-employee-theft-indian-retail-firms-see-rise-in-shrinkage-124061500403_1.html) |
 | Worst categories (my earlier research, link not re-verified) | Apparel/footwear/fashion and gadgets in Indian press; drugstores/pharmacies topped an APAC vertical ranking at 2.62% in an older index | Treat as indicative only |
 | Organised share of Indian retail | About 13%; the rest is mostly kirana stores (number in the millions) | DMart annual report citing CRISIL (link not re-verified) |
+
+```viz
+{
+"type": "bar",
+"title": "Reported shrink as % of sales",
+"note": "Orange: Indian listed chains (company-reported, FY24; Woodland is about 0.2%). Violet: survey-based figures from other years and definitions. Not like-for-like.",
+"max": 2.5,
+"items": [{"label": "Woodland (FY24)", "value": 0.2, "display": "about 0.2%"}, {"label": "Trent (FY24)", "value": 0.41, "display": "0.41%"}, {"label": "V-Mart (FY24)", "value": 0.5, "display": "0.5%"}, {"label": "US (NRF, FY2022)", "value": 1.6, "display": "1.6%", "c": 3}, {"label": "Global (2018)", "value": 1.82, "display": "1.82%", "c": 3}, {"label": "India (2018)", "value": 2.13, "display": "2.13%", "c": 3}]
+}
+```
 
 **Caveat:** these Indian figures are company-reported or survey-based, use different definitions (book vs physical shrink, with or without admin error and vendor fraud), and are not like-for-like. Treat them as ranges, not benchmarks.
 
@@ -99,13 +123,69 @@ Build a camera-based "loss intelligence" layer that sits on top of cameras a sto
 
 ## 3. Architecture options
 
+### 3.0 End-to-end flow (camera to alert to human review to evidence)
+
+![Edge box wired to four cameras, a cloud and a UPS](assets/ai-retail-theft-camera/camera-edge-hybrid.webp)
+
+```viz
+{
+"type": "flow",
+"title": "End-to-end flow: camera to alert to human review to evidence",
+"nodes": [{"id": "cam", "label": "Cameras", "col": 0, "row": 0}, {"id": "edge", "label": "Edge box", "col": 1, "row": 0, "kind": "key", "sub": "detect, track, action model, POS fusion"}, {"id": "d1", "label": "Rule match and confidence above threshold?", "col": 2, "row": 0, "kind": "decision"}, {"id": "dis1", "label": "Dismiss and label", "col": 3, "row": 0, "kind": "muted"}, {"id": "alert", "label": "Neutral alert to staff", "col": 2, "row": 1}, {"id": "review", "label": "Human review", "col": 1, "row": 1}, {"id": "d2", "label": "Confirmed?", "col": 1, "row": 2, "kind": "decision"}, {"id": "low", "label": "Lowest intervention (tiers 0 to 4)", "col": 0, "row": 2}, {"id": "dis2", "label": "Dismiss and label", "col": 2, "row": 2, "kind": "muted"}, {"id": "evid", "label": "Evidence pack", "col": 0, "row": 3}, {"id": "learn", "label": "Central learning", "col": 2, "row": 3, "kind": "good"}],
+"edges": [{"from": "cam", "to": "edge"}, {"from": "edge", "to": "d1"}, {"from": "d1", "to": "dis1", "label": "no"}, {"from": "d1", "to": "alert", "label": "yes"}, {"from": "alert", "to": "review"}, {"from": "review", "to": "d2"}, {"from": "d2", "to": "low", "exit": "left", "enter": "right", "label": "yes"}, {"from": "d2", "to": "dis2", "exit": "right", "enter": "left", "label": "no"}, {"from": "low", "to": "evid"}, {"from": "evid", "to": "learn", "exit": "right", "enter": "left"}, {"from": "dis2", "to": "learn"}, {"from": "dis1", "to": "learn", "exit": "bottom", "enter": "right"}]
+}
+```
+
+### 3.0.1 Data flow compared
+
+```viz
+{
+"type": "flow",
+"title": "Data flow compared, 16 cameras",
+"cellW": 250,
+"gapX": 30,
+"gapY": 44,
+"nodes": [{"id": "cams", "label": "16 cameras", "col": 1, "row": 0, "kind": "key"}, {"id": "e", "label": "Edge only: analyse in store, raw video stays local, local alert, works offline", "col": 0, "row": 1, "sub": "about $1,655 over 36 months (Estimate)"}, {"id": "h", "label": "Hybrid: analyse in store, send 5 to 15 s clips and metadata, local alert and central review", "col": 1, "row": 1, "kind": "good", "sub": "about $2,519 over 36 months (Estimate)"}, {"id": "c", "label": "Central: stream everything (38 to 77 Mbps) to cloud GPU, alert returns and adds 1 to 5 s", "col": 2, "row": 1, "sub": "about $9,300 to $25,430 over 36 months (Estimate)"}],
+"edges": [{"from": "cams", "to": "e"}, {"from": "cams", "to": "h"}, {"from": "cams", "to": "c"}]
+}
+```
+
+Infrastructure cost per camera per month (Estimate): edge-only $2.9, hybrid $4.4, central best case $16, central mid case $44.
+
+```viz
+{
+"type": "bar",
+"title": "Infrastructure cost per camera per month (Estimate)",
+"note": "US dollars. Excludes cameras, software licence and people.",
+"items": [{"label": "Edge only", "value": 2.9, "display": "$2.9"}, {"label": "Hybrid", "value": 4.4, "display": "$4.4", "c": 1}, {"label": "Central, best case", "value": 16, "display": "$16", "c": 2}, {"label": "Central, mid case", "value": 44, "display": "$44", "c": 3}]
+}
+```
+
+### 3.0.2 Where the loss comes from
+
+| Study | External theft | Other |
+|---|---|---|
+| IHL Group 2026, share of total retail loss | 25% | 75% (supply chain, returns, fulfilment, admin) |
+| NRF, US shrink FY2022 | 36% | Employee theft 29%, process failures 27%, other 8% (my subtraction) |
+
+```viz
+{
+"type": "stacked",
+"title": "Where the loss comes from",
+"note": "Two studies with different scopes: IHL covers total retail loss, NRF covers US shrink. The NRF \"other 8%\" is my subtraction.",
+"rows": [{"label": "IHL Group 2026, total retail loss", "parts": [{"label": "External theft", "value": 25, "display": "25%"}, {"label": "Other losses (supply chain, returns, fulfilment, admin)", "value": 75, "display": "75%"}]}, {"label": "NRF, US shrink FY2022", "parts": [{"label": "External theft", "value": 36, "display": "36%"}, {"label": "Employee theft", "value": 29, "display": "29%"}, {"label": "Process failures", "value": 27, "display": "27%"}, {"label": "Other (my subtraction)", "value": 8, "display": "8%"}]}]
+}
+```
+
 ### 3.1 Edge / local
 
-```
-[IP cameras x16] --RTSP--> [In-store edge box: decode, detect, track, action, rules]
-                                   |-- local NVR storage (rolling 7-30 days)
-                                   |-- local alert: phone / watch / PA / dashboard
-                                   '-- (optional, when online) event clip + metadata --> cloud
+```viz
+{
+"type": "flow",
+"title": "Edge / local",
+"nodes": [{"id": "cam", "label": "IP cameras x16", "col": 0, "row": 1, "sub": "RTSP"}, {"id": "box", "label": "In-store edge box", "col": 1, "row": 1, "kind": "key", "sub": "decode, detect, track, action, rules"}, {"id": "nvr", "label": "Local NVR storage", "col": 2, "row": 0, "sub": "rolling 7-30 days"}, {"id": "al", "label": "Local alert", "col": 2, "row": 1, "sub": "phone / watch / PA / dashboard"}, {"id": "cl", "label": "Cloud", "col": 2, "row": 2, "kind": "muted", "sub": "optional, when online: event clip + metadata"}],
+"edges": [{"from": "cam", "to": "box"}, {"from": "box", "to": "nvr"}, {"from": "box", "to": "al"}, {"from": "box", "to": "cl", "dashed": true}]
+}
 ```
 
 | Edge hardware | Price (Oct 2026) | Verified throughput note | Fit |
@@ -124,9 +204,13 @@ Pros: low latency (sub-second), no per-camera bandwidth cost, works offline, raw
 
 ### 3.2 Central / cloud
 
-```
-[IP cameras] --RTSP / H.265 over broadband--> [Cloud or colo GPU cluster: decode, detect, track, action]
-                                                     '--> alerts back to store (adds 1-5 s)
+```viz
+{
+"type": "flow",
+"title": "Central / cloud",
+"nodes": [{"id": "cam", "label": "IP cameras", "col": 0, "row": 0, "sub": "RTSP / H.265 over broadband"}, {"id": "cl", "label": "Cloud or colo GPU cluster", "col": 1, "row": 0, "kind": "key", "sub": "decode, detect, track, action"}, {"id": "st", "label": "Alerts back to store", "col": 2, "row": 0, "kind": "muted", "sub": "adds 1-5 s"}],
+"edges": [{"from": "cam", "to": "cl"}, {"from": "cl", "to": "st"}]
+}
 ```
 
 **Bandwidth math (Estimate, using the common planning rule of 2 to 4 Mbps per 1080p H.265 camera, plus 20% overhead):**
@@ -146,13 +230,17 @@ Pros: easiest to update, central view across stores, strongest models. Cons: ban
 
 ### 3.3 Hybrid (recommended)
 
-```
-STORE (edge box)                                 CENTRAL (cloud)
-cameras -> decode -> detect/track/action ->      event clips (5-15 s) + metadata only
-  local rules + POS fusion -> instant alert  --> VLM / human reviewer triage
-  local rolling storage                          cross-store analytics, ORC patterns, watchlists
-  works offline, queues events                   fleet mgmt, OTA model updates, labelling loop
-                                           <---- new model weights, thresholds, rules
+```viz
+{
+"type": "flow",
+"title": "Hybrid (recommended)",
+"cellW": 190,
+"gapX": 40,
+"gapY": 34,
+"nodes": [{"id": "cams", "label": "Cameras", "col": 0, "row": 0, "sub": "decode, detect, track, action"}, {"id": "rules", "label": "Local rules + POS fusion", "col": 1, "row": 0, "kind": "key", "sub": "instant alert"}, {"id": "stor", "label": "Local rolling storage", "col": 0, "row": 1, "sub": "works offline, queues events"}, {"id": "clips", "label": "Event clips (5-15 s) + metadata only", "col": 2, "row": 0}, {"id": "rev", "label": "VLM / human reviewer triage", "col": 3, "row": 0}, {"id": "an", "label": "Cross-store analytics", "col": 2, "row": 1, "sub": "ORC patterns, watchlists"}, {"id": "fleet", "label": "Fleet management", "col": 3, "row": 1, "sub": "OTA model updates, labelling loop"}],
+"edges": [{"from": "cams", "to": "rules"}, {"from": "cams", "to": "stor"}, {"from": "rules", "to": "clips"}, {"from": "clips", "to": "rev"}, {"from": "clips", "to": "an"}, {"from": "an", "to": "fleet"}, {"from": "fleet", "to": "rules", "exit": "bottom", "enter": "bottom", "label": "new model weights, thresholds, rules", "dashed": true}],
+"groups": [{"label": "STORE (edge box)", "nodes": ["cams", "rules", "stor"]}, {"label": "CENTRAL (cloud)", "nodes": ["clips", "rev", "an", "fleet"]}]
+}
 ```
 
 Why: inference where the video is, intelligence where the data is combined. Cross-store learning without sending raw video: send clips for flagged events only, and optionally use **federated learning** or just centralised retraining on reviewed event clips. **(Judgement)** For an early product, skip true federated learning: it adds complexity, and centralising reviewed event clips under a consent and retention policy gets 90% of the benefit.
@@ -170,6 +258,15 @@ Assumptions: Orin NX 16GB box about $1,400 all-in ($999 module + about $400 carr
 | Central, best case (82 streams per L4) | about $300 gateway | about $250 | about $9,300 (about ₹8.8 lakh) | about $16 (about ₹1,500) |
 | Central, mid case (25 streams per L4) | about $300 gateway | about $698 | about $25,430 (about ₹24.2 lakh) | about $44 (about ₹4,150) |
 
+```viz
+{
+"type": "bar",
+"title": "36-month infrastructure cost, one 16-camera store (Estimate)",
+"note": "US dollars. Excludes cameras, software licence and people.",
+"items": [{"label": "Edge only", "value": 1655, "display": "about $1,655"}, {"label": "Hybrid", "value": 2519, "display": "about $2,519", "c": 1}, {"label": "Central, best case", "value": 9300, "display": "about $9,300", "c": 2}, {"label": "Central, mid case", "value": 25430, "display": "about $25,430", "c": 3}]
+}
+```
+
 **50-store chain (800 cameras), 36 months**
 
 | Option | Upfront | Monthly running | 36-month total |
@@ -178,6 +275,15 @@ Assumptions: Orin NX 16GB box about $1,400 all-in ($999 module + about $400 carr
 | **Hybrid** | about $80,000 | about $1,275 (power plus central $1,200) | **about $126,000 (about ₹1.2 crore)** |
 | Central, best case | about $15,000 gateways | about $12,480 | about $464,000 (about ₹4.4 crore) |
 | Central, mid case | about $15,000 gateways | about $34,900 | about $1.27M (about ₹12 crore) |
+
+```viz
+{
+"type": "bar",
+"title": "36-month infrastructure cost, 50-store chain of 800 cameras (Estimate)",
+"note": "US dollars. Edge only has no central view; hybrid is the recommended option.",
+"items": [{"label": "Edge only", "value": 82700, "display": "about $82,700"}, {"label": "Hybrid", "value": 126000, "display": "about $126,000", "c": 1}, {"label": "Central, best case", "value": 464000, "display": "about $464,000", "c": 2}, {"label": "Central, mid case", "value": 1270000, "display": "about $1.27M", "c": 3}]
+}
+```
 
 Hardware price sources: [CNX Software on the July 2026 Jetson price rise](https://www.cnx-software.com/2026/07/22/nvidia-increases-the-price-of-jetson-modules-and-devkits-by-up-to-101/), [NotebookCheck](https://www.notebookcheck.net/Nvidia-quietly-increases-Jetson-prices-by-up-to-101.1348323.0.html), Hailo listings linked above, AWS EC2 g6.xlarge Mumbai on-demand rate (about $0.9664/hr, from an AWS pricing lookup). If the Jetson price rise reverses, edge cost drops by about $400 per box.
 
@@ -205,6 +311,24 @@ Power and resilience in India (**Judgement**): put edge boxes on a small UPS (30
 ---
 
 ## 5. Enforcement and response workflow
+
+### 5.0 Escalation and evidence flow
+
+![A reviewer at two monitors with a tick and a cross](assets/ai-retail-theft-camera/camera-human-review.webp)
+
+```viz
+{
+"type": "flow",
+"title": "Escalation ladder",
+"cellW": 250,
+"gapX": 50,
+"gapY": 26,
+"nodes": [{"id": "a", "label": "Alert confirmed by a human reviewer", "col": 0, "row": 0, "kind": "key"}, {"id": "t1", "label": "Tier 1: service touch", "col": 0, "row": 1}, {"id": "d1", "label": "Still concerning?", "col": 0, "row": 2, "kind": "decision"}, {"id": "x1", "label": "Close and record", "col": 1, "row": 2, "kind": "muted"}, {"id": "t2", "label": "Tier 2: targeted watch", "col": 0, "row": 3}, {"id": "d2", "label": "Unpaid items at the exit?", "col": 0, "row": 4, "kind": "decision"}, {"id": "x2", "label": "Close and record", "col": 1, "row": 4, "kind": "muted"}, {"id": "t3", "label": "Tier 3: checkout check", "col": 0, "row": 5, "sub": "posted policy only"}, {"id": "d3", "label": "Theft clear?", "col": 0, "row": 6, "kind": "decision"}, {"id": "x3", "label": "Close and record", "col": 1, "row": 6, "kind": "muted"}, {"id": "t4", "label": "Tier 4: security or police, evidence pack, FIR if clear", "col": 0, "row": 7, "kind": "good", "sub": "no detention on an AI alert alone"}],
+"edges": [{"from": "a", "to": "t1"}, {"from": "t1", "to": "d1"}, {"from": "d1", "to": "x1", "label": "no"}, {"from": "d1", "to": "t2", "label": "yes"}, {"from": "t2", "to": "d2"}, {"from": "d2", "to": "x2", "label": "no"}, {"from": "d2", "to": "t3", "label": "yes"}, {"from": "t3", "to": "d3"}, {"from": "d3", "to": "x3", "label": "no"}, {"from": "d3", "to": "t4", "label": "yes"}]
+}
+```
+
+Evidence chain: original clip -> SHA-256 hash -> time-sync and POS records -> staff statement -> Section 63 BSA certificate (Part A producer, Part B expert) -> police and FIR. The yes and no branches are my proposed logic **(Judgement)**.
 
 ### 5.1 Workflow
 
@@ -281,6 +405,155 @@ Design implications: no face recognition by default (make it a separately consen
 Pricing ideas (Judgement): Kirana Lite ₹6k to ₹15k hardware plus ₹300 to ₹600/month per store; Pro ₹800 to ₹1,200 per camera per month; Enterprise outcome-based (share of verified recovered loss).
 
 ---
+
+### 7.1 Disclosed funding rounds, USD millions (single rounds, not lifetime totals)
+
+| Company and round | Local currency | USD (converted) |
+|---|---|---|
+| Everseen Series A (May 2023) | EUR 65M | $72.6M |
+| Auror Series C (Nov 2024) | NZ$82M | $46.2M |
+| Veesion Series B (2025) | EUR 38M | $42.5M |
+| Deep North Series A-1 (Oct 2021) | $16.7M | $16.7M |
+| Wobot seed (Oct 2024) | about $3M | $3M |
+| Staqu pre-Series A (Apr 2022) | ₹11 crore | $1.2M |
+
+```viz
+{
+"type": "bar",
+"title": "Disclosed funding rounds, US$ millions",
+"note": "Rounds are from different years, so they show scale, not strength. Converted at 30 Oct 2026 rates.",
+"items": [{"label": "Everseen", "value": 72.6, "display": "$72.6M"}, {"label": "Auror", "value": 46.2, "display": "$46.2M"}, {"label": "Veesion", "value": 42.5, "display": "$42.5M"}, {"label": "Deep North", "value": 16.7, "display": "$16.7M"}, {"label": "Wobot", "value": 3, "display": "about $3M"}, {"label": "Staqu", "value": 1.2, "display": "$1.2M"}]
+}
+```
+
+Converted at 30 Oct 2026 rates: EUR/USD 1.1172 (ECB), NZD/USD 0.56285 (RBNZ), ₹95 per USD. Oosto's reported $352M is a lifetime total and is excluded. Rounds are from different years, so the figures show scale, not strength.
+
+## 7A. Addressable market: TAM, SAM and SOM
+
+![Five store segments drawn as buildings: kirana, pharmacy, jewellery, electronics and supermarket](assets/ai-retail-theft-camera/camera-india-segments.webp)
+
+*Illustration (generated, not a photograph). On the Page, the same idea is drawn as vector graphics whose building height shows assumed cameras per store.*
+
+Two methods and a cross-check. **Top-down** starts from third-party market reports. **Bottom-up** counts stores by segment, multiplies by cameras per store and by the Pro-tier price (₹1,000 per camera per month, the middle of the ₹800 to ₹1,200 **(Judgement)** range in section 9). Third-party reports disagree by definition, and the camera counts and price are my assumptions, so every funnel level is an **(Estimate)** unless marked *sourced*.
+
+### 7A.1 Headline numbers
+
+| Level | India | Global | Status |
+|---|---|---|---|
+| TAM | ₹451.8 crore a year (about $47.6M): all organised stores counted, five segments | $2.9B retail video analytics (2025), $18.7B by 2034 | India: bottom-up **(Estimate)**; global: *sourced*, third-party |
+| SAM | ₹164.2 crore (about $17.3M): 19,528 stores of named chains | About $0.78B loss-prevention and security slice (26.9% x $2.9B) | India: **(Estimate)**; global slice: **(Estimate)**, mixes two research firms |
+| SOM | ₹1.6 / ₹4.9 / ₹8.2 crore at 1% / 3% / 5% of SAM stores (about $0.2M / $0.5M / $0.9M); 195 / 586 / 976 stores | n/a | **(Estimate)**, scenario not forecast |
+
+### 7A.2 Funnels (not to scale)
+
+```viz
+{
+"type": "funnel",
+"title": "TAM, SAM and SOM: global and India (not to scale)",
+"columns": [{"heading": "Global", "levels": [{"tag": "TAM", "value": "$2.9B", "label": "retail video analytics (2025)", "status": "Sourced, third-party"}, {"tag": "Slice", "value": "about $0.78B", "label": "loss-prevention slice", "status": "Estimate", "estimate": true}, {"tag": "India SAM", "value": "$17.3M", "label": "named chains", "status": "Estimate", "estimate": true}, {"tag": "India SOM, 3%", "value": "$0.5M", "label": "scenario", "status": "Estimate", "estimate": true}]}, {"heading": "India", "levels": [{"tag": "TAM", "value": "₹451.8 crore", "label": "all organised stores, five segments", "status": "Estimate", "estimate": true}, {"tag": "SAM", "value": "₹164.2 crore", "label": "named chains, 19,528 stores", "status": "Estimate", "estimate": true}, {"tag": "SOM, 3%", "value": "₹4.9 crore", "label": "3% of SAM stores", "status": "Estimate", "estimate": true}]}]
+}
+```
+
+```viz
+{
+"type": "circles",
+"title": "India: TAM, SAM and SOM, circle area proportional to value (₹ crore per year)",
+"items": [{"tag": "TAM", "value": 451.8, "display": "₹451.8 crore", "label": "all organised stores, five segments", "estimate": true}, {"tag": "SAM", "value": 164.2, "display": "₹164.2 crore", "label": "19,528 stores of named chains", "estimate": true}, {"tag": "SOM at 3%", "value": 4.9, "display": "₹4.9 crore", "label": "586 stores; 1% to 5% is ₹1.6 to ₹8.2 crore", "estimate": true}]
+}
+```
+
+```viz
+{
+"type": "bar",
+"title": "India SOM scenarios, ₹ crore per year (Estimate)",
+"note": "Share of SAM stores won. Scenarios, not a forecast; no pilot evidence yet.",
+"items": [{"label": "1% of SAM stores (195 stores)", "value": 1.6, "display": "₹1.6 crore (about $0.2M)"}, {"label": "3% (586 stores)", "value": 4.9, "display": "₹4.9 crore (about $0.5M)", "c": 1}, {"label": "5% (976 stores)", "value": 8.2, "display": "₹8.2 crore (about $0.9M)", "c": 2}]
+}
+```
+
+### 7A.3 Method A: top-down (third-party estimates)
+
+| Layer | Figure | Source | Status |
+|---|---|---|---|
+| Global video analytics for retail | $2.9B in 2025 to $18.7B by 2034 (22.8% CAGR 2026 to 2034); North America $992M in 2025 | Growth Market Reports: <https://growthmarketreports.com/report/video-analytics-for-retail-market> | Sourced |
+| Global image and video analytics in AI-in-retail | $1.87B in 2024 to $7.12B by 2030 (24.7% CAGR) | Grand View Research: <https://www.grandviewresearch.com/horizon/statistics/artificial-intelligence-in-retail-market-outlook/technology/image-and-video-analytics/global> | Sourced |
+| Application mix, retail video analytics 2025 | Customer behaviour 28.4%, loss prevention and security 26.9% | Dataintelo: <https://dataintelo.com/report/scalable-video-analytics-for-retail-market> | Sourced (different report from the $2.9B) |
+| Loss-prevention slice | About $0.78B | My arithmetic: 26.9% x $2.9B | Estimate |
+| India video analytics, all verticals | $316.08M in 2025 to $1.005B by 2034 (13.23% CAGR) | IMARC: <https://www.imarcgroup.com/india-video-analytics-market> | Sourced |
+| India video surveillance, all uses | $4.40B (Mordor) to $7.5B (IMARC), 2025; narrower scopes $1.3B (Frost and Sullivan) and $1.444B (Grand View) | <https://www.mordorintelligence.com/industry-reports/india-video-surveillance-market>, <https://www.imarcgroup.com/india-video-surveillance-systems-market> | Sourced; spread is a definition gap |
+
+Growth curve, global retail video analytics ($B). Only 2025 and 2034 are sourced; the points between are my constant-growth interpolation **(Estimate)**:
+
+```viz
+{
+"type": "line",
+"title": "Global retail video analytics, $B",
+"note": "Solid dots are sourced (2025 and 2034). Hollow dots are my constant-growth interpolation (Estimate).",
+"yPrefix": "$",
+"ySuffix": "B",
+"yMax": 20,
+"points": [{"x": "2025", "y": 2.9, "display": "$2.90B"}, {"x": "2027", "y": 4.39, "display": "$4.39B", "estimate": true}, {"x": "2029", "y": 6.64, "display": "$6.64B", "estimate": true}, {"x": "2031", "y": 10.05, "display": "$10.05B", "estimate": true}, {"x": "2033", "y": 15.2, "display": "$15.20B", "estimate": true}, {"x": "2034", "y": 18.7, "display": "$18.70B"}]
+}
+```
+
+| Year | 2025 | 2027 | 2029 | 2031 | 2033 | 2034 |
+|---|---|---|---|---|---|---|
+| $B | 2.90 | 4.39 | 6.64 | 10.05 | 15.20 | 18.70 |
+
+### 7A.4 Method B: bottom-up for India
+
+Formula: stores x cameras per store x ₹1,000 x 12 months.
+
+| Segment | TAM stores | SAM stores | Cameras per store (assumption) | SAM cameras | TAM per year | SAM per year | Store-count source |
+|---|---|---|---|---|---|---|---|
+| Supermarkets and hypermarkets | 2,073 | 2,073 | 16 | 33,168 | ₹39.8 crore | ₹39.8 crore | DMart 518 (30 Sep 2026), Reliance Smart 400+ super stores and 260 Smart Bazaar, More 775 (Apr 2025), Spencer's 120 |
+| Pharmacy chains | 72,832 | 12,916 | 4 | 51,664 | ₹349.6 crore | ₹62.0 crore | TAM: ~72,832 chain outlets (IPA); SAM: Apollo 7,440 + MedPlus 5,476 (30 Jun 2026) |
+| Jewellery | 1,227 | 1,227 | 10 | 12,270 | ₹14.7 crore | ₹14.7 crore | Titan jewellery division, 1,227 stores (30 Jun 2026) |
+| Consumer electronics | 1,423 | 1,423 | 12 | 17,076 | ₹20.5 crore | ₹20.5 crore | Croma 561, Reliance Digital 695+, Vijay Sales 167 |
+| Apparel and fashion | 1,889 | 1,889 | 12 | 22,668 | ₹27.2 crore | ₹27.2 crore | Trent 1,312 (Westside 301, Zudio 982, other 29), V-Mart 577 |
+| **Total** | **79,444** | **19,528** | | **136,846** | **₹451.8 crore** | **₹164.2 crore** | |
+
+```viz
+{
+"type": "bar",
+"title": "India market by segment: TAM vs SAM, ₹ crore per year (Estimate)",
+"series": ["TAM per year", "SAM per year"],
+"note": "Bottom-up: stores x cameras per store x ₹1,000 x 12 months. Cameras per store are assumptions. Pharmacy TAM counts about 72,832 chain outlets; pharmacy SAM counts Apollo and MedPlus only.",
+"items": [{"label": "Supermarkets and hypermarkets", "values": [39.8, 39.8], "displays": ["₹39.8 crore", "₹39.8 crore"]}, {"label": "Pharmacy chains", "values": [349.6, 62.0], "displays": ["₹349.6 crore", "₹62.0 crore"]}, {"label": "Jewellery", "values": [14.7, 14.7], "displays": ["₹14.7 crore", "₹14.7 crore"]}, {"label": "Consumer electronics", "values": [20.5, 20.5], "displays": ["₹20.5 crore", "₹20.5 crore"]}, {"label": "Apparel and fashion", "values": [27.2, 27.2], "displays": ["₹27.2 crore", "₹27.2 crore"]}]
+}
+```
+
+Store counts are sourced company or industry figures (March 2025 to October 2026, mixed dates; read through search summaries). **Cameras per store are my assumptions (Judgement)** and are the largest swing factor: halving them halves the market. TAM counts the named chains only for four segments (an undercount) and all 72,832 chain outlets for pharmacy. SAM keeps named chains with central buying, where a per-camera subscription sells.
+
+Source links: DMart quarterly update <https://nsearchives.nseindia.com/corporate/DMART_03102026122118_ASLQuarterUpdateSep2026.pdf>; Reliance Smart <https://reliancesmartbazaar.com/about-us>; Spencer's <https://nsearchives.nseindia.com/corporate/SPENCERS_14082026194558_AR.pdf>; Apollo <https://www.bseindia.com/xml-data/corpfiling/AttachHis/0a967b34-eaeb-44d0-82d8-5ff46e9b171f.pdf>; MedPlus <https://www.cnbctv18.com/business/companies/medplus-pauses-rs-100-crore-healthcare-expansion-plan-says-investor-feedback-prompted-pause-19952027.htm>; pharmacy chains (IPA) <https://www.ipa-india.org/sites/default/files/2025-07/ChangingDynamics-of-Indian-PharmaSupplychain-1.pdf>; Titan <https://www.titancompany.in/sites/default/files/2026-07/Q1FY27%20Update.pdf>; Reliance Retail <https://www.relianceretail.com/key-facts.html>; Trent <https://docs.trent-tata.com/Update_Q1_FY27.pdf>; V-Mart <https://vmart.co.in/wp-content/uploads/IR-presentation-Q4.pdf>; More Retail (Reuters, Apr 2025) <https://www.reuters.com/world/india/amazon-backed-more-retail-plans-india-ipo-next-year-betting-its-hybrid-model-2025-04-11/>.
+
+### 7A.5 Cross-check
+
+The bottom-up India TAM of about $47.6M is about 15% of IMARC's $316.08M India video analytics market and about 0.6% to 1.1% of the $4.40B to $7.5B video surveillance estimates. Plausible in scale, but not like-for-like: those reports cover all verticals and uses, and I did not open the paid reports. For scale against the plan in section 8: 100 stores x 16 cameras at ₹1,000 is about ₹1.92 crore a year **(Estimate)**, so even the 1% SOM (195 stores) is a multi-year ambition.
+
+### 7A.6 Adjacent markets and expansion scope
+
+| Adjacent market | Size | Source | Status |
+|---|---|---|---|
+| Global in-store analytics (footfall, queues, behaviour) | $4.17B in 2023 to $16.51B by 2030 | <https://www.grandviewresearch.com/industry-analysis/in-store-analytics-market-report> | Sourced, third-party (report not opened) |
+| Global AI in retail, all technologies | $16.8B in 2025 | <https://www.imarcgroup.com/artificial-intelligence-in-retail-market> | Sourced, third-party |
+| India operations analytics | Wobot FY25 revenue ₹13.3 crore; a company data point, not a market size | <https://inc42.com/company/wobot-intelligence/funding/> | Sourced company data point |
+| Kirana and general trade, about 13 million stores | Theoretical ceiling about ₹7,020 crore a year at ₹450 per store per month (midpoint of ₹300 to ₹600) if every store paid; 1% adoption about ₹70.2 crore | Store count: <https://economictimes.indiatimes.com/industry/cons-products/fmcg/fmcg-companies-roll-out-the-red-carpet-for-kiranas-amid-quick-commerce-boom/articleshow/122010436.cms> | Estimate; ceiling, not forecast; weak ability to pay, use a dealer channel |
+| Warehouses and dark stores, fuel-station marts, malls | Not sized | None found | Candidates for later expansion |
+| Returns, employee-loss and receiving analytics | Not sized; external theft is only about 25% of retail loss | IHL Group 2026 | Expansion beyond shoplifting |
+
+Expansion order to test **(Judgement)**: POS-video fusion and self-checkout in named chains, then jewellery, electronics and pharmacy depth, then operations analytics (queues, footfall) to raise revenue per camera, then the kirana tier through installers, then warehouses and fuel marts.
+
+### 7A.7 Assumptions and what would change the answer
+
+| Assumption | Value | Type | If wrong |
+|---|---|---|---|
+| Price per camera per month | ₹1,000 | Judgement, middle of ₹800 to ₹1,200 | TAM and SAM scale linearly |
+| Cameras per store | 16 supermarket, 4 pharmacy, 10 jewellery, 12 electronics and apparel | Judgement | Largest swing |
+| Store counts | Company and industry disclosures, Mar 2025 to Oct 2026 | Sourced, mixed dates | Small; named chains undercount |
+| Adoption (SOM) | 1%, 3% or 5% of SAM stores | Estimate, scenario | No pilot evidence yet |
+| Willingness to pay | Stores pay the Pro-tier price | Judgement | At 0.5% shrink a ₹30 crore, 16-camera store loses money (section 9.3), so real SAM may be much smaller |
+| Exchange rate | ₹95 per USD | Sourced, 30 Oct 2026 approx | USD figures move |
 
 ## 8. Implementation roadmap
 
@@ -396,3 +669,10 @@ Reviewed, labelled clips in Indian store conditions; integrations with POS and l
 - Deep North / StrataVision: <https://www.stratavision.com/press-release/deep-north-rebrands-as-stratavision/>
 - Frigate detectors: <https://docs.frigate.video/configuration/object_detectors/>
 - Ultralytics licence: <https://www.ultralytics.com/license>
+- Growth Market Reports, video analytics for retail: <https://growthmarketreports.com/report/video-analytics-for-retail-market>
+- Grand View Research, image and video analytics in AI in retail: <https://www.grandviewresearch.com/horizon/statistics/artificial-intelligence-in-retail-market-outlook/technology/image-and-video-analytics/global>
+- Dataintelo, scalable video analytics for retail: <https://dataintelo.com/report/scalable-video-analytics-for-retail-market>
+- IMARC, India video analytics: <https://www.imarcgroup.com/india-video-analytics-market>
+- Mordor Intelligence, India video surveillance: <https://www.mordorintelligence.com/industry-reports/india-video-surveillance-market>
+- IMARC, India video surveillance systems: <https://www.imarcgroup.com/india-video-surveillance-systems-market>
+- Store-count sources: see section 7A.4

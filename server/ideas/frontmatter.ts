@@ -95,9 +95,10 @@ export function slugFromPath(path: string): string {
   return (path.split('/').pop() ?? path).replace(/\.md$/i, '');
 }
 
-/** Rough reading time from a Markdown body. Image syntax is not counted as words. */
+/** Rough reading time from a Markdown body. Image syntax and ```viz chart specs are not counted as words. */
 export function readingMinutes(body: string): number {
-  const words = body.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').split(/\s+/).filter(Boolean).length;
+  const text = body.replace(/```viz[\s\S]*?```/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+  const words = text.split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.round(words / 220));
 }
 

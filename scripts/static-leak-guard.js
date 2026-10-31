@@ -18,7 +18,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 
 /** Hand-picked canaries that must never reach the static output, on top of the derived needles. */
-export const CANARIES = ['CX 601', 'Grand Stanford', 'Sofitel Ponte 16', 'Sofitel Macau at Ponte 16', 'Karthik, his wife', 'Hong Kong & Macau Family Adventure', 'Boosted Breeding', 'AI Camera System for Retail Theft Patterns'];
+export const CANARIES = ['CX 601', 'Grand Stanford', 'Sofitel Ponte 16', 'Sofitel Macau at Ponte 16', 'Karthik, his wife', 'Hong Kong & Macau Family Adventure', 'Boosted Breeding', 'AI Camera System for Retail Theft Patterns', '₹451.8 crore', 'Edge, Central or Hybrid', 'Where the loss comes from', '$55.7B', 'Unpaid items at the exit?', 'The gene-edit pipeline and where Indian rules bite'];
 
 /** The only static directory allowed to hold (brochure) image bytes. Must match PRIVATE_ASSET_PREFIX in server/ideas/store.ts. */
 export const PRIVATE_DIR = '_private/ideas';
@@ -30,6 +30,16 @@ export const GATE_MARKER = 'isPrivatePath(';
 export function privateAssetName(key, bytes) {
   const hash = createHash('sha256').update(`${key}\0`).update(bytes).digest('hex').slice(0, 32);
   return `${hash}${extname(key).toLowerCase()}`;
+}
+
+/**
+ * The text itself plus its JSON/JS-escaped spelling ("\u20B9" for "₹", upper and lower case hex): the
+ * worker bundler may write non-ASCII characters as escapes, and a leak could be escaped the same way.
+ */
+export function escapedForms(t) {
+  if (!/[^\x00-\x7f]/.test(t)) return [t];
+  const esc = (hex) => t.replace(/[^\x00-\x7f]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')[hex]()}`);
+  return [...new Set([t, esc('toUpperCase'), esc('toLowerCase')])];
 }
 
 /** Files that are not served as static assets by Cloudflare Pages advanced mode. */
@@ -90,7 +100,9 @@ export function buildNeedles(content) {
     const step = Math.max(1, Math.ceil(pageRuns.length / 150));
     pageRuns.filter((_, i) => i % step === 0).forEach((r) => text.add(r));
   }
-  const needles = [...text].filter((t) => t.length >= 6).map((t) => ({ kind: 'text', label: t, buf: Buffer.from(t, 'utf8') }));
+  const needles = [...text]
+    .filter((t) => t.length >= 6)
+    .flatMap((t) => escapedForms(t).map((form) => ({ kind: 'text', label: t, buf: Buffer.from(form, 'utf8') })));
   for (const [key, bytes] of Object.entries(content.images)) {
     const head = bytes.subarray(0, 60);
     needles.push({ kind: 'image-bytes', label: key, buf: Buffer.from(head) });
@@ -176,7 +188,7 @@ export function workerEmbedsContent(outDir, content) {
   for (const c of CANARIES) {
     // Only require canaries that exist in the source content.
     const inSource = [...Object.values(content.files), ...Object.values(content.pages ?? {})].some((t) => t.includes(c));
-    if (inSource && !buf.includes(Buffer.from(c))) problems.push(`_worker.js does not embed "${c}" (ideas content not embedded)`);
+    if (inSource && !escapedForms(c).some((form) => buf.includes(Buffer.from(form)))) problems.push(`_worker.js does not embed "${c}" (ideas content not embedded)`);
   }
   if (Object.keys(content.pages ?? {}).length > 0 && !buf.includes(Buffer.from(GATE_MARKER))) {
     problems.push(`_worker.js has no private-prefix gate (${GATE_MARKER})`);

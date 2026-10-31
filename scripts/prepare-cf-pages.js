@@ -101,7 +101,7 @@ const ideasLiteral = JSON.stringify(raw).replace(/\u2028/g, '\\u2028').replace(/
 storeJs = storeJs.replace(ideasRe, () => `// Reports embedded at build time (private: served only via authed /api/ideas)\nconst EMBEDDED_IDEAS = ${ideasLiteral};`);
 writeFileSync(storePath, storeJs, 'utf8');
 console.log(
-  `✅ Embedded ${checked.list.length} reports, ${Object.keys(raw.assets).length} images and ${Object.keys(raw.pages ?? {}).length} brochure pages; ${privateImages} brochure images in the private static prefix`,
+  `✅ Embedded ${checked.list.length} reports, ${Object.keys(raw.assets).length} images and ${Object.keys(raw.pages ?? {}).length} brochure pages; ${privateImages} images (brochure photos and large report images) in the private static prefix`,
 );
 
 // Create _worker.js for Cloudflare Pages Advanced mode
@@ -166,7 +166,7 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    // PRIVATE static prefix (brochure images): never reaches env.ASSETS from outside. The request is
+    // PRIVATE static prefix (brochure and large report images): never reaches env.ASSETS from outside. The request is
     // handed to the Hono app (auth middleware first: 401 without credentials), whose /_private/* route
     // answers 404. The same bytes are served only through the authed /api/ideas/:slug/img route.
     if (isPrivatePath(url.pathname)) {

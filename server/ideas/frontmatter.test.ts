@@ -44,6 +44,7 @@ describe('splitFrontmatter / parseIdea', () => {
   it('slugFromPath and readingMinutes', () => {
     expect(slugFromPath('./a/b/c-d.md')).toBe('c-d');
     expect(readingMinutes('')).toBe(1);
+    expect(readingMinutes('word '.repeat(220) + '```viz\n' + 'x '.repeat(5000) + '\n```')).toBe(1);
     expect(readingMinutes('word '.repeat(660))).toBe(3);
     expect(readingMinutes('![' + 'x '.repeat(500) + '](a.jpg)')).toBe(1);
   });

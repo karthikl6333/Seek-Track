@@ -76,6 +76,8 @@ with esbuild (Cloudflare runs it but never serves it); the compiled server is no
 `dist-cf/` and **fails the build** if any report text, image or `dist-server/` shows up in a file other than
 `_worker.js`.
 
+**Charts and flows.** Markdown reports can contain ```` ```viz ```` JSON blocks (`src/pages/ideas/viz.ts`: bar, stacked, funnel, circles, line, scatter, flow). `renderIdeaMarkdown` turns them into inline SVG (no library, no CDN, no inline style; theme colors via CSS variables in `ideas.css`), and the DOMPurify profile allows SVG. Syntax: docs/ADDING_IDEAS.md section 2A.
+
 **Brochure reports** (`format: brochure`) are a full designed HTML page (`content/ideas/pages/<slug>.html`)
 plus photos, shown in the tab inside a sandboxed iframe (`allow-scripts allow-popups
 allow-popups-to-escape-sandbox`, no `allow-same-origin`, so the page runs in an opaque origin). The HTML
@@ -96,6 +98,7 @@ is public static output as far as Cloudflare is concerned, so it is protected li
   private in that case too.
 - `static-leak-guard.js` allows exactly the hash-named files under `dist-cf/_private/ideas/`, requires the gate in
   the worker, and still bans any report text or other report image anywhere else in `dist-cf/`.
+- The same private prefix holds the images of **Markdown reports** whose images total more than `EMBED_IMAGE_BYTES` (64 KB); they are served only by the same authed route. Small image sets are embedded in the worker as base64.
 - Disk reads (Node server, tests) use `content/ideas/assets/<slug>/` directly, with the same checks.
 
 Client: the tab is the hash view `#ideas`; `#ideas/<slug>` deep-links a report (not a `/reports` URL path;

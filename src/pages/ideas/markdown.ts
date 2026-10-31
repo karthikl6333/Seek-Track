@@ -1,5 +1,6 @@
 import { Marked, type Tokens } from 'marked';
 import createDOMPurify from 'dompurify';
+import { renderViz } from './viz';
 
 /**
  * Markdown -> HTML for Ideas reports. Two separate steps so the first stays pure and testable:
@@ -60,6 +61,15 @@ export function renderIdeaMarkdown(body: string, resolveAsset: (ref: string) => 
         if (depth === 2) toc.push({ id, text: text.replace(/[*_`]/g, '') });
         return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
       },
+      // ```viz blocks (JSON) become inline-SVG charts/flows; a bad spec shows its error instead of breaking the report.
+      code({ text, lang }: Tokens.Code) {
+        if ((lang ?? '').trim() !== 'viz') return false;
+        try {
+          return renderViz(text) + '\n';
+        } catch (e) {
+          return `<pre class="idea-viz-error"><code>Chart error: ${escapeHtml(e instanceof Error ? e.message : String(e))}</code></pre>\n`;
+        }
+      },
       image({ href, title, text }: Tokens.Image) {
         const external = /^https?:\/\//i.test(href);
         const src = external ? href : resolveAsset(href);
@@ -92,7 +102,7 @@ type Purifier = ReturnType<typeof createDOMPurify>;
 /**
  * DOMPurify bound to `win`. Default allow-list (no script, style, iframe, event handlers, javascript:
  * URLs), plus: every link opens in a new tab with rel=noopener noreferrer, images are lazy and cannot
- * overflow. Task-list checkboxes are kept but forced read-only.
+ * overflow. The svg profile is on for the inline charts from viz.ts (still no style, script or foreignObject). Task-list checkboxes are kept but forced read-only.
  */
 export function createSanitizer(win: Window & typeof globalThis): (dirty: string) => string {
   const purify: Purifier = createDOMPurify(win);
@@ -112,7 +122,7 @@ export function createSanitizer(win: Window & typeof globalThis): (dirty: string
   });
   return (dirty: string) =>
     purify.sanitize(dirty, {
-      USE_PROFILES: { html: true },
+      USE_PROFILES: { html: true, svg: true },
       FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'option'],
       FORBID_ATTR: ['style'],
       ADD_ATTR: ['target'],

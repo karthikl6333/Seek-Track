@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { Store } from '../hooks/useStore';
-import { feeClass, fmtMoney, fmtQty } from '../lib/format';
+import type { Store } from '../../hooks/useStore';
+import { feeClass, fmtMoney, fmtQty } from '../../lib/format';
 
 export function Trades({ store }: { store: Store }) {
   const [q, setQ] = useState('');

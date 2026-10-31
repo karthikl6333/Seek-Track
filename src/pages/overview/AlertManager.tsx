@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
-import type { PriceAlert } from '../types/index';
-import { loadAlerts, createAlert, deleteAlert } from '../lib/db';
-import { fmtMoney } from '../lib/format';
+import type { PriceAlert } from '../../types/index';
+import { loadAlerts, createAlert, deleteAlert } from '../../api/client';
+import { fmtMoney } from '../../lib/format';
 
 interface Props {
   compact?: boolean;

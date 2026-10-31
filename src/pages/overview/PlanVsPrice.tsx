@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PlanRule, PlanRuleType, SymbolPosition } from '../types/index';
-import { loadPlanRules, createPlanRule, updatePlanRule, deletePlanRule } from '../lib/db';
-import { fmtMoney, fmtPct } from '../lib/format';
+import type { PlanRule, PlanRuleType, SymbolPosition } from '../../types/index';
+import { loadPlanRules, createPlanRule, updatePlanRule, deletePlanRule } from '../../api/client';
+import { fmtMoney, fmtPct } from '../../lib/format';
 
 interface Props {
   positions: SymbolPosition[];

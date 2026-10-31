@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Store } from '../hooks/useStore';
+import type { Store } from '../../hooks/useStore';
 import {
   CHARGE_KIND_LABEL,
   chargeKindCounts,
@@ -8,8 +8,8 @@ import {
   summarizeCharges,
   totalChargeRows,
   type ChargeKind,
-} from '../lib/charges';
-import { feeClass, fmtMoney, moneyTone } from '../lib/format';
+} from '../../lib/charges';
+import { feeClass, fmtMoney, moneyTone } from '../../lib/format';
 
 const KIND_LABEL = CHARGE_KIND_LABEL;
 

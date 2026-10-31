@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadWatchlistSymbols } from './db';
+import { loadWatchlistSymbols } from './client';
 
 describe('loadWatchlistSymbols', () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import type { CalculatorState, MarkInfo, PairDef, PairResolveResult } from '../types/index';
-import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../lib/format';
-import { impliedEtfPct, impliedUnderlyingPct } from '../lib/pairs';
+import type { CalculatorState, MarkInfo, PairDef, PairResolveResult } from '../../types/index';
+import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../../lib/format';
+import { impliedEtfPct, impliedUnderlyingPct } from '../../lib/pairs';
 
 interface Props {
   calc: CalculatorState;

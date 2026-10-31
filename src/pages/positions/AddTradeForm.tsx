@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ManualTradeInput } from '../types/index';
+import type { ManualTradeInput } from '../../types/index';
 
 interface Props {
   onSubmit: (input: ManualTradeInput) => Promise<unknown>;

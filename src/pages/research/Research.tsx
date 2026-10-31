@@ -9,8 +9,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
-import { TickerLink, yahooQuoteUrl } from '../lib/yahoo';
+import { fmtMoney, fmtPct, pnlClass } from '../../lib/format';
+import { TickerLink, yahooQuoteUrl } from '../../components/TickerLink';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 

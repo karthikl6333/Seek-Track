@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import type { Store } from '../hooks/useStore';
-import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
-import { summarizeCharges } from '../lib/charges';
-import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../lib/db';
-import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../types/index';
+import type { Store } from '../../hooks/useStore';
+import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../../lib/format';
+import { summarizeCharges } from '../../lib/charges';
+import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../../api/client';
+import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../../types/index';
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { PlanVsPrice } from './PlanVsPrice';
-import { TickerLink } from '../lib/yahoo';
-import { STALE_AFTER_MS, staleAge } from '../lib/marks';
-import { latestIso } from '../lib/refreshStamp';
-import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
-import { nonTradingPricesLabel, nonTradingWindowAt } from '../lib/marketHours';
+import { TickerLink } from '../../components/TickerLink';
+import { STALE_AFTER_MS, staleAge } from '../../lib/marks';
+import { latestIso } from '../../lib/refreshStamp';
+import { PAPER_SYNCED_EVENT } from '../../lib/pollGate';
+import { nonTradingPricesLabel, nonTradingWindowAt } from '../../lib/marketHours';
 
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;

@@ -8,7 +8,7 @@ import type {
   PairResolveResult,
   Trade,
 } from '../types/index';
-import { DEFAULT_SETTINGS } from './pairs';
+import { DEFAULT_SETTINGS } from '../lib/pairs';
 
 // Build API base URL without credentials (avoid "Request cannot be constructed from a URL that includes credentials")
 // If VITE_API_BASE is empty, use window.location.origin (strips credentials from page URL)

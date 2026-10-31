@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { fmtMoney, fmtPct, pnlClass } from '../lib/format';
-import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../lib/marks';
-import { checkedAtAfter, latestIso } from '../lib/refreshStamp';
-import { TickerLink } from '../lib/yahoo';
-import type { PairDef } from '../types/index';
+import { fmtMoney, fmtPct, pnlClass } from '../../lib/format';
+import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../../lib/marks';
+import { checkedAtAfter, latestIso } from '../../lib/refreshStamp';
+import { TickerLink } from '../../components/TickerLink';
+import type { PairDef } from '../../types/index';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const FILTER_KEY = 'watchlist-filter-open';

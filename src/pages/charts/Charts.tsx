@@ -9,8 +9,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { Store } from '../hooks/useStore';
-import { fmtMoney } from '../lib/format';
+import type { Store } from '../../hooks/useStore';
+import { fmtMoney } from '../../lib/format';
 
 export function Charts({ store }: { store: Store }) {
   const bySymbol =

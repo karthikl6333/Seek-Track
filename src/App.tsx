@@ -1,14 +1,14 @@
 import './App.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Charges } from './components/Charges';
-import { Charts } from './components/Charts';
-import { Research } from './components/Research';
-import { Overview } from './components/Overview';
-import { Paper } from './components/Paper';
-import { CryptoPaper } from './components/CryptoPaper';
-import { PaperFlex } from './components/PaperFlex';
-import { Positions } from './components/Positions';
-import { Trades } from './components/Trades';
+import { Charges } from './pages/charges/Charges';
+import { Charts } from './pages/charts/Charts';
+import { Research } from './pages/research/Research';
+import { Overview } from './pages/overview/Overview';
+import { Paper } from './pages/paper/Paper';
+import { CryptoPaper } from './pages/paper/CryptoPaper';
+import { PaperFlex } from './pages/paper/PaperFlex';
+import { Positions } from './pages/positions/Positions';
+import { Trades } from './pages/trades/Trades';
 import { useStore } from './hooks/useStore';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
 import {
@@ -23,9 +23,9 @@ import {
 import { refreshSucceeded } from './lib/refreshStamp';
 import { createThrottle, createTtlValue, PAPER_SYNCED_EVENT, paperSyncTargets, type PaperBook } from './lib/pollGate';
 import type { ViewId } from './types/index';
-import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
-import type { WatchlistRef } from './components/Watchlist';
-import type { ResearchRef } from './components/Research';
+import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './api/client';
+import type { WatchlistRef } from './pages/overview/Watchlist';
+import type { ResearchRef } from './pages/research/Research';
 
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'overview', label: 'Overview' },

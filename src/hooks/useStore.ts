@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as db from '../lib/db';
+import * as db from '../api/client';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';

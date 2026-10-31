@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { loadIdea, resolveIdeaImage } from '../../api/ideas';
-import { formatIdeaDate, type Idea } from '../../lib/ideas';
+import { loadIdea, resolveIdeaImage, resolveIdeaPage } from '../../api/ideas';
+import { BROCHURE_SANDBOX, formatIdeaDate, type Idea } from '../../lib/ideas';
 import { createSanitizer, renderIdeaMarkdown } from './markdown';
 
 let sanitizer: ((dirty: string) => string) | null = null;
@@ -39,17 +39,24 @@ export function IdeaReport({ slug, onBack }: { slug: string; onBack: () => void 
 
   const idea = load.state === 'ready' ? load.idea : null;
   const rendered = useMemo(() => {
-    if (!idea) return null;
+    if (!idea || idea.format === 'brochure') return null;
     const { html, toc } = renderIdeaMarkdown(idea.body, resolveIdeaImage);
     return { html: sanitize(html), toc };
   }, [idea]);
 
+  const pageUrl = idea?.format === 'brochure' ? resolveIdeaPage(idea.slug) : null;
+
   return (
-    <div className="idea-report">
+    <div className={`idea-report${pageUrl ? ' idea-report-brochure' : ''}`}>
       <div className="idea-report-bar">
         <button type="button" className="btn small" onClick={onBack}>
           ← All reports
         </button>
+        {pageUrl && (
+          <a className="btn small" href={pageUrl} target="_blank" rel="noopener noreferrer">
+            Open full screen ↗
+          </a>
+        )}
       </div>
       {load.state === 'loading' ? (
         <p className="muted">Loading report…</p>
@@ -60,6 +67,10 @@ export function IdeaReport({ slug, onBack }: { slug: string; onBack: () => void 
             Retry
           </button>
         </div>
+      ) : pageUrl && idea ? (
+        // The brochure is its own full web page: shown full-width in a sandboxed iframe (scripts + popups only,
+        // opaque origin). It fills the viewport and scrolls inside; "Open full screen" opens the same authed URL.
+        <iframe className="idea-brochure-frame" title={idea.title} src={pageUrl} sandbox={BROCHURE_SANDBOX} referrerPolicy="no-referrer" />
       ) : load.state === 'missing' || !idea || !rendered ? (
         <div className="empty-state muted">This report does not exist (it may have been renamed or removed).</div>
       ) : (

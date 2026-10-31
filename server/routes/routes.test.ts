@@ -66,6 +66,7 @@ const EXPECTED = [
   'GET /api/ideas',
   'GET /api/ideas/:slug',
   'GET /api/ideas/:slug/img/:name',
+  'GET /api/ideas/:slug/page',
 ];
 
 describe('API route table', () => {

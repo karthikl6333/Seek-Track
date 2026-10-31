@@ -325,6 +325,24 @@ table.data th {
   letter-spacing: 0.03em;
 }
 
+table.data tfoot {
+  position: sticky;
+  bottom: 0;
+}
+
+table.data tfoot td {
+  background: var(--bg-elev-2);
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
 table.data tr:hover td {
   background: rgba(61, 139, 253, 0.06);
 }

@@ -1,26 +1,44 @@
 import { useMemo, useState } from 'react';
 import type { Store } from '../hooks/useStore';
-import { listChargeRows, summarizeCharges, type ChargeKind } from '../lib/charges';
+import {
+  CHARGE_KIND_LABEL,
+  chargeKindCounts,
+  filterChargeRows,
+  listChargeRows,
+  summarizeCharges,
+  totalChargeRows,
+  type ChargeKind,
+} from '../lib/charges';
 import { feeClass, fmtMoney, moneyTone } from '../lib/format';
 
-const KIND_LABEL: Record<ChargeKind, string> = {
-  fee: 'Fee',
-  margin_interest: 'Margin interest',
-  credit_interest: 'Credit interest',
-  dividend_income: 'Dividend income',
-  other_charge: 'Other charge',
-};
+const KIND_LABEL = CHARGE_KIND_LABEL;
 
 type SortKey = 'date' | 'action' | 'symbol' | 'description' | 'fees' | 'amount' | 'kind';
 
 export function Charges({ store }: { store: Store }) {
   const summary = useMemo(() => summarizeCharges(store.trades), [store.trades]);
   const rows = useMemo(() => listChargeRows(store.trades), [store.trades]);
+  const [selected, setSelected] = useState<Set<ChargeKind>>(() => new Set());
+  const kindCounts = useMemo(() => chargeKindCounts(rows), [rows]);
+  // Drop selections for kinds that vanished from the data (e.g. after a re-import).
+  const activeKinds = useMemo(() => {
+    const present = new Set(kindCounts.map((k) => k.kind));
+    return new Set([...selected].filter((k) => present.has(k)));
+  }, [selected, kindCounts]);
+  const filtered = useMemo(() => filterChargeRows(rows, activeKinds), [rows, activeKinds]);
+  const totals = useMemo(() => totalChargeRows(filtered), [filtered]);
+  const toggleKind = (k: ChargeKind) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const sorted = useMemo(() => {
-    const copy = [...rows];
+    const copy = [...filtered];
     const dir = sortDir === 'asc' ? 1 : -1;
     copy.sort((a, b) => {
       if (sortKey === 'fees' || sortKey === 'amount') {
@@ -32,7 +50,7 @@ export function Charges({ store }: { store: Store }) {
       return String(a[sortKey]).localeCompare(String(b[sortKey])) * dir;
     });
     return copy;
-  }, [rows, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -75,6 +93,27 @@ export function Charges({ store }: { store: Store }) {
 
       <div className="card">
         <h3>Charge &amp; interest rows</h3>
+        <div className="chip-row" role="group" aria-label="Filter by charge type">
+          <button
+            type="button"
+            className={`btn small${activeKinds.size === 0 ? ' primary' : ''}`}
+            aria-pressed={activeKinds.size === 0}
+            onClick={() => setSelected(new Set())}
+          >
+            All ({rows.length})
+          </button>
+          {kindCounts.map(({ kind, count }) => (
+            <button
+              key={kind}
+              type="button"
+              className={`btn small${activeKinds.has(kind) ? ' primary' : ''}`}
+              aria-pressed={activeKinds.has(kind)}
+              onClick={() => toggleKind(kind)}
+            >
+              {KIND_LABEL[kind]} ({count})
+            </button>
+          ))}
+        </div>
         <div className="table-wrap" style={{ maxHeight: 640 }}>
           <table className="data">
             <thead>
@@ -133,11 +172,36 @@ export function Charges({ store }: { store: Store }) {
               {sorted.length === 0 && (
                 <tr>
                   <td className="left muted" colSpan={7}>
-                    No charge or interest rows in the transaction log yet.
+                    {rows.length === 0
+                      ? 'No charge or interest rows in the transaction log yet.'
+                      : 'No rows match the selected charge types.'}
                   </td>
                 </tr>
               )}
             </tbody>
+            {sorted.length > 0 && (
+              <tfoot>
+                <tr className="totals-row">
+                  <td className="left" colSpan={4}>
+                    Total · {totals.count} {totals.count === 1 ? 'row' : 'rows'}
+                    {activeKinds.size > 0 ? ' (filtered)' : ''}
+                  </td>
+                  <td className={feeClass(totals.fees)}>{fmtMoney(totals.fees)}</td>
+                  <td className="mono">{fmtMoney(totals.amount)}</td>
+                  <td className="left muted">Σ fees / amount</td>
+                </tr>
+                <tr className="totals-row">
+                  <td className="left" colSpan={4}>
+                    Net charge (costs {fmtMoney(totals.debits)} − credits {fmtMoney(totals.credits)})
+                  </td>
+                  <td />
+                  <td className={totals.netCharge > 0 ? 'mono hl-fee' : totals.netCharge < 0 ? 'mono pos' : 'mono'}>
+                    {fmtMoney(totals.netCharge)}
+                  </td>
+                  <td className="left muted">{totals.netCharge < 0 ? 'net credit' : 'net cost'}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

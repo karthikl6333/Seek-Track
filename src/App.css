@@ -23,7 +23,8 @@
 }
 .sidebar > .nav-btn, .sidebar > .brand { flex-shrink: 0; }
 
-/* Top news (plain headlines only) */
+/* Top news (5 plain headlines, original publisher links; each clamped to 2 lines). On a short viewport the
+   sidebar itself scrolls (overflow-y: auto above), so nothing is cut off or overlaps the nav. */
 .top-news {
   margin-top: auto;
   padding-top: 10px;
@@ -39,7 +40,7 @@
   text-transform: uppercase;
   color: var(--muted);
 }
-.top-news-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.top-news-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .top-news-list li { padding: 0 4px; min-width: 0; }
 .top-news-link {
   display: -webkit-box;

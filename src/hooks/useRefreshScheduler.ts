@@ -8,6 +8,7 @@ import {
 } from '../lib/marketHours';
 import { refreshSucceeded } from '../lib/refreshStamp';
 import { createTtlValue } from '../lib/pollGate';
+import { refreshInChunks } from '../lib/chunkedRefresh';
 import { getQuoteUniverse, loadWatchlistSymbols } from '../api/client';
 import type { WatchlistRef } from '../pages/overview/Watchlist';
 import type { ResearchRef } from '../pages/research/Research';
@@ -83,22 +84,14 @@ export function useRefreshScheduler({ storeRef, watchlistRef, researchRef }: Ref
       
       console.log(`[App] Refreshing ${symbols.length} holdings/watchlist symbols in chunks of ${CHUNK_SIZE}`);
       
-      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
-      // Continue on failure (don't abort remaining chunks)
-      let anyChunkOk = false;
-      for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
-        const chunk = symbols.slice(i, i + CHUNK_SIZE);
-        try {
-          const res = await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
-          if (refreshSucceeded(res)) anyChunkOk = true;
-          console.log(
-            `[App] Holdings/watchlist chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(symbols.length / CHUNK_SIZE)} complete`
-          );
-        } catch (chunkError) {
-          console.error(`[App] Holdings/watchlist chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed:`, chunkError);
-          // Continue to next chunk
-        }
-      }
+      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget); a failed chunk doesn't abort the rest
+      const anyChunkOk = await refreshInChunks(
+        symbols,
+        CHUNK_SIZE,
+        'Holdings/watchlist',
+        (chunk) => currentStore.refreshLiveQuotes(chunk, { includeHoldings: false }),
+        refreshSucceeded,
+      );
       
       // Re-read marks and UI state. A successful check moves the watchlist "Last refreshed"
       // stamp even when the server found no changes (and wrote nothing).
@@ -135,22 +128,14 @@ export function useRefreshScheduler({ storeRef, watchlistRef, researchRef }: Ref
       const { symbols: universe } = await getQuoteUniverse();
       console.log(`[App] Refreshing full universe: ${universe.length} symbols in chunks of ${CHUNK_SIZE}`);
       
-      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget)
-      // Continue on failure (don't abort remaining chunks)
-      let anyChunkOk = false;
-      for (let i = 0; i < universe.length; i += CHUNK_SIZE) {
-        const chunk = universe.slice(i, i + CHUNK_SIZE);
-        try {
-          const res = await currentStore.refreshLiveQuotes(chunk, { includeHoldings: false });
-          if (refreshSucceeded(res)) anyChunkOk = true;
-          console.log(
-            `[App] Full universe chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(universe.length / CHUNK_SIZE)} complete`
-          );
-        } catch (chunkError) {
-          console.error(`[App] Full universe chunk ${Math.floor(i / CHUNK_SIZE) + 1} failed:`, chunkError);
-          // Continue to next chunk
-        }
-      }
+      // Refresh in chunks (each HTTP request = fresh 50-subrequest budget); a failed chunk doesn't abort the rest
+      const anyChunkOk = await refreshInChunks(
+        universe,
+        CHUNK_SIZE,
+        'Full universe',
+        (chunk) => currentStore.refreshLiveQuotes(chunk, { includeHoldings: false }),
+        refreshSucceeded,
+      );
       
       // Re-read all client state from shared store (universe includes the watchlist symbols)
       // Manual refresh (full) re-reads everything incl. trades; the 15-min auto cycle only marks.

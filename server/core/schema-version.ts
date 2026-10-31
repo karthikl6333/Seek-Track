@@ -9,8 +9,11 @@
  * v1: initial D1 schema
  * v2: read-budget indexes (marks.updated_at, price_alerts(status, symbol), pair_cache.underlying)
  * v3: plan_rules + plan_rule_notifications (+ seeded plan rules)
+ * v4: watchlist_quotes.short_name (company name for the Overview watchlist) plus fundamentals columns
+ *     shares_outstanding, cap_price, fundamentals_updated_at (market cap, refreshed <= once/24h); added to
+ *     existing DBs by ensureColumn in db-d1.ts
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** sha256 of server/schema-d1.sql (LF line endings) at SCHEMA_VERSION. */
-export const SCHEMA_SHA256 = '4d9b2db200e959fce12f1b70a16b244dcfbf7de1defa3d22e50479e46ef73e5f';
+export const SCHEMA_SHA256 = 'a2b569bd726cfda2238575e2a1659804aa9cfdd9c8e239e1e7f338336fe626ab';

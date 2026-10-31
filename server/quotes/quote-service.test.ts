@@ -132,6 +132,32 @@ describe('parseYahooChart', () => {
     expect(q.price).toBe(102.5);
   });
 
+  it('reads 52-wk range, volume and company name from the same chart meta (no extra call)', () => {
+    const m = meta({
+      regularMarketPrice: 326.08,
+      previousClose: 345,
+      fiftyTwoWeekHigh: 495,
+      fiftyTwoWeekLow: 289.96,
+      regularMarketVolume: 36_412_033,
+      shortName: '  Broadcom Inc.  ',
+      longName: 'Broadcom Inc. (long)',
+      currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } },
+    });
+    const q = parseYahooChart('AVGO', chart('AVGO', m, [326.08]), 100);
+    expect(q.week52High).toBe(495);
+    expect(q.week52Low).toBe(289.96);
+    expect(q.volume).toBe(36_412_033);
+    expect(q.shortName).toBe('Broadcom Inc.');
+    // chart meta has no marketCap: stays null (never fabricated)
+    expect(q.marketCap).toBeNull();
+  });
+
+  it('falls back to longName, and to null when neither name is present', () => {
+    const base = { regularMarketPrice: 10, previousClose: 9, currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } } };
+    expect(parseYahooChart('X', chart('X', meta({ ...base, longName: 'X Corp' }), [10]), 100).shortName).toBe('X Corp');
+    expect(parseYahooChart('X', chart('X', meta({ ...base }), [10]), 100).shortName).toBeNull();
+  });
+
   it('throws when no usable price exists', () => {
     const m: YahooMeta = { previousClose: undefined, regularMarketPrice: undefined };
     expect(() => parseYahooChart('Z', chart('Z', m, [null, null]))).toThrow(/No price/);
@@ -154,6 +180,7 @@ describe('selectQuotesToPersist (never blank)', () => {
     week52Low: null,
     valChange: null,
     sessionOpen: null,
+    shortName: null,
   });
 
   it('never writes a null / 0 / NaN quote over an existing mark', () => {

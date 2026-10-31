@@ -1,6 +1,6 @@
 /** Turn a thrown value's string form (e.g. "Error: 500 Internal Server Error: boom") into a short, readable line. */
 export function bootErrorMessage(raw: string | null | undefined): string {
-  let first = String(raw ?? '').split('\n')[0].replace(/^(Error|TypeError):\s*/, '').trim();
+  let first = String(raw ?? '').split('\n')[0].replace(/^[A-Za-z]*Error:\s*/, '').trim();
   // "500 Internal Server Error: {"error":"boom"}" -> "500 Internal Server Error: boom"
   const m = first.match(/^(.*?:\s*)(\{.*\})$/);
   if (m) {

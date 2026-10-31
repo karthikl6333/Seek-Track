@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { fmtMoney, fmtPct, pnlClass } from '../../lib/format';
+import { pnlClass } from '../../lib/format';
+import {
+  dayChangeAmount,
+  fmtMarketCap,
+  fmtPrice,
+  fmtSigned,
+  fmtVolume,
+  sortWatchlistRows,
+  type WatchlistSortKey,
+} from '../../lib/watchlist';
+import { RangeBar } from '../../components/RangeBar';
 import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../../lib/marks';
 import { checkedAtAfter, latestIso } from '../../lib/refreshStamp';
 import { TickerLink } from '../../components/TickerLink';
@@ -23,6 +33,7 @@ export interface WatchlistRef {
 
 interface WatchlistRow {
   symbol: string;
+  name?: string | null;
   last: number | null;
   pctChange: number | null;
   valChange: number | null;
@@ -48,49 +59,7 @@ export interface WatchlistProps {
   pairs?: PairDef[];
 }
 
-type SortKey =
-  | 'symbol'
-  | 'last'
-  | 'pctChange'
-  | 'valChange'
-  | 'bid'
-  | 'ask'
-  | 'marketCap'
-  | 'volume'
-  | 'week52High'
-  | 'week52Low';
-
-function fmtVolume(n: number | null | undefined): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-
-function fmtCap(n: number | null | undefined): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  return fmtMoney(n, 0);
-}
-
-function compareNullable(
-  a: number | string | null | undefined,
-  b: number | string | null | undefined,
-  dir: 1 | -1,
-): number {
-  const aNull = a === null || a === undefined || a === '';
-  const bNull = b === null || b === undefined || b === '';
-  if (aNull && bNull) return 0;
-  if (aNull) return 1;
-  if (bNull) return -1;
-  if (typeof a === 'string' && typeof b === 'string') {
-    return a.localeCompare(b) * dir;
-  }
-  return (Number(a) - Number(b)) * dir;
-}
+type SortKey = WatchlistSortKey;
 
 export function Watchlist(props: WatchlistProps = {}) {
   const {
@@ -254,7 +223,8 @@ export function Watchlist(props: WatchlistProps = {}) {
   };
 
   const visibleRows = useMemo(() => {
-    if (!filterOpen) return rows;
+    const withDayChange = rows.map((r) => ({ ...r, valChange: dayChangeAmount(r.last, r.pctChange, r.valChange) }));
+    if (!filterOpen) return withDayChange;
 
     const allowedSet = new Set(openSymbols.map((s) => s.toUpperCase()));
 
@@ -266,18 +236,10 @@ export function Watchlist(props: WatchlistProps = {}) {
       }
     }
 
-    return rows.filter((r) => allowedSet.has(r.symbol.toUpperCase()));
+    return withDayChange.filter((r) => allowedSet.has(r.symbol.toUpperCase()));
   }, [rows, filterOpen, openSymbols, pairs]);
 
-  const sorted = useMemo(() => {
-    const copy = [...visibleRows];
-    copy.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      return compareNullable(av, bv, sortDir);
-    });
-    return copy;
-  }, [visibleRows, sortKey, sortDir]);
+  const sorted = useMemo(() => sortWatchlistRows(visibleRows, sortKey, sortDir), [visibleRows, sortKey, sortDir]);
 
   const arrow = (key: SortKey) => {
     if (sortKey !== key) return '';
@@ -289,21 +251,18 @@ export function Watchlist(props: WatchlistProps = {}) {
     ? new Date(lastStamp).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) + ' IST'
     : null;
 
-  const columns: Array<[SortKey, string, string]> = [
-    ['symbol', 'Symbol', 'left'],
+  // Yahoo/Google-Finance style: Symbol (+ name), Last, Chg $, Chg %, 52w range bar, 52w High/Low, Mkt cap, Volume.
+  const columns: Array<[SortKey, string, string, string?]> = [
+    ['symbol', 'Symbol', 'left wl-sym'],
     ['last', 'Last', ''],
-    ['pctChange', '% change', ''],
-    ['valChange', 'Val change ($)', ''],
-    ...(compact
-      ? []
-      : ([
-          ['bid', 'Bid', ''],
-          ['ask', 'Ask', ''],
-          ['marketCap', 'Market cap', ''],
-        ] as Array<[SortKey, string, string]>)),
+    ['valChange', 'Chg $', ''],
+    ['pctChange', 'Chg %', ''],
+    // Market cap sits right after Chg % so it is visible without scrolling in the narrow 40% column.
+    ['marketCap', 'Mkt cap', ''],
+    ['range', '52w range', 'wl-range-col', 'Position of the last price within the 52-week range'],
+    ['week52High', '52w High', ''],
+    ['week52Low', '52w Low', ''],
     ['volume', 'Volume', ''],
-    ['week52High', '52w high', ''],
-    ['week52Low', '52w low', ''],
   ];
 
   return (
@@ -372,11 +331,13 @@ export function Watchlist(props: WatchlistProps = {}) {
         <table className="data">
           <thead>
             <tr>
-              {columns.map(([key, label, align]) => (
+              {columns.map(([key, label, align, hint]) => (
                 <th
                   key={key}
                   className={align}
                   style={{ cursor: 'pointer', userSelect: 'none' }}
+                  title={hint ?? `Sort by ${label}`}
+                  aria-sort={sortKey === key ? (sortDir === 1 ? 'ascending' : 'descending') : 'none'}
                   onClick={() => toggleSort(key)}
                 >
                   {label}
@@ -389,11 +350,16 @@ export function Watchlist(props: WatchlistProps = {}) {
           <tbody>
             {sorted.map((r) => (
               <tr key={r.symbol}>
-                <td className="left">
+                <td className="left wl-sym">
                   <TickerLink symbol={r.symbol} />
+                  {r.name && (
+                    <span className="wl-name" title={r.name}>
+                      {r.name}
+                    </span>
+                  )}
                 </td>
                 <td className="mono" title={r.updatedAt ? `Last price update: ${r.updatedAt}` : undefined}>
-                  <PriceFlash value={r.last}>{fmtMoney(r.last, 2)}</PriceFlash>
+                  <PriceFlash value={r.last}>{fmtPrice(r.last)}</PriceFlash>
                   {(() => {
                     const age = r.last != null ? staleAge(r.updatedAt, Date.now(), STALE_AFTER_MS) : null;
                     return age ? (
@@ -403,18 +369,15 @@ export function Watchlist(props: WatchlistProps = {}) {
                     ) : null;
                   })()}
                 </td>
-                <td className={pnlClass(r.pctChange)}>{fmtPct(r.pctChange)}</td>
-                <td className={pnlClass(r.valChange)}>{fmtMoney(r.valChange)}</td>
-                {!compact && (
-                  <>
-                    <td className="mono">{fmtMoney(r.bid, 2)}</td>
-                    <td className="mono">{fmtMoney(r.ask, 2)}</td>
-                    <td className="mono">{fmtCap(r.marketCap)}</td>
-                  </>
-                )}
+                <td className={pnlClass(r.valChange)}>{fmtSigned(r.valChange)}</td>
+                <td className={pnlClass(r.pctChange)}>{fmtSigned(r.pctChange, 2, '%')}</td>
+                <td className="mono">{fmtMarketCap(r.marketCap)}</td>
+                <td className="wl-range-col">
+                  <RangeBar last={r.last} low={r.week52Low} high={r.week52High} />
+                </td>
+                <td className="mono">{fmtPrice(r.week52High)}</td>
+                <td className="mono">{fmtPrice(r.week52Low)}</td>
                 <td className="mono">{fmtVolume(r.volume)}</td>
-                <td className="mono">{fmtMoney(r.week52High, 2)}</td>
-                <td className="mono">{fmtMoney(r.week52Low, 2)}</td>
                 <td>
                   <button
                     type="button"
@@ -438,7 +401,7 @@ export function Watchlist(props: WatchlistProps = {}) {
             ))}
             {sorted.length === 0 && (
               <tr>
-                <td className="left muted" colSpan={compact ? 8 : 11}>
+                <td className="left muted" colSpan={10}>
                   No tickers. Add a symbol above.
                 </td>
               </tr>
@@ -447,10 +410,9 @@ export function Watchlist(props: WatchlistProps = {}) {
         </table>
       </div>
 
-      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
-        {compact
-          ? 'Bid / ask / market cap hidden until quote source provides them.'
-          : 'Bid, ask, and market cap are often unavailable from Yahoo chart v8 (auth-free) — shown as —.'}
+      <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
+        Prices, 52-wk range and volume come from the same Yahoo quote as the price marks. Market cap is refreshed
+        about once a day and moves with the live price.
         {lastLabel ? ` · Quotes: ${lastLabel}` : ''}
       </p>
     </div>

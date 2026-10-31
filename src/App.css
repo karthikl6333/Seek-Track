@@ -11,7 +11,50 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Pinned to the viewport so the Top news block stays at the bottom of the screen; if the
+     viewport is too short for nav + news the sidebar scrolls instead of overlapping. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+.sidebar > .nav-btn, .sidebar > .brand { flex-shrink: 0; }
+
+/* Top news (plain headlines only) */
+.top-news {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.top-news-title {
+  margin: 0 0 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.top-news-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.top-news-list li { padding: 0 4px; min-width: 0; }
+.top-news-link {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.top-news-link:hover { color: var(--accent); text-decoration: underline; }
+.top-news-meta { display: block; margin-top: 1px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .brand {
   padding: 6px 10px 18px;
@@ -553,9 +596,9 @@ kbd {
 
 .overview-layout {
   display: grid;
-  /* Main column flexes; right column (watchlist, alerts, CSV, plan) keeps a usable 320-380px.
-     minmax(0, 1fr) lets wide tables scroll inside their card instead of squeezing the right column. */
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  /* 60/40 split. minmax(0, ...) lets wide tables scroll inside their card instead of pushing
+     either column (or the page) wider; stacks to one column below 1180px (see media query). */
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 16px;
   align-items: start;
 }
@@ -563,10 +606,11 @@ kbd {
 .overview-layout .calc-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
 .dual-calculator-container {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
 }
+.dual-calculator-container > * { min-width: 0; }
 @media (max-width: 1180px) { .overview-layout { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 900px) { .overview-layout { grid-template-columns: 1fr; } .dual-calculator-container { grid-template-columns: 1fr; } }
 
@@ -628,9 +672,53 @@ kbd {
 
 .watchlist-side th,
 .watchlist-side td {
-  padding: 1px 4px;
+  padding: 2px 5px;
   white-space: nowrap;
-  line-height: 1.05;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.watchlist-side th { font-size: 10px; }
+.watchlist-side td.mono, .watchlist-side td.pos, .watchlist-side td.neg { text-align: right; }
+.watchlist-side th:not(.left) { text-align: right; }
+
+/* Sticky symbol column so it stays visible while the table scrolls inside the card */
+.watchlist-card th.wl-sym,
+.watchlist-card td.wl-sym {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-elev);
+  min-width: 74px;
+  max-width: 96px;
+}
+.wl-name {
+  display: block;
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 9.5px;
+  line-height: 1.1;
+  color: var(--muted);
+}
+.wl-range-col { width: 54px; min-width: 54px; }
+.range-bar {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  width: 46px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(239, 83, 80, 0.55), rgba(148, 163, 184, 0.35) 50%, rgba(38, 166, 91, 0.55));
+}
+.range-bar-dot {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1px solid var(--bg);
+  transform: translate(-50%, -50%);
 }
 
 /* Mobile watchlist table improvements */
@@ -669,7 +757,11 @@ kbd {
   .app-shell {
     grid-template-columns: 1fr;
   }
+  .top-news { display: none; }
   .sidebar {
+    height: auto;
+    overflow: visible;
+    align-self: stretch;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;

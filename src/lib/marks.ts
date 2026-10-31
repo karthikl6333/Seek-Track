@@ -68,8 +68,13 @@ export interface WatchlistRowLike {
   volume: number | null;
   week52High: number | null;
   week52Low: number | null;
+  /** Company name; optional so older payloads/rows still type-check. */
+  name?: string | null;
   updatedAt: string | null;
 }
+
+/** Slow-moving metadata that must never blank out once known (names, caps, 52w range, volume). */
+const STICKY_META = ['name', 'marketCap', 'week52High', 'week52Low', 'volume'] as const;
 
 /**
  * Merge a fresh watchlist payload into the rows already on screen.
@@ -85,7 +90,16 @@ export function mergeWatchlistRows<T extends WatchlistRowLike>(prev: T[], next: 
     if (!isUsablePrice(row.last) && isUsablePrice(old.last)) {
       return { ...old, ...pickNonNull(row), last: old.last, updatedAt: old.updatedAt };
     }
-    return row;
+    // Price is fine, but a field the server just didn't have this time (e.g. name before the next
+    // quote write, 52w after a partial Yahoo response) keeps the last known value.
+    let out = row;
+    for (const k of STICKY_META) {
+      if ((row[k] === null || row[k] === undefined) && old[k] !== null && old[k] !== undefined) {
+        if (out === row) out = { ...row };
+        (out as Record<string, unknown>)[k] = old[k];
+      }
+    }
+    return out;
   });
 }
 

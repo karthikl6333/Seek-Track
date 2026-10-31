@@ -1,7 +1,10 @@
 import type { ViewId } from '../types/index';
 import { NAV } from './nav';
+import { TopNews } from './TopNews';
+import { useTopNews } from '../hooks/useTopNews';
 
 export function Sidebar({ view, onSelect }: { view: ViewId; onSelect: (id: ViewId) => void }) {
+  const news = useTopNews();
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -23,6 +26,7 @@ export function Sidebar({ view, onSelect }: { view: ViewId; onSelect: (id: ViewI
           {i < 9 && <kbd className="nav-key" aria-hidden="true">{i + 1}</kbd>}
         </button>
       ))}
+      <TopNews items={news} nowMs={Date.now()} />
     </aside>
   );
 }

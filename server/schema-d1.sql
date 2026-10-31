@@ -102,6 +102,11 @@ CREATE TABLE IF NOT EXISTS watchlist_quotes (
   week52_high REAL,
   week52_low REAL,
   session_open REAL,
+  short_name TEXT,
+  -- Slow-moving fundamentals (Yahoo v7 quote, at most once per symbol per 24h):
+  shares_outstanding REAL,
+  cap_price REAL,              -- regularMarketPrice at the time market_cap was fetched (scales cap intraday)
+  fundamentals_updated_at TEXT,
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 

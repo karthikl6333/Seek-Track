@@ -131,6 +131,13 @@ export async function ensureSchema(): Promise<void> {
     await db.batch(batch);
   }
   
+  // Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS never alters an existing
+  // table and SQLite has no ADD COLUMN IF NOT EXISTS, so check table_info (migration path only).
+  await ensureColumn(db, 'watchlist_quotes', 'short_name', 'TEXT');
+  await ensureColumn(db, 'watchlist_quotes', 'shares_outstanding', 'REAL');
+  await ensureColumn(db, 'watchlist_quotes', 'cap_price', 'REAL');
+  await ensureColumn(db, 'watchlist_quotes', 'fundamentals_updated_at', 'TEXT');
+
   // Seed initial plan rules BEFORE recording the version: if seeding fails, the version stays old
   // and the next isolate retries (the seed is idempotent, see seed-plan-rules.ts).
   const { seedPlanRules } = await import('./plan/seed-plan-rules.js');
@@ -277,4 +284,12 @@ export async function transaction<T>(
   statements: Array<{ text: string; params?: unknown[] }>
 ): Promise<void> {
   await batch(statements);
+}
+
+async function ensureColumn(db: D1Database, table: string, column: string, type: string): Promise<void> {
+  const info = await db.prepare(`PRAGMA table_info(${table})`).all();
+  const have = ((info as { results?: Array<{ name?: unknown }> }).results ?? []).some(
+    (c) => String(c.name) === column,
+  );
+  if (!have) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`).run();
 }

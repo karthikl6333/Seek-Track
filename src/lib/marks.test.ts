@@ -74,6 +74,38 @@ describe('mergeWatchlistRows', () => {
   });
 });
 
+describe('mergeWatchlistRows never-blank metadata', () => {
+  const full = {
+    symbol: 'AVGO', name: 'Broadcom Inc.', last: 326, pctChange: -5, valChange: -17, bid: null, ask: null,
+    marketCap: 1.5e12, volume: 36_000_000, week52High: 495, week52Low: 289.96, updatedAt: '2026-10-30T20:00:00.000Z',
+  };
+  it('keeps name/52w/cap/volume when a fresh row has a price but lost them', () => {
+    const fresh = { ...full, last: 327, name: null, marketCap: null, week52High: null, week52Low: null, volume: null };
+    const [out] = mergeWatchlistRows([full], [fresh]);
+    expect(out.last).toBe(327);
+    expect(out.name).toBe('Broadcom Inc.');
+    expect(out.marketCap).toBe(1.5e12);
+    expect(out.week52High).toBe(495);
+    expect(out.week52Low).toBe(289.96);
+    expect(out.volume).toBe(36_000_000);
+  });
+  it('takes new values when present, and leaves never-known fields null (renders as a dash)', () => {
+    const fresh = { ...full, name: 'Broadcom', week52High: 500 };
+    const [out] = mergeWatchlistRows([full], [fresh]);
+    expect(out.name).toBe('Broadcom');
+    expect(out.week52High).toBe(500);
+    const nothing = { ...full, name: null, marketCap: null };
+    const [n2] = mergeWatchlistRows([{ ...nothing }], [{ ...nothing }]);
+    expect(n2.name).toBeNull();
+    expect(n2.marketCap).toBeNull();
+  });
+  it('does not mutate the incoming row', () => {
+    const fresh = { ...full, name: null };
+    mergeWatchlistRows([full], [fresh]);
+    expect(fresh.name).toBeNull();
+  });
+});
+
 describe('staleAge', () => {
   const now = Date.parse('2026-10-08T12:00:00.000Z');
   it('returns null when fresh', () => {

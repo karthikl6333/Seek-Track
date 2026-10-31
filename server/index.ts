@@ -1,199 +1,14 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { createAuthMiddleware } from './core/auth.js';
-import { ensureSchema, query } from './db.js';
-import { routeKey, withRequestBudget } from './core/read-budget.js';
-import { deleteJournal, listJournal, postJournal } from './portfolio/journal.js';
-import {
-  ensureSeedPairsCached,
-  listPairsHandler,
-  putPairOverrideHandler,
-  resolvePairHandler,
-} from './quotes/pairs.js';
-import {
-  getMarksHandler,
-  putMarksHandler,
-  getUniverseHandler,
-  refreshQuotesHandler,
-} from './quotes/quotes.js';
-import { handleQuoteStream } from './quotes/quote-stream.js';
-import { handleLiveRefresh } from './quotes/live-refresh.js';
-import {
-  startQuoteServiceLoop,
-  stopQuoteServiceLoop,
-} from './quotes/quote-service.js';
-import {
-  deleteResearchUniverseHandler,
-  ensureResearchSeeded,
-  getResearchHandler,
-  getResearchSymbolHandler,
-  postResearchRefreshHandler,
-  postResearchUniverseHandler,
-  putResearchUniverseReorderHandler,
-  startResearchRefreshCron,
-} from './research/research.js';
-import {
-  deleteWatchlistHandler,
-  ensureWatchlistSeeded,
-  getWatchlistHandler,
-  postWatchlistHandler,
-  postWatchlistRefreshHandler,
-} from './quotes/watchlist.js';
-import { getSettings, putSettings } from './portfolio/settings.js';
-import {
-  importCsvHandler,
-  listTrades,
-  patchTrade,
-  postTrades,
-} from './portfolio/trades.js';
-import {
-  getPaperSummary,
-  postPaperJournal,
-  refreshPaperFromAlpaca,
-  upsertPaperOrders,
-  upsertPaperPositions,
-  upsertPaperState,
-} from './paper/paper.js';
-import {
-  getCryptoPaperSummary,
-  postCryptoPaperJournal,
-  refreshCryptoPaperLivePnl,
-  upsertCryptoPaperOrders,
-  upsertCryptoPaperPositions,
-  upsertCryptoPaperState,
-} from './paper/crypto-paper.js';
-import {
-  getPaperFlexSummary,
-  postPaperFlexJournal,
-  refreshPaperFlexFromAlpaca,
-  upsertPaperFlexOrders,
-  upsertPaperFlexPositions,
-  upsertPaperFlexState,
-} from './paper/paper-flex.js';
-import {
-  getAlertsHandler,
-  postAlertsHandler,
-  deleteAlertHandler,
-  postEvaluateAlertsHandler,
-} from './quotes/alerts.js';
-import {
-  getPlanRulesHandler,
-  postPlanRulesHandler,
-  patchPlanRuleHandler,
-  deletePlanRuleHandler,
-} from './plan/plan-rules.js';
+import { ensureSchema } from './db.js';
+import { registerApi } from './routes/index.js';
+import { setupStaticServing } from './static.js';
+import { ensureSeedPairsCached } from './quotes/pairs.js';
+import { startQuoteServiceLoop } from './quotes/quote-service.js';
+import { ensureResearchSeeded, startResearchRefreshCron } from './research/research.js';
+import { ensureWatchlistSeeded } from './quotes/watchlist.js';
 
 const app = new Hono();
-
-app.use(
-  '/api/*',
-  cors({
-    origin: '*',
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  }),
-);
-
-// Apply authentication middleware to all API routes and frontend
-// (excludes /api/health for monitoring)
-app.use('*', createAuthMiddleware());
-
-// D1 read-budget accounting: per-route queries / rows_read, summary log every N requests,
-// X-D1-Rows-Read / X-D1-Queries response headers for quick verification.
-app.use('/api/*', async (c, next) => {
-  // ?fresh=1 (sent by a client right after its own write) skips the per-isolate read cache, in
-  // case that write landed on a different isolate.
-  const fresh = c.req.method === 'GET' && c.req.query('fresh') === '1';
-  await withRequestBudget(routeKey(c.req.method, c.req.path), async (budget) => {
-    await next();
-    try {
-      if (!(c.res.headers.get('Content-Type') ?? '').includes('text/event-stream')) {
-        c.res.headers.set('X-D1-Rows-Read', String(budget.rowsRead));
-        c.res.headers.set('X-D1-Queries', String(budget.queries));
-      }
-    } catch {
-      // immutable headers (e.g. proxied response): skip
-    }
-  }, { bypassCache: fresh });
-});
-
-app.get('/api/health', async (c) => {
-  try {
-    await query('SELECT 1');
-    return c.json({ ok: true });
-  } catch (err) {
-    console.error('health check failed:', err);
-    return c.json({ ok: false, error: 'database unavailable' }, 503);
-  }
-});
-
-app.get('/api/trades', listTrades);
-app.post('/api/trades', postTrades);
-app.patch('/api/trades/:id', patchTrade);
-app.post('/api/import', importCsvHandler);
-
-app.get('/api/marks', getMarksHandler);
-app.put('/api/marks', putMarksHandler);
-app.get('/api/quotes/universe', getUniverseHandler);
-app.post('/api/quotes/refresh', refreshQuotesHandler);
-app.get('/api/quotes/refresh', refreshQuotesHandler);
-app.get('/api/quotes/stream', handleQuoteStream);
-app.post('/api/quotes/live-refresh', handleLiveRefresh);
-
-app.get('/api/pairs', listPairsHandler);
-app.get('/api/pairs/resolve', resolvePairHandler);
-app.get('/api/pairs/resolve/:symbol', resolvePairHandler);
-app.put('/api/pairs', putPairOverrideHandler);
-
-app.get('/api/journal', listJournal);
-app.post('/api/journal', postJournal);
-app.delete('/api/journal', deleteJournal);
-app.delete('/api/journal/:id', deleteJournal);
-
-app.get('/api/settings', getSettings);
-app.put('/api/settings', putSettings);
-
-app.get('/api/research', getResearchHandler);
-app.post('/api/research/refresh', postResearchRefreshHandler);
-app.post('/api/research/universe', postResearchUniverseHandler);
-app.put('/api/research/universe/reorder', putResearchUniverseReorderHandler);
-app.delete('/api/research/universe/:symbol', deleteResearchUniverseHandler);
-app.get('/api/research/:symbol', getResearchSymbolHandler);
-
-app.get('/api/watchlist', getWatchlistHandler);
-app.post('/api/watchlist', postWatchlistHandler);
-app.delete('/api/watchlist/:symbol', deleteWatchlistHandler);
-app.post('/api/watchlist/refresh', postWatchlistRefreshHandler);
-
-app.get('/api/paper', getPaperSummary);
-app.post('/api/paper/refresh', refreshPaperFromAlpaca);
-app.post('/api/paper/state', upsertPaperState);
-app.post('/api/paper/positions', upsertPaperPositions);
-app.post('/api/paper/orders', upsertPaperOrders);
-app.post('/api/paper/journal', postPaperJournal);
-
-app.get('/api/crypto-paper', getCryptoPaperSummary);
-app.post('/api/crypto-paper/state', upsertCryptoPaperState);
-app.post('/api/crypto-paper/positions', upsertCryptoPaperPositions);
-app.post('/api/crypto-paper/orders', upsertCryptoPaperOrders);
-app.post('/api/crypto-paper/journal', postCryptoPaperJournal);
-app.post('/api/crypto-paper/refresh', refreshCryptoPaperLivePnl);
-
-app.get('/api/paper-flex', getPaperFlexSummary);
-app.post('/api/paper-flex/refresh', refreshPaperFlexFromAlpaca);
-app.post('/api/paper-flex/state', upsertPaperFlexState);
-app.post('/api/paper-flex/positions', upsertPaperFlexPositions);
-app.post('/api/paper-flex/orders', upsertPaperFlexOrders);
-app.post('/api/paper-flex/journal', postPaperFlexJournal);
-
-app.get('/api/alerts', getAlertsHandler);
-app.post('/api/alerts', postAlertsHandler);
-app.delete('/api/alerts/:id', deleteAlertHandler);
-app.post('/api/alerts/evaluate', postEvaluateAlertsHandler);
-
-app.get('/api/plan-rules', getPlanRulesHandler);
-app.post('/api/plan-rules', postPlanRulesHandler);
-app.patch('/api/plan-rules/:id', patchPlanRuleHandler);
-app.delete('/api/plan-rules/:id', deletePlanRuleHandler);
+registerApi(app);
 
 // Initialize background jobs for Workers (crons self-disable; seeding functions are safe no-ops after first run)
 // This ensures Workers have schema ready but skip expensive seeding/cron operations
@@ -205,50 +20,11 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 // Export app for Cloudflare Workers/Pages Functions (must be before any Node-specific code)
 export default app;
 
-// Setup static file serving for Node.js (not used in Cloudflare Workers)
-async function setupStaticServing() {
-  if (typeof process === 'undefined' || !process.versions?.node) {
-    // Not Node.js - Cloudflare serves static files directly
-    return;
-  }
-  
-  try {
-    // Dynamic imports for Node-only modules
-    const { serveStatic } = await import('@hono/node-server/serve-static');
-    const { existsSync } = await import('node:fs');
-    const { dirname, join } = await import('node:path');
-    const { fileURLToPath } = await import('node:url');
-    
-    const here = dirname(fileURLToPath(import.meta.url));
-    const distCandidates = [
-      join(process.cwd(), 'dist'),
-      join(here, '..', 'dist'),
-      join(here, 'dist'),
-    ];
-    const distRoot = distCandidates.find((p) => existsSync(join(p, 'index.html')));
-
-    if (distRoot) {
-      let relativeRoot = distRoot;
-      const cwd = process.cwd();
-      if (distRoot.startsWith(cwd)) {
-        relativeRoot = distRoot.slice(cwd.length).replace(/^[/\\]/, '') || '.';
-      }
-      app.use('/*', serveStatic({ root: relativeRoot }));
-      app.get('*', serveStatic({ root: relativeRoot, path: 'index.html' }));
-    } else {
-      app.get('/', (c) => c.text('Seek&Track API - build client first'));
-    }
-  } catch (err) {
-    console.error('Failed to setup static serving:', err);
-    app.get('/', (c) => c.text('Seek&Track API - static assets not available'));
-  }
-}
-
 const port = Number(process.env.PORT || 3000);
 
 // Node.js server entry (development and traditional hosting)
 async function main() {
-  await setupStaticServing();
+  await setupStaticServing(app);
   await ensureSchema();
   
   // Seed data ONLY in local Node.js development (never in Workers/Cloudflare)

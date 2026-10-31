@@ -10,6 +10,7 @@ const EXPECTED = [
   'PATCH /api/trades/:id',
   'POST /api/import',
   'GET /api/marks',
+  'GET /api/news/top',
   'PUT /api/marks',
   'GET /api/quotes/universe',
   'POST /api/quotes/refresh',

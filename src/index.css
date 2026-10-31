@@ -239,6 +239,18 @@ a {
   padding: 3px 10px;
 }
 
+/* Tiles shrink the figure with their width (container query) instead of pushing the page wider
+   (a "-$149,953.00" pill overflowed its tile and the viewport by 2px at ~1181px). */
+.overview-stats-grid > .card {
+  min-width: 0;
+  container-type: inline-size;
+}
+.overview-stats-grid > .card .stat-value {
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: clamp(11px, 11cqw, 18px);
+}
+
 .overview-stats-grid .stat-label {
   font-size: 10px;
   line-height: 1.3;

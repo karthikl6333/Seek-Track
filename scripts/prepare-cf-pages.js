@@ -145,6 +145,10 @@ export default {
         if (env.RESEND_API_KEY) process.env.RESEND_API_KEY = env.RESEND_API_KEY;
         if (env.ALERT_EMAIL_FROM) process.env.ALERT_EMAIL_FROM = env.ALERT_EMAIL_FROM;
         if (env.ALERT_WEBHOOK_URL) process.env.ALERT_WEBHOOK_URL = env.ALERT_WEBHOOK_URL;
+
+        // Market-cap providers (server/quotes/fundamentals-providers.ts): both optional.
+        if (env.FINNHUB_API_KEY) process.env.FINNHUB_API_KEY = env.FINNHUB_API_KEY;
+        if (env.SEC_USER_AGENT) process.env.SEC_USER_AGENT = env.SEC_USER_AGENT;
         
         // Schema migration only (no data seeding on Workers cold start)
         await ensureSchema();

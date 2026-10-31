@@ -606,7 +606,9 @@ kbd {
 .overview-layout .calc-side { display:flex; flex-direction:column; gap:16px; min-width:0; }
 .dual-calculator-container {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Two calculators side by side only while each card is >= 280px (inputs stay >= 150px);
+     narrower side columns (e.g. ~1181-1239px viewports) stack them instead of squeezing. */
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 12px;
   align-items: start;
 }
@@ -999,6 +1001,12 @@ kbd {
   padding: 16px;
   text-align: center;
   background: rgba(255, 255, 255, 0.02);
+}
+
+/* The native file input is wider than a narrow card at ~1181px (overflowed by 2px). */
+.import-drop input[type='file'] {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .import-drop.drag {

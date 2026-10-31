@@ -12,6 +12,7 @@ import {
 import { RangeBar } from '../../components/RangeBar';
 import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../../lib/marks';
 import { checkedAtAfter, latestIso } from '../../lib/refreshStamp';
+import { refreshWatchlistInChunks, type WatchlistChunkResult } from '../../lib/watchlistRefresh';
 import { TickerLink } from '../../components/TickerLink';
 import { PriceFlash } from '../../components/PriceFlash';
 import type { PairDef } from '../../types/index';
@@ -86,6 +87,8 @@ export function Watchlist(props: WatchlistProps = {}) {
     }
   });
   const refreshInProgressRef = useRef(false);
+  const loadedSymbolsRef = useRef<string[] | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const applyPayload = useCallback((data: WatchlistPayload) => {
     // Preserve last known prices when a row comes back with last=null (failed Yahoo fetch etc.).
@@ -108,23 +111,41 @@ export function Watchlist(props: WatchlistProps = {}) {
   }, [applyPayload]);
 
   /**
-   * Force server refresh: POST /api/watchlist/refresh
-   * Used by manual Refresh button
+   * Force server refresh: POST /api/watchlist/refresh, in chunks of <= 10 symbols (the server caps
+   * each request; every HTTP request gets its own subrequest budget). Chunks that fail keep their
+   * last known prices; progress and the combined result are shown on the button / error line.
    */
   const forceRefresh = useCallback(async () => {
     if (refreshInProgressRef.current) return;
     setError(null);
     setBusy(true);
+    setProgress(null);
     refreshInProgressRef.current = true;
     try {
-      const data = await apiSend<WatchlistPayload & { error?: string; ok?: boolean }>(
-        '/api/watchlist/refresh',
-        'POST',
+      // Symbols from the loaded rows; fall back to a GET when nothing is loaded yet.
+      let symbols = loadedSymbolsRef.current;
+      if (!symbols || symbols.length === 0) {
+        symbols = (await apiGet<WatchlistPayload>('/api/watchlist')).symbols ?? [];
+      }
+      const summary = await refreshWatchlistInChunks(
+        symbols,
+        (chunk) => apiSend<WatchlistChunkResult>('/api/watchlist/refresh', 'POST', { symbols: chunk }),
+        (done, total) => setProgress(total > 1 ? { done, total } : null),
       );
+      // Re-read the table (merged: a failed row keeps its last known price).
+      const data = await apiGet<WatchlistPayload>('/api/watchlist');
       applyPayload(data);
-      // 200 with ok !== false = Yahoo was checked (even if nothing changed and no row was written).
-      const at = new Date();
-      setCheckedAt((prev) => checkedAtAfter(prev, data, at));
+      if (summary.ok) {
+        // At least one chunk checked Yahoo (even if nothing changed and no row was written).
+        setCheckedAt((prev) => checkedAtAfter(prev, { ok: true }, new Date()));
+      }
+      if (summary.error) {
+        setError(
+          summary.chunksOk === 0
+            ? summary.error
+            : `${summary.chunksTotal - summary.chunksOk} of ${summary.chunksTotal} refresh requests failed: ${summary.error}`,
+        );
+      }
     } catch (e) {
       setError(String(e));
       try {
@@ -134,11 +155,11 @@ export function Watchlist(props: WatchlistProps = {}) {
       }
     } finally {
       setBusy(false);
+      setProgress(null);
       refreshInProgressRef.current = false;
     }
   }, [applyPayload, reload]);
 
-  const loadedSymbolsRef = useRef<string[] | null>(null);
   useEffect(() => {
     if (rows.length > 0 || lastRefreshAt !== null) loadedSymbolsRef.current = rows.map((r) => r.symbol);
   }, [rows, lastRefreshAt]);
@@ -258,7 +279,7 @@ export function Watchlist(props: WatchlistProps = {}) {
     ['valChange', 'Chg $', ''],
     ['pctChange', 'Chg %', ''],
     // Market cap sits right after Chg % so it is visible without scrolling in the narrow 40% column.
-    ['marketCap', 'Mkt cap', ''],
+    ['marketCap', 'Mkt cap', '', 'Market cap (for ETFs: net assets)'],
     ['range', '52w range', 'wl-range-col', 'Position of the last price within the 52-week range'],
     ['week52High', '52w High', ''],
     ['week52Low', '52w Low', ''],
@@ -316,7 +337,7 @@ export function Watchlist(props: WatchlistProps = {}) {
               transition: 'opacity 0.15s',
             }}
           >
-            {busy ? '⟳' : 'Refresh'}
+            {busy ? (progress ? `⟳ ${Math.min(progress.done + 1, progress.total)}/${progress.total}` : '⟳') : 'Refresh'}
           </button>
         </div>
       </div>

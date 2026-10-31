@@ -175,7 +175,20 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
   });
 }
 
-function toWatchlistRow(r: {
+/**
+ * Day change in dollars, derived from the SAME last and day % the row shows, so amount and percent can
+ * never disagree in sign. Falls back to the stored amount only when there is no usable % (or no price).
+ * (watchlist_quotes.val_change is written by a different refresh than marks.day_pct, and older rows hold a
+ * session-open delta, so it is not trusted when both last and % are present.)
+ */
+export function dayChangeAmount(last: number | null, pct: number | null, stored: number | null): number | null {
+  if (last != null && Number.isFinite(last) && pct != null && Number.isFinite(pct) && pct > -100) {
+    return last - last / (1 + pct / 100);
+  }
+  return stored != null && Number.isFinite(stored) ? stored : null;
+}
+
+export function toWatchlistRow(r: {
   symbol: string;
   last: number | null;
   pct_change: number | null;
@@ -197,7 +210,11 @@ function toWatchlistRow(r: {
     symbol: r.symbol.toUpperCase(),
     last: r.last != null ? Number(r.last) : null,
     pctChange: r.pct_change != null ? Number(r.pct_change) : null,
-    valChange: r.val_change != null ? Number(r.val_change) : null,
+    valChange: dayChangeAmount(
+      r.last != null ? Number(r.last) : null,
+      r.pct_change != null ? Number(r.pct_change) : null,
+      r.val_change != null ? Number(r.val_change) : null,
+    ),
     bid: r.bid != null ? Number(r.bid) : null,
     ask: r.ask != null ? Number(r.ask) : null,
     // Stored cap scaled by the live price (moves intraday); falls back to last x shares. See fundamentals.ts.
@@ -276,17 +293,31 @@ export async function getWatchlistPayload(): Promise<WatchlistPayload> {
   return { symbols, rows, lastRefreshAt };
 }
 
-export async function refreshWatchlistQuotes(): Promise<{
+type WatchlistRefreshResult = {
   ok: boolean;
   updated: string[];
   failed: string[];
   refreshedAt: string;
-}> {
-  if (watchlistRefreshInFlight) return watchlistRefreshInFlight;
+};
 
-  watchlistRefreshInFlight = (async () => {
+/**
+ * Refresh the watchlist. With `only`, refreshes just those symbols (the client sends chunks of at
+ * most MAX_SYMBOLS_PER_REFRESH so each HTTP request gets its own subrequest budget); symbols that
+ * are not on the watchlist are ignored. Without it, refreshes every watchlist symbol in one request
+ * (fine for small lists; the quote service rejects more than the per-request cap).
+ */
+export async function refreshWatchlistQuotes(only?: string[]): Promise<WatchlistRefreshResult> {
+  if (!only && watchlistRefreshInFlight) return watchlistRefreshInFlight;
+
+  const run = (async () => {
     await ensureWatchlistSeeded();
-    const symbols = await listWatchlistSymbols();
+    let symbols = await listWatchlistSymbols();
+    if (only) {
+      const wanted = new Set(only.map((s) => normalizeWatchlistSymbol(s)).filter((s): s is string => !!s));
+      symbols = symbols.filter((s) => wanted.has(s));
+      // Nothing to do: never fall through to forceRefresh([]) (that means "whole universe").
+      if (symbols.length === 0) return { ok: true, updated: [], failed: [], refreshedAt: new Date().toISOString() };
+    }
 
     // Delegate to the unified quote service
     const { forceRefresh } = await import('./quote-service.js');
@@ -295,10 +326,12 @@ export async function refreshWatchlistQuotes(): Promise<{
     // Only a successful check advances the stamp (a failed refresh must not look fresh).
     if (result.ok) lastWatchlistRefreshAt = result.refreshedAt;
     return result;
-  })().finally(() => {
+  })();
+
+  if (only) return run;
+  watchlistRefreshInFlight = run.finally(() => {
     watchlistRefreshInFlight = null;
   });
-
   return watchlistRefreshInFlight;
 }
 
@@ -399,7 +432,12 @@ export async function deleteWatchlistHandler(c: Context) {
 
 export async function postWatchlistRefreshHandler(c: Context) {
   try {
-    const result = await refreshWatchlistQuotes();
+    // Optional body { symbols: [...] }: the client refreshes the watchlist in chunks of <= 10.
+    const body = (await c.req.json().catch(() => null)) as { symbols?: unknown } | null;
+    const only = Array.isArray(body?.symbols)
+      ? body.symbols.filter((s): s is string => typeof s === 'string')
+      : undefined;
+    const result = await refreshWatchlistQuotes(only);
     const payload = await getWatchlistPayload();
     
     // Prevent caching of refresh responses

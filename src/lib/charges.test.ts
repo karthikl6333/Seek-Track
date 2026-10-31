@@ -7,7 +7,7 @@ import {
   totalChargeRows,
   type ChargeKind,
 } from './charges';
-import type { Trade } from '../types';
+import type { Trade } from '../types/index';
 
 describe('summarizeCharges', () => {
   // Tests from main branch (PR #65 - AVL/AVGO dividend coverage)

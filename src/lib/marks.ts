@@ -1,4 +1,4 @@
-import type { MarkInfo } from '../types';
+import type { MarkInfo } from '../types/index';
 
 /** A price we will display: finite and strictly positive. */
 export function isUsablePrice(p: unknown): p is number {

@@ -1,4 +1,4 @@
-import type { Trade } from '../types';
+import type { Trade } from '../types/index';
 
 export interface ChargesSummary {
   fees: number;

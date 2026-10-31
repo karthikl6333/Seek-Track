@@ -9,9 +9,9 @@
 // @SCHEMA_SQL_PLACEHOLDER@
 let EMBEDDED_SCHEMA: string | null = null;
 
-import { recordQuery } from './read-budget.js';
+import { recordQuery } from './core/read-budget.js';
 
-import { SCHEMA_VERSION } from './schema-version.js';
+import { SCHEMA_VERSION } from './core/schema-version.js';
 export { SCHEMA_VERSION };
 
 export interface QueryResult<T = any> {
@@ -133,7 +133,7 @@ export async function ensureSchema(): Promise<void> {
   
   // Seed initial plan rules BEFORE recording the version: if seeding fails, the version stays old
   // and the next isolate retries (the seed is idempotent, see seed-plan-rules.ts).
-  const { seedPlanRules } = await import('./seed-plan-rules.js');
+  const { seedPlanRules } = await import('./plan/seed-plan-rules.js');
   const seeded = await seedPlanRules();
   if (seeded.added > 0) console.log(`[D1] Seeded ${seeded.added} plan rules`);
 

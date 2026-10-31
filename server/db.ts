@@ -47,7 +47,7 @@ export function setD1Database(db: D1Database): void {
   }
 }
 
-import { cached, noteWriteSql, writtenTables } from './isolate-cache.js';
+import { cached, noteWriteSql, writtenTables } from './core/isolate-cache.js';
 
 /**
  * Hot single-table reads served from the per-isolate cache (D1 row-read budget). Matched on the

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computePositions } from './lots';
-import type { Trade } from '../types';
+import type { Trade } from '../types/index';
 
 describe('computePositions FIFO lot matching', () => {
   it('should handle same-day sell before buy correctly (DAMD repro case)', () => {

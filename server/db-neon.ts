@@ -89,7 +89,7 @@ export async function ensureSchema(): Promise<void> {
 
   // Seed initial plan rules (idempotent - won't duplicate)
   try {
-    const { seedPlanRules } = await import('./seed-plan-rules.js');
+    const { seedPlanRules } = await import('./plan/seed-plan-rules.js');
     const result = await seedPlanRules();
     if (result.added > 0) {
       console.log(`[Neon] Seeded ${result.added} plan rules`);

@@ -337,8 +337,8 @@ export function PlanVsPrice({ positions, marks, compact = false }: Props) {
       {loading && rules.length === 0 ? (
         <p className="muted" style={{ fontSize: 13 }}>Loading rules...</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="data" style={{ fontSize: compact ? 12 : 13 }}>
+        <div className="scroll-x">
+          <table className="data plan-table" style={{ fontSize: compact ? 12 : 13 }}>
             <thead>
               <tr>
                 <th className="left">Symbol</th>

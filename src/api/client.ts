@@ -50,8 +50,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * Trades list. The server caches it per isolate; pass `fresh` right after this client wrote trades
  * (import / manual fill / note) so a cached copy in another isolate can't hide the change.
  */
-export async function loadAllTrades(opts?: { fresh?: boolean }): Promise<Trade[]> {
-  return api<Trade[]>(opts?.fresh ? '/api/trades?fresh=1' : '/api/trades');
+export async function loadAllTrades(opts?: { fresh?: boolean; signal?: AbortSignal }): Promise<Trade[]> {
+  return api<Trade[]>(opts?.fresh ? '/api/trades?fresh=1' : '/api/trades', { signal: opts?.signal });
 }
 
 export async function importCsvText(
@@ -82,13 +82,13 @@ export async function updateTradeNote(id: string, note: string): Promise<void> {
  * Detailed marks. With `since` (the newest updatedAt this client already has) the server returns
  * only rows changed after it (indexed delta, `incremental: true`); the store MERGES either way.
  */
-export async function loadMarksDetailed(since?: string | null): Promise<{
+export async function loadMarksDetailed(since?: string | null, signal?: AbortSignal): Promise<{
   marks: Record<string, MarkInfo>;
   lastRefreshAt: string | null;
   lastRefreshError: string | null;
   incremental?: boolean;
 }> {
-  return api(since ? `/api/marks?detailed=1&since=${encodeURIComponent(since)}` : '/api/marks?detailed=1');
+  return api(since ? `/api/marks?detailed=1&since=${encodeURIComponent(since)}` : '/api/marks?detailed=1', { signal });
 }
 
 export async function setMark(symbol: string, price: number): Promise<void> {
@@ -133,12 +133,12 @@ export async function resolvePair(symbol: string): Promise<PairResolveResult> {
 /** `?fresh=1` asks the server to skip its per-isolate read cache (use right after own writes). */
 const freshQs = (fresh?: boolean, sep: '?' | '&' = '?') => (fresh ? `${sep}fresh=1` : '');
 
-export async function listPairCache(opts?: { fresh?: boolean }): Promise<{ pairs: PairDef[]; note?: string }> {
-  return api(`/api/pairs${freshQs(opts?.fresh)}`);
+export async function listPairCache(opts?: { fresh?: boolean; signal?: AbortSignal }): Promise<{ pairs: PairDef[]; note?: string }> {
+  return api(`/api/pairs${freshQs(opts?.fresh)}`, { signal: opts?.signal });
 }
 
-export async function loadJournal(): Promise<JournalEntry[]> {
-  return api<JournalEntry[]>('/api/journal');
+export async function loadJournal(signal?: AbortSignal): Promise<JournalEntry[]> {
+  return api<JournalEntry[]>('/api/journal', { signal });
 }
 
 export async function saveJournalEntry(entry: JournalEntry): Promise<void> {
@@ -152,9 +152,9 @@ export async function deleteJournalEntry(id: string): Promise<void> {
   await api(`/api/journal/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-export async function loadSettings(opts?: { fresh?: boolean }): Promise<AppSettings> {
+export async function loadSettings(opts?: { fresh?: boolean; signal?: AbortSignal }): Promise<AppSettings> {
   try {
-    const data = await api<AppSettings>(`/api/settings${freshQs(opts?.fresh)}`);
+    const data = await api<AppSettings>(`/api/settings${freshQs(opts?.fresh)}`, { signal: opts?.signal });
     if (!data?.pairs || !data?.themes) return structuredClone(DEFAULT_SETTINGS);
     return {
       ...data,

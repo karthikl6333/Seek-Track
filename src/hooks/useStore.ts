@@ -3,6 +3,7 @@ import * as db from '../api/client';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';
+import { withBootTimeout } from '../lib/bootTimeout';
 import { viewFromHash } from '../lib/views';
 import type {
   AppSettings,
@@ -95,9 +96,9 @@ export function useStore() {
     markCursorRef.current = newestMarkStamp(markDetails);
   }, [markDetails]);
 
-  const refreshMarks = useCallback(async (opts?: { full?: boolean }) => {
+  const refreshMarks = useCallback(async (opts?: { full?: boolean; signal?: AbortSignal }) => {
     const since = opts?.full ? null : markCursorRef.current;
-    const detailed = await db.loadMarksDetailed(since);
+    const detailed = await db.loadMarksDetailed(since, opts?.signal);
     ingestMarks(detailed.marks);
     if (detailed.lastRefreshAt) setLastRefreshAt(detailed.lastRefreshAt);
     setLastRefreshError(detailed.lastRefreshError);
@@ -120,13 +121,14 @@ export function useStore() {
    * writes (fresh: bypass the server's per-isolate trades cache) and on manual refresh. The
    * periodic price cycles call refreshMarks() instead (D1 read budget).
    */
-  const refresh = useCallback(async (opts?: { fresh?: boolean }) => {
+  const refresh = useCallback(async (opts?: { fresh?: boolean; signal?: AbortSignal }) => {
     try {
+      const signal = opts?.signal;
       const [t, s, j, pairCache] = await Promise.all([
-        db.loadAllTrades({ fresh: opts?.fresh }),
-        db.loadSettings({ fresh: opts?.fresh }),
-        db.loadJournal(),
-        db.listPairCache({ fresh: opts?.fresh }).catch(() => ({ pairs: [] as import('../types/index').PairDef[] })),
+        db.loadAllTrades({ fresh: opts?.fresh, signal }),
+        db.loadSettings({ fresh: opts?.fresh, signal }),
+        db.loadJournal(signal),
+        db.listPairCache({ fresh: opts?.fresh, signal }).catch(() => ({ pairs: [] as import('../types/index').PairDef[] })),
       ]);
       setTrades(t);
       // Merge pair_cache into settings.pairs so CrossCheck is not limited to seeds
@@ -136,7 +138,7 @@ export function useStore() {
       }
       setSettings({ ...s, pairs: Array.from(byEtf.values()) });
       setJournal(j);
-      await refreshMarks(opts?.fresh ? { full: true } : undefined);
+      await refreshMarks({ full: opts?.fresh ? true : undefined, signal });
       setReady(true);
       setAuthError(false);
     } catch (e) {
@@ -152,7 +154,8 @@ export function useStore() {
   /** Initial load, also used by the boot screen's Retry button (one code path for both). */
   const retryBoot = useCallback(() => {
     setError(null);
-    refresh().catch((e) => {
+    // Boot is bounded: if the Basic-auth prompt never shows, fetches would stay pending forever.
+    withBootTimeout((signal) => refresh({ signal })).catch((e) => {
       if (e instanceof db.AuthError) {
         // Auth error already handled in refresh()
         return;

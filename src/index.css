@@ -280,7 +280,9 @@ a {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Max 2 columns, but each at least 160px: narrow cards (<~334px) stack to one column instead of
+     squeezing inputs to ~128px. 50% - 7px = half the container minus half the 14px gap. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(160px, calc(50% - 7px))), 1fr));
   gap: 14px;
 }
 
@@ -292,19 +294,19 @@ a {
 
 .grid-4 {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
 .grid-5 {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
 
 .grid-6 {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -313,10 +315,10 @@ a {
     grid-template-columns: 1fr 1fr;
   }
   .grid-5 {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .grid-6 {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .grid-3 {
     grid-template-columns: 1fr;
@@ -577,6 +579,48 @@ table.data tbody tr:has(> td.left.muted[colspan]):hover td {
   color: var(--muted);
 }
 
+/* KPI rows (grid-4/5/6): equal tracks that can't be pushed wider by long numbers; the value
+   scales with its card (container query) instead of overflowing the page. */
+.grid-4 > .card,
+.grid-5 > .card,
+.grid-6 > .card {
+  min-width: 0;
+  container-type: inline-size;
+}
+.grid-4 > .card .stat-value,
+.grid-5 > .card .stat-value,
+.grid-6 > .card .stat-value {
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: clamp(14px, 10.5cqw, 22px);
+}
+
+/* Horizontally scrollable table wrapper with a visible thin scrollbar and edge fades that show
+   there is more to the side (never silently clipped). */
+.scroll-x,
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  background:
+    linear-gradient(to right, var(--bg-elev), transparent) left center / 24px 100% no-repeat local,
+    linear-gradient(to left, var(--bg-elev), transparent) right center / 24px 100% no-repeat local,
+    linear-gradient(to right, rgba(0, 0, 0, 0.45), transparent) left center / 10px 100% no-repeat scroll,
+    linear-gradient(to left, rgba(0, 0, 0, 0.45), transparent) right center / 10px 100% no-repeat scroll;
+}
+.scroll-x::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar { height: 8px; width: 8px; }
+.scroll-x::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+/* Plan vs Price sits in the 320-380px side column: tighter cells so most columns fit */
+.plan-table th,
+.plan-table td,
+.overview-layout table.data th,
+.overview-layout table.data td {
+  padding: 6px 7px;
+}
+
 /* Mobile stat-value improvements */
 @media (max-width: 768px) {
   .stat-value {
@@ -629,7 +673,7 @@ button.stat-card-link:focus-visible,
 
 .overview-stats-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   flex: 1 1 auto;
   min-width: 0;

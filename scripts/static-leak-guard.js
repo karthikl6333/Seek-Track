@@ -18,7 +18,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 
 /** Hand-picked canaries that must never reach the static output, on top of the derived needles. */
-export const CANARIES = ['CX 601', 'Grand Stanford', 'Sofitel Ponte 16', 'Sofitel Macau at Ponte 16', 'Karthik, his wife', 'Hong Kong & Macau Family Adventure', 'Boosted Breeding'];
+export const CANARIES = ['CX 601', 'Grand Stanford', 'Sofitel Ponte 16', 'Sofitel Macau at Ponte 16', 'Karthik, his wife', 'Hong Kong & Macau Family Adventure', 'Boosted Breeding', 'AI Camera System for Retail Theft Patterns'];
 
 /** The only static directory allowed to hold (brochure) image bytes. Must match PRIVATE_ASSET_PREFIX in server/ideas/store.ts. */
 export const PRIVATE_DIR = '_private/ideas';

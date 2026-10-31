@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { FilterChips } from '../../components/FilterChips';
 import type { Store } from '../../hooks/useStore';
 import {
   CHARGE_KIND_LABEL,
@@ -93,27 +94,14 @@ export function Charges({ store }: { store: Store }) {
 
       <div className="card">
         <h3>Charge &amp; interest rows</h3>
-        <div className="chip-row" role="group" aria-label="Filter by charge type">
-          <button
-            type="button"
-            className={`btn small${activeKinds.size === 0 ? ' primary' : ''}`}
-            aria-pressed={activeKinds.size === 0}
-            onClick={() => setSelected(new Set())}
-          >
-            All ({rows.length})
-          </button>
-          {kindCounts.map(({ kind, count }) => (
-            <button
-              key={kind}
-              type="button"
-              className={`btn small${activeKinds.has(kind) ? ' primary' : ''}`}
-              aria-pressed={activeKinds.has(kind)}
-              onClick={() => toggleKind(kind)}
-            >
-              {KIND_LABEL[kind]} ({count})
-            </button>
-          ))}
-        </div>
+        <FilterChips
+          ariaLabel="Filter by charge type"
+          options={kindCounts.map(({ kind, count }) => ({ key: kind, label: KIND_LABEL[kind], count }))}
+          active={activeKinds}
+          totalCount={rows.length}
+          onToggle={toggleKind}
+          onClear={() => setSelected(new Set())}
+        />
         <div className="table-wrap" style={{ maxHeight: 640 }}>
           <table className="data">
             <thead>

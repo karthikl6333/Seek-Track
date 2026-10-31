@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { query } from '../db.js';
 import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
+import { toCamelCase, type AlpacaAccount, type AlpacaPosition } from './shared.js';
 
 export interface CryptoPaperState {
   equity: number;
@@ -55,15 +56,6 @@ export interface CryptoPaperSummary {
     tradeCount: number;
     winRate: number | null;
   };
-}
-
-function toCamelCase<T extends Record<string, any>>(row: Record<string, any>): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-    result[camelKey] = value;
-  }
-  return result as T;
 }
 
 export async function getCryptoPaperSummary(c: Context) {
@@ -313,7 +305,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
       );
     }
 
-    const account = await accountRes.json();
+    const account = (await accountRes.json()) as AlpacaAccount;
 
     const positionsRes = await fetch(`${alpacaPaperUrl}/v2/positions`, {
       headers: {
@@ -333,11 +325,11 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
       );
     }
 
-    const positions = await positionsRes.json();
+    const positions = (await positionsRes.json()) as AlpacaPosition[];
 
-    const equity = parseFloat(String((account as any).equity || '0'));
-    const cash = parseFloat(String((account as any).cash || '0'));
-    const buyingPower = parseFloat(String((account as any).buying_power || '0'));
+    const equity = parseFloat(String(account.equity || '0'));
+    const cash = parseFloat(String(account.cash || '0'));
+    const buyingPower = parseFloat(String(account.buying_power || '0'));
 
     const existingStateRes = await query<{
       day_pnl: number;
@@ -350,7 +342,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
     }>(`SELECT day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity FROM crypto_paper_state WHERE id = 1`);
 
     const existingState = existingStateRes.rows[0];
-    const dayPnl = parseFloat(String((account as any).equity)) - parseFloat(String((account as any).last_equity || (account as any).equity));
+    const dayPnl = parseFloat(String(account.equity)) - parseFloat(String(account.last_equity || account.equity));
     const weekPnl = existingState?.week_pnl || 0;
     const t0Equity = existingState?.t0_equity || 149953;
 
@@ -380,7 +372,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
     // Atomic replace in ONE D1 batch (see positions-sync.ts).
     await replacePositions(
       'crypto_paper_positions',
-      (positions as any[]).map((pos) =>
+      positions.map((pos) =>
         alpacaToPositionRow(pos, pos.asset_class === 'crypto' ? 'Crypto' : ''),
       ),
     );
@@ -390,7 +382,7 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
       refreshedAt: new Date().toISOString(),
       equity,
       cash,
-      positions: (positions as any[]).length,
+      positions: positions.length,
     });
   } catch (err) {
     return c.json(

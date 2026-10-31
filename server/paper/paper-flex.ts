@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { query } from '../db.js';
 import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
+import { toCamelCase, type AlpacaAccount, type AlpacaPosition, loadThemeResolver } from './shared.js';
 
 export interface PaperFlexState {
   equity: number;
@@ -55,15 +56,6 @@ export interface PaperFlexSummary {
     tradeCount: number;
     winRate: number | null;
   };
-}
-
-function toCamelCase<T extends Record<string, any>>(row: Record<string, any>): T {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
-    result[camelKey] = value;
-  }
-  return result as T;
 }
 
 export async function getPaperFlexSummary(c: Context) {
@@ -274,25 +266,6 @@ export async function postPaperFlexJournal(c: Context) {
   return c.json({ ok: true });
 }
 
-interface AlpacaAccount {
-  equity: string;
-  cash: string;
-  buying_power: string;
-  portfolio_value: string;
-  long_market_value?: string;
-  short_market_value?: string;
-  last_equity?: string;
-}
-
-interface AlpacaPosition {
-  symbol: string;
-  qty: string;
-  avg_entry_price: string;
-  market_value: string;
-  unrealized_pl: string;
-  side: string;
-}
-
 export async function refreshPaperFlexFromAlpaca(c: Context) {
   const apiKey = process.env.ALPACA_FLEX_API_KEY;
   const apiSecret = process.env.ALPACA_FLEX_SECRET_KEY;
@@ -402,35 +375,14 @@ export async function refreshPaperFlexFromAlpaca(c: Context) {
       ],
     );
 
-    const settingsRes = await query<{ data: any }>(
-      `SELECT data FROM settings WHERE id = 1`
-    );
-    // D1 stores settings.data as JSON TEXT (Postgres JSONB came back as an object)
-    const rawSettings = settingsRes.rows[0]?.data;
-    let settings: any = rawSettings;
-    if (typeof rawSettings === 'string') {
-      try {
-        settings = JSON.parse(rawSettings);
-      } catch {
-        settings = null;
-      }
-    }
-    const themes = Array.isArray(settings?.themes) ? settings.themes : [];
-    
-    const getTheme = (symbol: string): string => {
-      const upper = symbol.toUpperCase();
-      const found = themes.find((t: any) => 
-        t.symbols && t.symbols.map((s: string) => s.toUpperCase()).includes(upper)
-      );
-      return found?.name || '';
-    };
+    const getTheme = await loadThemeResolver();
 
     // Atomic replace in ONE D1 batch (concurrent refreshes no longer interleave
     // DELETE/INSERT → no more "UNIQUE constraint failed: paper_flex_positions.symbol").
     // A non-empty theme already stored for a symbol is kept; otherwise derive it from settings.
     await replacePositions(
       'paper_flex_positions',
-      (positions as any[]).map((pos) =>
+      positions.map((pos) =>
         alpacaToPositionRow(pos, getTheme(pos.symbol), { signedByShortSide: true }),
       ),
       { preserveExistingTheme: true },

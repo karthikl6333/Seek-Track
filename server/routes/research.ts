@@ -6,7 +6,7 @@ import {
   putResearchUniverseReorderHandler,
   deleteResearchUniverseHandler,
   getResearchSymbolHandler,
-} from '../research/research.js';
+} from '../research/handlers.js';
 
 /** Routes: research universe. */
 export function registerResearchRoutes(app: Hono): void {

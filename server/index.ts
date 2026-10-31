@@ -4,7 +4,8 @@ import { registerApi } from './routes/index.js';
 import { setupStaticServing } from './static.js';
 import { ensureSeedPairsCached } from './quotes/pairs.js';
 import { startQuoteServiceLoop } from './quotes/quote-service.js';
-import { ensureResearchSeeded, startResearchRefreshCron } from './research/research.js';
+import { ensureResearchSeeded } from './research/universe.js';
+import { startResearchRefreshCron } from './research/handlers.js';
 import { ensureWatchlistSeeded } from './quotes/watchlist.js';
 
 const app = new Hono();

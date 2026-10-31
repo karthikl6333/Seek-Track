@@ -195,7 +195,9 @@ describe('seedPlanRules idempotency', () => {
 const wqColumns = () =>
   (sqlite.exec('PRAGMA table_info(watchlist_quotes)')[0]?.values ?? []).map((r) => String(r[1]));
 
-describe('prod v3 → v4 migration (watchlist_quotes.short_name)', () => {
+const V4_COLUMNS = ['short_name', 'shares_outstanding', 'cap_price', 'fundamentals_updated_at'];
+
+describe('prod v3 → v4 migration (watchlist_quotes.short_name + fundamentals columns)', () => {
   function makeProdV3Db() {
     sqlite.exec(schemaV3);
     sqlite.exec(
@@ -205,26 +207,28 @@ describe('prod v3 → v4 migration (watchlist_quotes.short_name)', () => {
     );
   }
 
-  it('v3 fixture has no short_name; the current schema does', () => {
+  it('v3 fixture has none of the v4 columns; the current schema has them all', () => {
     sqlite.exec(schemaV3);
-    expect(wqColumns()).not.toContain('short_name');
-    expect(schemaText).toMatch(/short_name TEXT/);
+    for (const c of V4_COLUMNS) {
+      expect(wqColumns()).not.toContain(c);
+      expect(schemaText).toContain(`${c} `);
+    }
   });
 
   it('adds the column to the existing table, keeps rows, records v4', async () => {
     makeProdV3Db();
-    expect(wqColumns()).not.toContain('short_name');
+    for (const c of V4_COLUMNS) expect(wqColumns()).not.toContain(c);
 
     await ensureSchema();
 
-    expect(wqColumns()).toContain('short_name');
+    for (const c of V4_COLUMNS) expect(wqColumns()).toContain(c);
     expect(version()).toBe(4);
-    const row = sqlite.exec("SELECT last, market_cap, week52_high, short_name FROM watchlist_quotes WHERE symbol = 'AVGO'")[0]
+    const row = sqlite.exec("SELECT last, market_cap, week52_high, short_name, shares_outstanding, cap_price, fundamentals_updated_at FROM watchlist_quotes WHERE symbol = 'AVGO'")[0]
       .values[0];
-    expect(row).toEqual([327.13, 1.5e12, 495, null]);
-    // The new column is writable.
-    sqlite.run("UPDATE watchlist_quotes SET short_name = 'Broadcom Inc.' WHERE symbol = 'AVGO'");
-    expect(sqlite.exec("SELECT short_name FROM watchlist_quotes")[0].values[0][0]).toBe('Broadcom Inc.');
+    expect(row).toEqual([327.13, 1.5e12, 495, null, null, null, null]);
+    // The new columns are writable.
+    sqlite.run("UPDATE watchlist_quotes SET short_name = 'Broadcom Inc.', shares_outstanding = 4.77e9, cap_price = 326, fundamentals_updated_at = '2026-10-31T00:00:00Z' WHERE symbol = 'AVGO'");
+    expect(sqlite.exec("SELECT short_name, shares_outstanding, cap_price, fundamentals_updated_at FROM watchlist_quotes")[0].values[0]).toEqual(['Broadcom Inc.', 4.77e9, 326, '2026-10-31T00:00:00Z']);
   });
 
   it('is idempotent: re-running on a migrated DB does not fail or duplicate the column', async () => {
@@ -233,13 +237,20 @@ describe('prod v3 → v4 migration (watchlist_quotes.short_name)', () => {
     sqlite.run('UPDATE schema_meta SET version = 3 WHERE id = 1'); // force the migration to run again
     __resetSchemaStateForTests();
     await ensureSchema();
-    expect(wqColumns().filter((c) => c === 'short_name')).toHaveLength(1);
+    for (const c of V4_COLUMNS) expect(wqColumns().filter((x) => x === c)).toHaveLength(1);
     expect(version()).toBe(4);
   });
 
-  it('a fresh DB gets short_name from CREATE TABLE and ensureColumn adds nothing', async () => {
+  it('a DB already on the earlier v4 (short_name only) picks up the remaining columns', async () => {
+    makeProdV3Db();
+    sqlite.run('ALTER TABLE watchlist_quotes ADD COLUMN short_name TEXT');
     await ensureSchema();
-    expect(wqColumns().filter((c) => c === 'short_name')).toHaveLength(1);
+    for (const c of V4_COLUMNS) expect(wqColumns().filter((x) => x === c)).toHaveLength(1);
+  });
+
+  it('a fresh DB gets the columns from CREATE TABLE and ensureColumn adds nothing', async () => {
+    await ensureSchema();
+    for (const c of V4_COLUMNS) expect(wqColumns().filter((x) => x === c)).toHaveLength(1);
     expect(executed.some((q) => /ALTER TABLE watchlist_quotes/i.test(q))).toBe(false);
   });
 

@@ -17,6 +17,18 @@
 
 import { cached } from '../core/isolate-cache.js';
 import { query } from '../db.js';
+import {
+  __resetFundamentalsStateForTests,
+  fetchFundamentals,
+  fundamentalsBackoffActive,
+  FUNDAMENTALS_MAX_SYMBOLS,
+  holdFundamentals,
+  isFundamentalsDue,
+  isFundamentalsSkipped,
+  rememberFundamentalsFresh,
+  rememberFundamentalsMissing,
+  type FetchFundamentalsOptions,
+} from './fundamentals.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT = 'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
@@ -125,6 +137,7 @@ export function __resetQuoteServiceStateForTests(): void {
   watchlistCacheTime = 0;
   lastRefreshAt = null;
   lastRefreshError = null;
+  __resetFundamentalsStateForTests();
 }
 
 /**
@@ -489,6 +502,12 @@ async function getWatchlistSymbols(): Promise<Set<string>> {
   return watchlistSymbolsCache;
 }
 
+/** Drop the cached watchlist symbol set (call after adding/removing a symbol). */
+export function invalidateWatchlistSymbolsCache(): void {
+  watchlistSymbolsCache = null;
+  watchlistCacheTime = 0;
+}
+
 export interface ExistingMark {
   price: number;
   day_pct: number | null;
@@ -659,6 +678,123 @@ async function persistQuotes(
   return Array.from(changedQuotes.keys());
 }
 
+
+/**
+ * Slow-cadence fundamentals (market cap, shares, name) for watchlist symbols in this refresh.
+ *
+ * Cost: a warm isolate adds ZERO reads/writes/fetches in steady state (in-memory gate). The first
+ * refresh in an isolate does ONE small PK-indexed read of watchlist_quotes for the candidate symbols
+ * (the same rows the watchlist GET reads); only symbols whose fundamentals_updated_at is missing or
+ * >24h old trigger ONE batched Yahoo call and ONE batched upsert. Names that are still missing are
+ * filled from the chart quote we already fetched (one UPDATE, once). Never throws.
+ */
+export async function refreshFundamentalsIfDue(
+  universe: string[],
+  quotes: Map<string, QuoteData | null>,
+  opts: FetchFundamentalsOptions = {},
+): Promise<{ checked: number; fetched: number; written: number; namesFilled: number }> {
+  const stats = { checked: 0, fetched: 0, written: 0, namesFilled: 0 };
+  const now = opts.now ?? Date.now;
+  try {
+    if (fundamentalsBackoffActive(now())) return stats; // Yahoo said slow down: keep last known values
+    const watchlistSet = await getWatchlistSymbols();
+    const candidates = universe
+      .map((s) => s.toUpperCase())
+      .filter((s) => watchlistSet.has(s) && !isFundamentalsSkipped(s, now()))
+      .slice(0, FUNDAMENTALS_MAX_SYMBOLS);
+    if (candidates.length === 0) return stats;
+    stats.checked = candidates.length;
+
+    // Hold the candidates so a concurrent refresh in this isolate does not repeat the work.
+    holdFundamentals(candidates, now());
+
+    const placeholders = candidates.map((_, i) => `$${i + 1}`).join(', ');
+    const res = await query<{ symbol: string; short_name: string | null; fundamentals_updated_at: string | Date | null }>(
+      `SELECT symbol, short_name, fundamentals_updated_at FROM watchlist_quotes WHERE symbol IN (${placeholders})`,
+      candidates,
+    );
+    const rowBySym = new Map(res.rows.map((r) => [r.symbol.toUpperCase(), r]));
+
+    const due: string[] = [];
+    const nameOnly: Array<[string, string]> = [];
+    for (const sym of candidates) {
+      const row = rowBySym.get(sym);
+      if (isFundamentalsDue(row?.fundamentals_updated_at ?? null, now())) {
+        due.push(sym);
+        continue;
+      }
+      const ts = Date.parse(String(row!.fundamentals_updated_at));
+      rememberFundamentalsFresh(sym, ts); // fresh in D1: warm isolate skips the read from now on
+      const chartName = quotes.get(sym)?.shortName;
+      if (!row!.short_name && chartName) nameOnly.push([sym, chartName]);
+    }
+
+    // Names missing on otherwise-fresh rows: fill from the chart quote (no extra Yahoo call).
+    if (nameOnly.length > 0) {
+      const cases = nameOnly.map((_, i) => `WHEN $${i * 2 + 1} THEN $${i * 2 + 2}`).join(' ');
+      const inList = nameOnly.map((_, i) => `$${nameOnly.length * 2 + i + 1}`).join(', ');
+      await query(
+        `UPDATE watchlist_quotes SET short_name = CASE symbol ${cases} END
+         WHERE short_name IS NULL AND symbol IN (${inList})`,
+        [...nameOnly.flatMap(([sym, name]) => [sym, name]), ...nameOnly.map(([sym]) => sym)],
+      );
+      stats.namesFilled = nameOnly.length;
+    }
+
+    if (due.length === 0) return stats;
+
+    const fundamentals = await fetchFundamentals(due, opts);
+    stats.fetched = fundamentals.size;
+    const stamp = new Date(now()).toISOString();
+
+    const rows: unknown[][] = [];
+    for (const sym of due) {
+      const f = fundamentals.get(sym);
+      if (!f) {
+        // Failed (isolate back-off now active; retried when it lapses) or Yahoo has no data for the
+        // symbol (retry in 6h). Last known D1 values are kept either way.
+        if (fundamentalsBackoffActive(now())) holdFundamentals([sym], now(), 0);
+        else rememberFundamentalsMissing(sym, now());
+        continue;
+      }
+      rows.push([
+        sym,
+        f.marketCap,
+        f.sharesOutstanding,
+        f.marketCap !== null ? f.capPrice : null,
+        f.name ?? quotes.get(sym)?.shortName ?? null,
+        stamp,
+      ]);
+      rememberFundamentalsFresh(sym, now());
+    }
+
+    const PARAMS = 6;
+    const PER_CHUNK = Math.floor(100 / PARAMS);
+    for (let i = 0; i < rows.length; i += PER_CHUNK) {
+      const chunk = rows.slice(i, i + PER_CHUNK);
+      const values = chunk
+        .map((_, r) => `(${Array.from({ length: PARAMS }, (_, c) => `$${r * PARAMS + c + 1}`).join(', ')})`)
+        .join(', ');
+      await query(
+        `INSERT INTO watchlist_quotes
+           (symbol, market_cap, shares_outstanding, cap_price, short_name, fundamentals_updated_at)
+         VALUES ${values}
+         ON CONFLICT (symbol) DO UPDATE SET
+           market_cap = COALESCE(EXCLUDED.market_cap, watchlist_quotes.market_cap),
+           shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, watchlist_quotes.shares_outstanding),
+           cap_price = CASE WHEN EXCLUDED.market_cap IS NOT NULL THEN EXCLUDED.cap_price ELSE watchlist_quotes.cap_price END,
+           short_name = COALESCE(EXCLUDED.short_name, watchlist_quotes.short_name),
+           fundamentals_updated_at = EXCLUDED.fundamentals_updated_at`,
+        chunk.flat(),
+      );
+      stats.written += chunk.length;
+    }
+  } catch (err) {
+    console.error('[QuoteService] Fundamentals refresh failed (non-fatal):', err);
+  }
+  return stats;
+}
+
 /**
  * THE refresh function - everything goes through here
  * 
@@ -777,6 +913,10 @@ export async function refreshAllPrices(
 
     // Only successful, usable quotes are written. Failed/skipped symbols keep their last mark.
     const changedSymbols = await persistQuotes(quotes, existingMarks);
+
+    // Market cap / shares / names: slow cadence (<= once per symbol per 24h), also fires for a
+    // just-added symbol because it has no fundamentals_updated_at yet.
+    await refreshFundamentalsIfDue(universe, quotes);
 
     lastRefreshAt = new Date().toISOString();
     // Only an error when a symbol has NO price to show at all. Failures for symbols that still

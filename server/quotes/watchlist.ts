@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { query } from '../db.js';
 import { cached } from '../core/isolate-cache.js';
+import { effectiveMarketCap, forgetFundamentals } from './fundamentals.js';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;
 
@@ -134,6 +135,8 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
       week52_high: number | null;
       week52_low: number | null;
       short_name: string | null;
+      shares_outstanding: number | null;
+      cap_price: number | null;
       updated_at: Date | string | null;
     }>(
       `SELECT
@@ -150,6 +153,8 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
          wq.week52_high,
          wq.week52_low,
          wq.short_name,
+         wq.shares_outstanding,
+         wq.cap_price,
          COALESCE(m.updated_at, wq.updated_at) AS updated_at
        FROM watchlist w
        LEFT JOIN marks m ON m.symbol = UPPER(w.symbol)
@@ -182,6 +187,8 @@ function toWatchlistRow(r: {
   week52_high: number | null;
   week52_low: number | null;
   short_name?: string | null;
+  shares_outstanding?: number | null;
+  cap_price?: number | null;
   updated_at: Date | string | null;
 }): WatchlistQuoteRow {
   const updatedAt =
@@ -193,7 +200,13 @@ function toWatchlistRow(r: {
     valChange: r.val_change != null ? Number(r.val_change) : null,
     bid: r.bid != null ? Number(r.bid) : null,
     ask: r.ask != null ? Number(r.ask) : null,
-    marketCap: r.market_cap != null ? Number(r.market_cap) : null,
+    // Stored cap scaled by the live price (moves intraday); falls back to last x shares. See fundamentals.ts.
+    marketCap: effectiveMarketCap({
+      last: r.last != null ? Number(r.last) : null,
+      marketCap: r.market_cap != null ? Number(r.market_cap) : null,
+      capPrice: r.cap_price != null ? Number(r.cap_price) : null,
+      sharesOutstanding: r.shares_outstanding != null ? Number(r.shares_outstanding) : null,
+    }),
     volume: r.volume != null ? Number(r.volume) : null,
     week52High: r.week52_high != null ? Number(r.week52_high) : null,
     week52Low: r.week52_low != null ? Number(r.week52_low) : null,
@@ -310,7 +323,11 @@ export async function addWatchlistSymbol(symbolRaw: string): Promise<WatchlistPa
 
   try {
     // Trigger a refresh for this single symbol using the unified refresh path
-    const { forceRefresh } = await import('./quote-service.js');
+    // The new symbol must be seen as a watchlist member right away (its fundamentals - market cap,
+    // name - are fetched by this same refresh because it has no fundamentals_updated_at yet).
+    forgetFundamentals(symbol);
+    const { forceRefresh, invalidateWatchlistSymbolsCache } = await import('./quote-service.js');
+    invalidateWatchlistSymbolsCache();
     const result = await forceRefresh([symbol]);
     if (result.updated.length > 0) {
       lastWatchlistRefreshAt = result.refreshedAt;

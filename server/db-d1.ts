@@ -134,6 +134,9 @@ export async function ensureSchema(): Promise<void> {
   // Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS never alters an existing
   // table and SQLite has no ADD COLUMN IF NOT EXISTS, so check table_info (migration path only).
   await ensureColumn(db, 'watchlist_quotes', 'short_name', 'TEXT');
+  await ensureColumn(db, 'watchlist_quotes', 'shares_outstanding', 'REAL');
+  await ensureColumn(db, 'watchlist_quotes', 'cap_price', 'REAL');
+  await ensureColumn(db, 'watchlist_quotes', 'fundamentals_updated_at', 'TEXT');
 
   // Seed initial plan rules BEFORE recording the version: if seeding fails, the version stays old
   // and the next isolate retries (the seed is idempotent, see seed-plan-rules.ts).

@@ -29,10 +29,25 @@ const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFin
 /** 1.23T / 45.6B / 789M (3 significant figures); below 1M falls back to a grouped integer. */
 export function fmtMarketCap(n: number | null | undefined): string {
   if (!isNum(n) || n <= 0) return DASH;
-  if (n >= 1e12) return `${(n / 1e12).toFixed(n >= 1e14 ? 0 : n >= 1e13 ? 1 : 2)}T`;
-  if (n >= 1e9) return `${(n / 1e9).toFixed(n >= 1e11 ? 0 : n >= 1e10 ? 1 : 2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e8 ? 0 : n >= 1e7 ? 1 : 2)}M`;
-  return Math.round(n).toLocaleString('en-US');
+  if (n < 1e6) return Math.round(n).toLocaleString('en-US');
+  const units: Array<[number, string]> = [
+    [1e6, 'M'],
+    [1e9, 'B'],
+    [1e12, 'T'],
+  ];
+  let i = n >= 1e12 ? 2 : n >= 1e9 ? 1 : 0;
+  let s = sig3(n / units[i][0]);
+  // 999.6M rounds to "1000" -> promote to the next unit ("1.00B") instead of showing 4 digits.
+  if (Number(s) >= 1000 && i < 2) {
+    i += 1;
+    s = sig3(n / units[i][0]);
+  }
+  return `${s}${units[i][1]}`;
+}
+
+function sig3(v: number): string {
+  const p = v.toPrecision(3);
+  return p.includes('e') ? String(Math.round(Number(p))) : p;
 }
 
 /** Volume: 36.4M / 1.23B / 812K. */

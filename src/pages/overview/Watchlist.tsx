@@ -257,10 +257,11 @@ export function Watchlist(props: WatchlistProps = {}) {
     ['last', 'Last', ''],
     ['valChange', 'Chg $', ''],
     ['pctChange', 'Chg %', ''],
+    // Market cap sits right after Chg % so it is visible without scrolling in the narrow 40% column.
+    ['marketCap', 'Mkt cap', ''],
     ['range', '52w range', 'wl-range-col', 'Position of the last price within the 52-week range'],
     ['week52High', '52w High', ''],
     ['week52Low', '52w Low', ''],
-    ['marketCap', 'Mkt cap', ''],
     ['volume', 'Volume', ''],
   ];
 
@@ -370,12 +371,12 @@ export function Watchlist(props: WatchlistProps = {}) {
                 </td>
                 <td className={pnlClass(r.valChange)}>{fmtSigned(r.valChange)}</td>
                 <td className={pnlClass(r.pctChange)}>{fmtSigned(r.pctChange, 2, '%')}</td>
+                <td className="mono">{fmtMarketCap(r.marketCap)}</td>
                 <td className="wl-range-col">
                   <RangeBar last={r.last} low={r.week52Low} high={r.week52High} />
                 </td>
                 <td className="mono">{fmtPrice(r.week52High)}</td>
                 <td className="mono">{fmtPrice(r.week52Low)}</td>
-                <td className="mono">{fmtMarketCap(r.marketCap)}</td>
                 <td className="mono">{fmtVolume(r.volume)}</td>
                 <td>
                   <button
@@ -410,8 +411,8 @@ export function Watchlist(props: WatchlistProps = {}) {
       </div>
 
       <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
-        Same Yahoo quote as the price marks (no extra calls). Market cap shows — when Yahoo&apos;s chart feed
-        doesn&apos;t include it.
+        Prices, 52-wk range and volume come from the same Yahoo quote as the price marks. Market cap is refreshed
+        about once a day and moves with the live price.
         {lastLabel ? ` · Quotes: ${lastLabel}` : ''}
       </p>
     </div>

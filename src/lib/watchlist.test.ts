@@ -27,6 +27,13 @@ describe('fmtMarketCap', () => {
     expect(fmtMarketCap(5.5e6)).toBe('5.50M');
     expect(fmtMarketCap(12_340_000)).toBe('12.3M');
   });
+  it('promotes the unit when rounding hits 1000', () => {
+    expect(fmtMarketCap(9.996e11)).toBe('1.00T');
+    expect(fmtMarketCap(9.996e8)).toBe('1.00B');
+    expect(fmtMarketCap(1.5e14)).toBe('150T');
+    expect(fmtMarketCap(4.05e12)).toBe('4.05T');
+    expect(fmtMarketCap(999_999)).toBe('999,999');
+  });
   it('dash when unknown / invalid', () => {
     for (const v of [null, undefined, NaN, 0, -5]) expect(fmtMarketCap(v as number)).toBe('—');
   });

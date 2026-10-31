@@ -25,7 +25,7 @@ export function PriceChartCard({
     <div className="card" style={{ height: 320 }}>
       <h3>Recent closes (~3mo)</h3>
       {chartData.length === 0 || chartSymbols.length === 0 ? (
-        <p className="muted">No chart data.</p>
+        <p className="muted empty-state">No chart data.</p>
       ) : (
         <ResponsiveContainer width="100%" height="88%">
           <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

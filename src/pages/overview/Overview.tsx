@@ -10,6 +10,7 @@ import { CsvImport } from './CsvImport';
 import { AlertManager, type AlertManagerRef } from './AlertManager';
 import { PlanVsPrice } from './PlanVsPrice';
 import { TickerLink } from '../../components/TickerLink';
+import { PriceFlash } from '../../components/PriceFlash';
 import { STALE_AFTER_MS, staleAge } from '../../lib/marks';
 import { latestIso } from '../../lib/refreshStamp';
 import { PAPER_SYNCED_EVENT } from '../../lib/pollGate';
@@ -348,7 +349,7 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                         </td>
                         <td className="mono">{fmtQty(p.quantity)}</td>
                         <td className="mono">{fmtMoney(p.avgCost, 4)}</td>
-                        <td className="mono">{fmtMoney(p.markPrice, 4)}</td>
+                        <td className="mono"><PriceFlash value={p.markPrice}>{fmtMoney(p.markPrice, 4)}</PriceFlash></td>
                         <td className={moneyTone("notional")}>{fmtMoney(p.marketValue)}</td>
                         <td className={pnlClass(p.unrealizedPnl)}>{fmtMoney(p.unrealizedPnl)}</td>
                         <td className={pnlClass(p.unrealizedPnlPct)}>{fmtPct(p.unrealizedPnlPct)}</td>

@@ -1,5 +1,5 @@
 import './App.css';
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Charges } from './pages/charges/Charges';
 import { Charts } from './pages/charts/Charts';
 import { Research, type ResearchRef } from './pages/research/Research';
@@ -14,6 +14,9 @@ import { useStore } from './hooks/useStore';
 import { useRefreshScheduler } from './hooks/useRefreshScheduler';
 import { useLiveQuotesToggle } from './hooks/useLiveQuotesToggle';
 import { useMarksStream } from './hooks/useMarksStream';
+import { useSeasonalTheme } from './hooks/useSeasonalTheme';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { NAV } from './app/nav';
 import { Sidebar } from './app/Sidebar';
 import { Topbar } from './app/Topbar';
 import { BootScreen } from './app/StatusScreens';
@@ -46,8 +49,42 @@ export default function App() {
 
   const handleLogout = useCallback(() => logout(), []);
 
+  const { pref: seasonPref, setPref: setSeasonPref, theme: seasonTheme } = useSeasonalTheme();
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  useKeyboardShortcuts((a) => {
+    if (!storeRef.current.ready) return;
+    switch (a.type) {
+      case 'refresh':
+        void handleManualRefresh();
+        break;
+      case 'view': {
+        const target = NAV[a.index];
+        if (target) storeRef.current.setView(target.id);
+        break;
+      }
+      case 'focusSearch': {
+        const el = document.querySelector<HTMLInputElement>('[data-ticker-search]');
+        if (el) {
+          el.focus();
+          el.select();
+        } else {
+          // Watchlist lives on Overview: go there, then focus once it has mounted.
+          storeRef.current.setView('overview');
+          window.setTimeout(() => document.querySelector<HTMLInputElement>('[data-ticker-search]')?.focus(), 80);
+        }
+        break;
+      }
+      case 'help':
+        setHelpOpen((o) => !o);
+        break;
+      case 'escape':
+        break; // popovers close themselves
+    }
+  });
+
   if (!store.ready || !store.settings) {
-    return <BootScreen authError={Boolean(store.authError)} />;
+    return <BootScreen authError={Boolean(store.authError)} error={store.error} onRetry={store.retryBoot} />;
   }
 
   return (
@@ -65,6 +102,11 @@ export default function App() {
           onToggleLive={toggleLiveQuotes}
           onLogout={handleLogout}
           onManualRefresh={handleManualRefresh}
+          seasonPref={seasonPref}
+          seasonTheme={seasonTheme}
+          onSeasonChange={setSeasonPref}
+          helpOpen={helpOpen}
+          onHelpOpenChange={setHelpOpen}
         />
         {store.error && (
           <div className="caveat" role="alert">

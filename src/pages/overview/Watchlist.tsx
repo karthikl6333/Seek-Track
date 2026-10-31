@@ -3,6 +3,7 @@ import { fmtMoney, fmtPct, pnlClass } from '../../lib/format';
 import { mergeWatchlistRows, STALE_AFTER_MS, staleAge } from '../../lib/marks';
 import { checkedAtAfter, latestIso } from '../../lib/refreshStamp';
 import { TickerLink } from '../../components/TickerLink';
+import { PriceFlash } from '../../components/PriceFlash';
 import type { PairDef } from '../../types/index';
 
 import { apiGet, apiSend } from '../../api/http';
@@ -326,6 +327,7 @@ export function Watchlist(props: WatchlistProps = {}) {
               if (e.key === 'Enter') void addSymbol();
             }}
             aria-label="Watchlist ticker"
+            data-ticker-search
             style={{ maxWidth: '70px' }}
           />
           <button
@@ -391,7 +393,7 @@ export function Watchlist(props: WatchlistProps = {}) {
                   <TickerLink symbol={r.symbol} />
                 </td>
                 <td className="mono" title={r.updatedAt ? `Last price update: ${r.updatedAt}` : undefined}>
-                  {fmtMoney(r.last, 2)}
+                  <PriceFlash value={r.last}>{fmtMoney(r.last, 2)}</PriceFlash>
                   {(() => {
                     const age = r.last != null ? staleAge(r.updatedAt, Date.now(), STALE_AFTER_MS) : null;
                     return age ? (

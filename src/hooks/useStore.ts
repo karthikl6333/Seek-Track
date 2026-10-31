@@ -3,6 +3,7 @@ import * as db from '../api/client';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';
+import { viewFromHash } from '../lib/views';
 import type {
   AppSettings,
   CalculatorState,
@@ -25,21 +26,8 @@ const defaultCalc: CalculatorState = {
 
 type CalcSlot = 'A' | 'B';
 
-const VALID_VIEWS: ViewId[] = [
-  'overview',
-  'positions',
-  'trades',
-  'charges',
-  'charts',
-  'research',
-  'paper',
-  'cryptoPaper',
-];
-
 function viewFromLocation(): ViewId {
-  const raw = (window.location.hash || '').replace(/^#\/?/, '').split(/[/?#]/)[0];
-  if (VALID_VIEWS.includes(raw as ViewId)) return raw as ViewId;
-  return 'overview';
+  return viewFromHash(window.location.hash);
 }
 
 function writeViewHash(view: ViewId): void {
@@ -161,7 +149,9 @@ export function useStore() {
     }
   }, [refreshMarks]);
 
-  useEffect(() => {
+  /** Initial load, also used by the boot screen's Retry button (one code path for both). */
+  const retryBoot = useCallback(() => {
+    setError(null);
     refresh().catch((e) => {
       if (e instanceof db.AuthError) {
         // Auth error already handled in refresh()
@@ -170,6 +160,10 @@ export function useStore() {
       setError(String(e));
     });
   }, [refresh]);
+
+  useEffect(() => {
+    retryBoot();
+  }, [retryBoot]);
 
   const analysis: LotEngineResult | null = useMemo(() => {
     if (!settings) return null;
@@ -504,6 +498,7 @@ export function useStore() {
     updateSettings,
     updateNote,
     refresh,
+    retryBoot,
     resolvedPairA,
     resolvedPairB,
     resolveCalcPair,
@@ -517,7 +512,7 @@ export function useStore() {
     settings, journal, view, setView, importResult, setImportResult, analysis,
     calcA, setCalcA, whatIfA, calcB, setCalcB, whatIfB,
     importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, refreshMarks, loadPositionIntoCalc,
-    saveJournal, removeJournal, updateSettings, updateNote, refresh,
+    saveJournal, removeJournal, updateSettings, updateNote, refresh, retryBoot,
     resolvedPairA, resolvedPairB, resolveCalcPair, pairBusyA, pairBusyB,
     toggleHiddenSymbol, hiddenSet, applyMarksUpdate,
   ]);

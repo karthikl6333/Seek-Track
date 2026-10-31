@@ -11,14 +11,16 @@ export function Sidebar({ view, onSelect }: { view: ViewId; onSelect: (id: ViewI
         </div>
         <p>Numbers-first trading ledger</p>
       </div>
-      {NAV.map((n) => (
+      {NAV.map((n, i) => (
         <button
           key={n.id}
           type="button"
           className={`nav-btn${view === n.id ? ' active' : ''}`}
           onClick={() => onSelect(n.id)}
+          aria-current={view === n.id ? 'page' : undefined}
         >
-          {n.label}
+          <span className="nav-label">{n.label}</span>
+          {i < 9 && <kbd className="nav-key" aria-hidden="true">{i + 1}</kbd>}
         </button>
       ))}
     </aside>

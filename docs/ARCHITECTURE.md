@@ -63,4 +63,11 @@ shown blank: the last known mark is kept when a refresh fails or a symbol has no
 - `npm run build:cf`: the above plus `scripts/prepare-cf-pages.js` (Cloudflare Pages bundle in `dist-cf`).
 - `CI=1 npm test -- --run`: Vitest suite (client `src/**` and server `server/**`).
 
+## Appearance and seasonal themes
+
+- `src/lib/seasons.ts` is the pure date→theme resolver (calendar seasons plus Halloween, Diwali, Christmas/New Year and Holi overrides; Diwali/Holi use a dated table for 2026–2030). Themes change accent variables only; `--gain`/`--loss` never change.
+- `src/hooks/useSeasonalTheme.ts` applies the theme to `:root` (`data-season` + accent vars) and persists the Auto / season / Off preference in `localStorage` (`seektrack.seasonTheme`).
+- `src/lib/sessionClock.ts` builds the top-bar market-session pill from `marketHours` (no extra fetches); `src/lib/shortcuts.ts` holds the keyboard map; `src/lib/views.ts` is the single source of valid `#hash` views.
+- Motion (price flash, pill pulse, transitions) is disabled under `prefers-reduced-motion`.
+
 Historic implementation notes live in `docs/notes/`.

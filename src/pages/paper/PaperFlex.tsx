@@ -101,7 +101,7 @@ export function PaperFlex() {
   if (!summary) {
     return (
       <div className="stack">
-        <p className="muted">No FLEX-STK paper trading data available.</p>
+        <p className="muted empty-state">No FLEX-STK paper trading data available.</p>
       </div>
     );
   }
@@ -241,7 +241,7 @@ export function PaperFlex() {
       <div className="card">
         <h3>Open FLEX-STK Positions</h3>
         {positions.length === 0 ? (
-          <p className="muted">No open positions yet. Trading agent will post updates here.</p>
+          <p className="muted empty-state">No open positions yet. Trading agent will post updates here.</p>
         ) : (
           <div className="table-wrap">
             <table className="data">
@@ -275,7 +275,7 @@ export function PaperFlex() {
       <div className="card">
         <h3>Recent Orders &amp; Fills</h3>
         {recentOrders.length === 0 ? (
-          <p className="muted">No orders yet. Trading agent will post updates here.</p>
+          <p className="muted empty-state">No orders yet. Trading agent will post updates here.</p>
         ) : (
           <div className="table-wrap">
             <table className="data">

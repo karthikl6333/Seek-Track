@@ -116,6 +116,10 @@ describe('name validation', () => {
   });
 });
 
+const ALLOWED_CANVAS_LINKS = [
+  'https://cursor.com/canvas/store-a14936a9-4c92-418f-9740-2e7facf80af6/cb74e521-df34-423b-99ce-d3f175e23711',
+];
+
 describe('bundled content (content/ideas)', () => {
   it('every report file parses, slugs are unique, images referenced exist and no link uses /reports', async () => {
     const raw = await readIdeaContentFromDisk();
@@ -126,7 +130,9 @@ describe('bundled content (content/ideas)', () => {
     for (const meta of store.list.filter((i) => i.format === 'markdown')) {
       const body = store.get(meta.slug)!.body;
       expect(body).not.toMatch(/\]\(\/?reports\//);
-      expect(body).not.toMatch(/cursor\.com\/canvas/);
+      // No links to hosted pages, except the one the owner explicitly asked for (safe: report bodies are behind auth).
+      const canvasLinks = [...body.matchAll(/https?:\/\/[^\s)]*cursor\.com\/canvas[^\s)]*/g)].map((m) => m[0]);
+      expect(canvasLinks.filter((u) => !ALLOWED_CANVAS_LINKS.includes(u)), meta.slug).toEqual([]);
       for (const m of body.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)) {
         if (/^https?:\/\//.test(m[1])) continue;
         const r = /^assets\/([a-z0-9-]+)\/([^/]+)$/.exec(m[1]);

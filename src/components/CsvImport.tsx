@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ImportResult } from '../types';
+import type { ImportResult } from '../types/index';
 
 interface Props {
   onImport: (text: string, overrideManual: boolean) => Promise<ImportResult>;

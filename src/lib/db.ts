@@ -7,7 +7,7 @@ import type {
   PairDef,
   PairResolveResult,
   Trade,
-} from '../types';
+} from '../types/index';
 import { DEFAULT_SETTINGS } from './pairs';
 
 // Build API base URL without credentials (avoid "Request cannot be constructed from a URL that includes credentials")
@@ -174,8 +174,8 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   });
 }
 
-export async function loadPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types').PaperSummary> {
-  return api<import('../types').PaperSummary>(`/api/paper${freshQs(opts?.fresh)}`);
+export async function loadPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types/index').PaperSummary> {
+  return api<import('../types/index').PaperSummary>(`/api/paper${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshPaperData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {
@@ -184,8 +184,8 @@ export async function refreshPaperData(): Promise<{ ok: boolean; error?: string;
   });
 }
 
-export async function loadCryptoPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types').CryptoPaperSummary> {
-  return api<import('../types').CryptoPaperSummary>(`/api/crypto-paper${freshQs(opts?.fresh)}`);
+export async function loadCryptoPaperSummary(opts?: { fresh?: boolean }): Promise<import('../types/index').CryptoPaperSummary> {
+  return api<import('../types/index').CryptoPaperSummary>(`/api/crypto-paper${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshCryptoPaperLivePnl(): Promise<{
@@ -201,8 +201,8 @@ export async function refreshCryptoPaperLivePnl(): Promise<{
   });
 }
 
-export async function loadPaperFlexSummary(opts?: { fresh?: boolean }): Promise<import('../types').PaperFlexSummary> {
-  return api<import('../types').PaperFlexSummary>(`/api/paper-flex${freshQs(opts?.fresh)}`);
+export async function loadPaperFlexSummary(opts?: { fresh?: boolean }): Promise<import('../types/index').PaperFlexSummary> {
+  return api<import('../types/index').PaperFlexSummary>(`/api/paper-flex${freshQs(opts?.fresh)}`);
 }
 
 export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: string; refreshedAt?: string }> {
@@ -211,7 +211,7 @@ export async function refreshPaperFlexData(): Promise<{ ok: boolean; error?: str
   });
 }
 
-export async function loadAlerts(): Promise<{ alerts: import('../types').PriceAlert[] }> {
+export async function loadAlerts(): Promise<{ alerts: import('../types/index').PriceAlert[] }> {
   return api('/api/alerts');
 }
 
@@ -219,7 +219,7 @@ export async function createAlert(input: {
   symbol: string;
   targetPrice: number;
   condition: 'above' | 'below';
-}): Promise<{ alert: import('../types').PriceAlert }> {
+}): Promise<{ alert: import('../types/index').PriceAlert }> {
   return api('/api/alerts', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -253,19 +253,19 @@ export async function loadWatchlistSymbols(): Promise<string[]> {
     .filter((s) => s.length > 0 && s !== 'TEST');
 }
 
-export async function loadPlanRules(account?: import('../types').PlanRuleAccount): Promise<{ rules: import('../types').PlanRule[] }> {
+export async function loadPlanRules(account?: import('../types/index').PlanRuleAccount): Promise<{ rules: import('../types/index').PlanRule[] }> {
   const qs = account ? `?account=${encodeURIComponent(account)}` : '';
   return api(`/api/plan-rules${qs}`);
 }
 
 export async function createPlanRule(input: {
   symbol: string;
-  account?: import('../types').PlanRuleAccount;
-  ruleType: import('../types').PlanRuleType;
+  account?: import('../types/index').PlanRuleAccount;
+  ruleType: import('../types/index').PlanRuleType;
   priceLevel?: number | null;
   deadlineDate?: string | null;
   note?: string | null;
-}): Promise<{ rule: import('../types').PlanRule }> {
+}): Promise<{ rule: import('../types/index').PlanRule }> {
   return api('/api/plan-rules', {
     method: 'POST',
     body: JSON.stringify(input),

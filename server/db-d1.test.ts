@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { convertQueryForD1 } from './db-d1.js';
-import { cursorWithLookback, INCREMENTAL_OVERLAP_MS } from './quotes.js';
+import { cursorWithLookback, INCREMENTAL_OVERLAP_MS } from './quotes/quotes.js';
 
 describe('convertQueryForD1', () => {
   it('binds ANY($N) arrays as one JSON param without renumbering later params', () => {

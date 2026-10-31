@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { randomUUID } from 'node:crypto';
-import { query } from './db.js';
+import { query } from '../db.js';
 
 interface JournalRow {
   id: string;

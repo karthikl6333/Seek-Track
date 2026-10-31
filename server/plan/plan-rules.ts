@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { query } from './db.js';
+import { query } from '../db.js';
 import { randomUUID } from 'node:crypto';
 
 const SYMBOL_RE = /^[A-Za-z0-9.\-]{1,12}$/;

@@ -16,8 +16,8 @@ import {
   noteWriteSql,
   writtenTables,
 } from './isolate-cache.js';
-import { query, readCacheRuleFor, setD1Database } from './db.js';
-import { __resetSchemaStateForTests, convertQueryForD1, ensureSchema, SCHEMA_VERSION } from './db-d1.js';
+import { query, readCacheRuleFor, setD1Database } from '../db.js';
+import { __resetSchemaStateForTests, convertQueryForD1, ensureSchema, SCHEMA_VERSION } from '../db-d1.js';
 import {
   createDeltaCursor,
   cursorWithLookback,
@@ -28,7 +28,7 @@ import {
   parseSinceCursor,
   pruneSent,
   type MarkInfo,
-} from './quotes.js';
+} from '../quotes/quotes.js';
 import {
   __resetReadBudgetForTests,
   formatSummary,
@@ -36,10 +36,10 @@ import {
   routeKey,
   withRequestBudget,
 } from './read-budget.js';
-import { STREAM_TICK_MS, streamTickMs } from './quote-stream.js';
+import { STREAM_TICK_MS, streamTickMs } from '../quotes/quote-stream.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, 'schema-d1.sql'), 'utf8');
+const schemaSql = readFileSync(join(here, '..', 'schema-d1.sql'), 'utf8');
 
 // ---------------------------------------------------------------------------------------------
 // D1-shaped binding over sql.js (auto-commit per statement, batch = one transaction).

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const marks = new Map<string, { price: number; day_pct: number | null; session: string | null }>();
 const statements: Array<{ sql: string; params: unknown[] }> = [];
 
-vi.mock('./db.js', () => ({
+vi.mock('../db.js', () => ({
   query: vi.fn(async (sql: string, params: unknown[] = []) => {
     statements.push({ sql, params });
     if (/FROM marks WHERE symbol IN/i.test(sql)) {

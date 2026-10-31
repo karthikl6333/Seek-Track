@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { MarkInfo } from '../types';
+import type { MarkInfo } from '../types/index';
 import { latestIso, newestMarkStamp } from '../lib/refreshStamp';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';

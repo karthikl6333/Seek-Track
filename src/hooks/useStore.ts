@@ -13,7 +13,7 @@ import type {
   PairResolveResult,
   Trade,
   ViewId,
-} from '../types';
+} from '../types/index';
 
 const defaultCalc: CalculatorState = {
   symbol: '',
@@ -138,7 +138,7 @@ export function useStore() {
         db.loadAllTrades({ fresh: opts?.fresh }),
         db.loadSettings({ fresh: opts?.fresh }),
         db.loadJournal(),
-        db.listPairCache({ fresh: opts?.fresh }).catch(() => ({ pairs: [] as import('../types').PairDef[] })),
+        db.listPairCache({ fresh: opts?.fresh }).catch(() => ({ pairs: [] as import('../types/index').PairDef[] })),
       ]);
       setTrades(t);
       // Merge pair_cache into settings.pairs so CrossCheck is not limited to seeds

@@ -7,7 +7,7 @@
  * - Uses notification log to track last notification date per rule/event
  */
 
-import { query } from './db.js';
+import { query } from '../db.js';
 import { listPlanRules, type PlanRule } from './plan-rules.js';
 
 interface NotificationEvent {

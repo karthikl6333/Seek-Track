@@ -1,4 +1,4 @@
-import type { OpenLot, SymbolPosition, ThemeDef, ThemeSummary, Trade } from '../types';
+import type { OpenLot, SymbolPosition, ThemeDef, ThemeSummary, Trade } from '../types/index';
 import { themeForSymbol } from './pairs';
 
 /** Cancel / Canceled / Cancelled — must not open or close lots. */

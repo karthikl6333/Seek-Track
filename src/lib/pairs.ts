@@ -1,4 +1,4 @@
-import type { AppSettings, PairDef, ThemeDef } from '../types';
+import type { AppSettings, PairDef, ThemeDef } from '../types/index';
 
 /** Seed/cache defaults only — not an exclusive allow-list. Server pair_cache grows via Resolve. */
 export const DEFAULT_PAIRS: PairDef[] = [

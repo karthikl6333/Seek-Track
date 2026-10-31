@@ -7,14 +7,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { setD1Database } from './db.js';
-import { __resetSchemaStateForTests, ensureSchema } from './db-d1.js';
+import { setD1Database } from '../db.js';
+import { __resetSchemaStateForTests, ensureSchema } from '../db-d1.js';
 import { __resetIsolateCacheForTests } from './isolate-cache.js';
 import { SCHEMA_SHA256, SCHEMA_VERSION } from './schema-version.js';
-import { SEED_RULES, seedPlanRules, seedRuleId } from './seed-plan-rules.js';
+import { SEED_RULES, seedPlanRules, seedRuleId } from '../plan/seed-plan-rules.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const schemaText = readFileSync(join(here, 'schema-d1.sql'), 'utf8');
+const schemaText = readFileSync(join(here, '..', 'schema-d1.sql'), 'utf8');
 /** Exact schema shipped in #86 (prod is at v2 with this). */
 const schemaV2 = readFileSync(join(here, 'fixtures', 'schema-d1.v2.sql'), 'utf8');
 

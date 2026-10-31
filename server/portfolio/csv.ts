@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { hashTradeRow } from './hash.js';
+import { hashTradeRow } from '../core/hash.js';
 
 export interface Trade {
   id: string;

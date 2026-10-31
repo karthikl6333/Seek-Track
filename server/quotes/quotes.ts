@@ -3,8 +3,8 @@
  * Keeps only handlers and utilities needed by legacy code
  */
 import type { Context } from 'hono';
-import { query } from './db.js';
-import { cached } from './isolate-cache.js';
+import { query } from '../db.js';
+import { cached } from '../core/isolate-cache.js';
 import { forceRefresh, getQuoteServiceStatus, getSymbolUniverse, markActivity } from './quote-service.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';

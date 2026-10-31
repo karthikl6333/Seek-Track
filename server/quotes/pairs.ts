@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { query } from './db.js';
+import { query } from '../db.js';
 import { fetchYahooMeta } from './quotes.js';
 
 export interface PairDef {

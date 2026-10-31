@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { query, setD1Database } from './db.js';
+import { query, setD1Database } from '../db.js';
 import { refreshPaperFromAlpaca } from './paper.js';
 import { refreshCryptoPaperLivePnl } from './crypto-paper.js';
 import { refreshPaperFlexFromAlpaca, upsertPaperFlexPositions } from './paper-flex.js';
@@ -21,7 +21,7 @@ import {
 } from './positions-sync.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, 'schema-d1.sql'), 'utf8');
+const schemaSql = readFileSync(join(here, '..', 'schema-d1.sql'), 'utf8');
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 let sqlite: Database;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PlanRule, PlanRuleType, SymbolPosition } from '../types';
+import type { PlanRule, PlanRuleType, SymbolPosition } from '../types/index';
 import { loadPlanRules, createPlanRule, updatePlanRule, deletePlanRule } from '../lib/db';
 import { fmtMoney, fmtPct } from '../lib/format';
 

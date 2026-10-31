@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
-import { query } from './db.js';
-import { fetchYahooMeta, upsertMark } from './quotes.js';
-import { parseLeverageFromName, guessUnderlying } from './pairs.js';
+import { query } from '../db.js';
+import { fetchYahooMeta, upsertMark } from '../quotes/quotes.js';
+import { parseLeverageFromName, guessUnderlying } from '../quotes/pairs.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT =
@@ -894,7 +894,7 @@ export async function refreshResearchQuotes(): Promise<{
     await researchRefreshInFlight;
   }
 
-  const { forceRefresh } = await import('./quote-service.js');
+  const { forceRefresh } = await import('../quotes/quote-service.js');
 
   const run = (async () => {
     await ensureResearchSeeded();
@@ -929,7 +929,7 @@ export async function refreshQuotesForSymbols(symbols: string[]): Promise<{
   failed: string[];
   refreshedAt: string;
 }> {
-  const { forceRefresh } = await import('./quote-service.js');
+  const { forceRefresh } = await import('../quotes/quote-service.js');
   const result = await forceRefresh(symbols);
   if (result.updated.length) lastResearchRefreshAt = result.refreshedAt;
   return {

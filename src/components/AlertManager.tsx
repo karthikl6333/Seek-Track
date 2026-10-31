@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
-import type { PriceAlert } from '../types';
+import type { PriceAlert } from '../types/index';
 import { loadAlerts, createAlert, deleteAlert } from '../lib/db';
 import { fmtMoney } from '../lib/format';
 

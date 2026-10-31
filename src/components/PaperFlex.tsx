@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
 import { loadPaperFlexSummary, refreshPaperFlexData } from '../lib/db';
-import type { PaperFlexSummary } from '../types';
+import type { PaperFlexSummary } from '../types/index';
 import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
 export function PaperFlex() {

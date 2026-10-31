@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { query } from './db.js';
+import { query } from '../db.js';
 import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
 
 export interface PaperState {

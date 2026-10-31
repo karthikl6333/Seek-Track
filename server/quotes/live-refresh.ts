@@ -10,7 +10,7 @@
 
 import type { Context } from 'hono';
 import { forceRefresh, markActivity } from './quote-service.js';
-import { query } from './db.js';
+import { query } from '../db.js';
 
 const LIVE_REFRESH_INTERVAL_MS = 3_000; // 3 seconds
 const MAX_SYMBOLS_PER_REFRESH = 40; // CF subrequest limit safety

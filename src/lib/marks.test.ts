@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { flattenMarks, mergeMarkDetails, mergeWatchlistRows, staleAge } from './marks';
-import type { MarkInfo } from '../types';
+import type { MarkInfo } from '../types/index';
 
 const m = (symbol: string, price: number, updatedAt: string, dayPct = 1): MarkInfo => ({
   symbol,

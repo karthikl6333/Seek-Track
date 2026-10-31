@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PAPER_SYNCED_EVENT } from '../lib/pollGate';
 import { loadCryptoPaperSummary, refreshCryptoPaperLivePnl } from '../lib/db';
-import type { CryptoPaperSummary } from '../types';
+import type { CryptoPaperSummary } from '../types/index';
 import { fmtMoney, fmtRatioPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 
 export function CryptoPaper() {

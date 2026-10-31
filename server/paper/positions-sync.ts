@@ -14,7 +14,7 @@
  *  3. All statements go in ONE db.batch() call, which D1 runs as a single transaction.
  *     Concurrent refreshes therefore serialize and the result is the same whichever runs last.
  */
-import { batch as dbBatch } from './db.js';
+import { batch as dbBatch } from '../db.js';
 
 export const POSITION_TABLES = ['paper_positions', 'crypto_paper_positions', 'paper_flex_positions'] as const;
 export type PositionTable = (typeof POSITION_TABLES)[number];

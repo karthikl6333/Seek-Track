@@ -15,8 +15,8 @@
  * - Multiple refresh entry points (research.ts, watchlist.ts now delegate here)
  */
 
-import { cached } from './isolate-cache.js';
-import { query } from './db.js';
+import { cached } from '../core/isolate-cache.js';
+import { query } from '../db.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT = 'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
@@ -793,7 +793,7 @@ export async function refreshAllPrices(
 
       // Evaluate plan rule notifications (near/hit events for changed prices)
       try {
-        const { evaluatePlanRuleNotifications } = await import('./plan-rule-notifications.js');
+        const { evaluatePlanRuleNotifications } = await import('../plan/plan-rule-notifications.js');
         const planResult = await evaluatePlanRuleNotifications();
         if (planResult.notified > 0) {
           console.log(`[QuoteService] Sent ${planResult.notified} plan rule notifications`);

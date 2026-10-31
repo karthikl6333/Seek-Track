@@ -3,7 +3,7 @@ import type { Store } from '../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../lib/format';
 import { summarizeCharges } from '../lib/charges';
 import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../lib/db';
-import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../types';
+import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../types/index';
 import { Watchlist, type WatchlistRef } from './Watchlist';
 import { Calculator } from './Calculator';
 import { CsvImport } from './CsvImport';

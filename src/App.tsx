@@ -22,7 +22,7 @@ import {
 } from './lib/marketHours';
 import { refreshSucceeded } from './lib/refreshStamp';
 import { createThrottle, createTtlValue, PAPER_SYNCED_EVENT, paperSyncTargets, type PaperBook } from './lib/pollGate';
-import type { ViewId } from './types';
+import type { ViewId } from './types/index';
 import { getQuoteUniverse, refreshPaperData, refreshCryptoPaperLivePnl, refreshPaperFlexData, loadWatchlistSymbols } from './lib/db';
 import type { WatchlistRef } from './components/Watchlist';
 import type { ResearchRef } from './components/Research';

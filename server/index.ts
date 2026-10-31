@@ -1,27 +1,27 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { createAuthMiddleware } from './auth.js';
+import { createAuthMiddleware } from './core/auth.js';
 import { ensureSchema, query } from './db.js';
-import { routeKey, withRequestBudget } from './read-budget.js';
-import { deleteJournal, listJournal, postJournal } from './journal.js';
+import { routeKey, withRequestBudget } from './core/read-budget.js';
+import { deleteJournal, listJournal, postJournal } from './portfolio/journal.js';
 import {
   ensureSeedPairsCached,
   listPairsHandler,
   putPairOverrideHandler,
   resolvePairHandler,
-} from './pairs.js';
+} from './quotes/pairs.js';
 import {
   getMarksHandler,
   putMarksHandler,
   getUniverseHandler,
   refreshQuotesHandler,
-} from './quotes.js';
-import { handleQuoteStream } from './quote-stream.js';
-import { handleLiveRefresh } from './live-refresh.js';
+} from './quotes/quotes.js';
+import { handleQuoteStream } from './quotes/quote-stream.js';
+import { handleLiveRefresh } from './quotes/live-refresh.js';
 import {
   startQuoteServiceLoop,
   stopQuoteServiceLoop,
-} from './quote-service.js';
+} from './quotes/quote-service.js';
 import {
   deleteResearchUniverseHandler,
   ensureResearchSeeded,
@@ -31,21 +31,21 @@ import {
   postResearchUniverseHandler,
   putResearchUniverseReorderHandler,
   startResearchRefreshCron,
-} from './research.js';
+} from './research/research.js';
 import {
   deleteWatchlistHandler,
   ensureWatchlistSeeded,
   getWatchlistHandler,
   postWatchlistHandler,
   postWatchlistRefreshHandler,
-} from './watchlist.js';
-import { getSettings, putSettings } from './settings.js';
+} from './quotes/watchlist.js';
+import { getSettings, putSettings } from './portfolio/settings.js';
 import {
   importCsvHandler,
   listTrades,
   patchTrade,
   postTrades,
-} from './trades.js';
+} from './portfolio/trades.js';
 import {
   getPaperSummary,
   postPaperJournal,
@@ -53,7 +53,7 @@ import {
   upsertPaperOrders,
   upsertPaperPositions,
   upsertPaperState,
-} from './paper.js';
+} from './paper/paper.js';
 import {
   getCryptoPaperSummary,
   postCryptoPaperJournal,
@@ -61,7 +61,7 @@ import {
   upsertCryptoPaperOrders,
   upsertCryptoPaperPositions,
   upsertCryptoPaperState,
-} from './crypto-paper.js';
+} from './paper/crypto-paper.js';
 import {
   getPaperFlexSummary,
   postPaperFlexJournal,
@@ -69,19 +69,19 @@ import {
   upsertPaperFlexOrders,
   upsertPaperFlexPositions,
   upsertPaperFlexState,
-} from './paper-flex.js';
+} from './paper/paper-flex.js';
 import {
   getAlertsHandler,
   postAlertsHandler,
   deleteAlertHandler,
   postEvaluateAlertsHandler,
-} from './alerts.js';
+} from './quotes/alerts.js';
 import {
   getPlanRulesHandler,
   postPlanRulesHandler,
   patchPlanRuleHandler,
   deletePlanRuleHandler,
-} from './plan-rules.js';
+} from './plan/plan-rules.js';
 
 const app = new Hono();
 

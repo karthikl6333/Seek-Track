@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
-import { query } from './db.js';
+import { query } from '../db.js';
 import { alpacaToPositionRow, replacePositions } from './positions-sync.js';
 
-export interface CryptoPaperState {
+export interface PaperFlexState {
   equity: number;
   cash: number;
   buyingPower: number;
@@ -16,7 +16,7 @@ export interface CryptoPaperState {
   updatedAt: string;
 }
 
-export interface CryptoPaperPosition {
+export interface PaperFlexPosition {
   symbol: string;
   quantity: number;
   avgPrice: number;
@@ -26,7 +26,7 @@ export interface CryptoPaperPosition {
   updatedAt: string;
 }
 
-export interface CryptoPaperOrder {
+export interface PaperFlexOrder {
   id: string;
   symbol: string;
   side: string;
@@ -38,18 +38,18 @@ export interface CryptoPaperOrder {
   filledAt: string | null;
 }
 
-export interface CryptoPaperJournalEntry {
+export interface PaperFlexJournalEntry {
   id: string;
   symbol: string | null;
   note: string;
   createdAt: string;
 }
 
-export interface CryptoPaperSummary {
-  state: CryptoPaperState;
-  positions: CryptoPaperPosition[];
-  recentOrders: CryptoPaperOrder[];
-  journalEntries: CryptoPaperJournalEntry[];
+export interface PaperFlexSummary {
+  state: PaperFlexState;
+  positions: PaperFlexPosition[];
+  recentOrders: PaperFlexOrder[];
+  journalEntries: PaperFlexJournalEntry[];
   scoreboard: {
     totalPnl: number;
     tradeCount: number;
@@ -66,7 +66,7 @@ function toCamelCase<T extends Record<string, any>>(row: Record<string, any>): T
   return result as T;
 }
 
-export async function getCryptoPaperSummary(c: Context) {
+export async function getPaperFlexSummary(c: Context) {
   const stateRes = await query<{
     equity: number;
     cash: number;
@@ -79,7 +79,7 @@ export async function getCryptoPaperSummary(c: Context) {
     mandate_end: string;
     strategy_note: string;
     updated_at: string;
-  }>(`SELECT * FROM crypto_paper_state WHERE id = 1`);
+  }>(`SELECT * FROM paper_flex_state WHERE id = 1`);
 
   const positionsRes = await query<{
     symbol: string;
@@ -89,7 +89,7 @@ export async function getCryptoPaperSummary(c: Context) {
     unrealized_pnl: number | null;
     theme: string;
     updated_at: string;
-  }>(`SELECT * FROM crypto_paper_positions ORDER BY symbol ASC`);
+  }>(`SELECT * FROM paper_flex_positions ORDER BY symbol ASC`);
 
   const ordersRes = await query<{
     id: string;
@@ -101,16 +101,16 @@ export async function getCryptoPaperSummary(c: Context) {
     status: string;
     created_at: string;
     filled_at: string | null;
-  }>(`SELECT * FROM crypto_paper_orders ORDER BY created_at DESC LIMIT 20`);
+  }>(`SELECT * FROM paper_flex_orders ORDER BY created_at DESC LIMIT 20`);
 
   const journalRes = await query<{
     id: string;
     symbol: string | null;
     note: string;
     created_at: string;
-  }>(`SELECT * FROM crypto_paper_journal ORDER BY created_at DESC LIMIT 20`);
+  }>(`SELECT * FROM paper_flex_journal ORDER BY created_at DESC LIMIT 20`);
 
-  const state: CryptoPaperState = stateRes.rows[0]
+  const state: PaperFlexState = stateRes.rows[0]
     ? toCamelCase(stateRes.rows[0])
     : {
         equity: 0,
@@ -118,22 +118,18 @@ export async function getCryptoPaperSummary(c: Context) {
         buyingPower: 0,
         dayPnl: 0,
         weekPnl: 0,
-        t0Equity: 149953,
+        t0Equity: 200000,
         status: 'idle',
         mandateStart: '2026-09-08',
         mandateEnd: '2026-09-12',
-        strategyNote: 'Crypto-only paper trading',
+        strategyNote: 'FLEX-STK / A1 ORB-DAY-ETF',
         updatedAt: new Date().toISOString(),
       };
 
-  const positions: CryptoPaperPosition[] = positionsRes.rows.map((r) =>
-    toCamelCase<CryptoPaperPosition>(r),
-  );
-  const recentOrders: CryptoPaperOrder[] = ordersRes.rows.map((r) =>
-    toCamelCase<CryptoPaperOrder>(r),
-  );
-  const journalEntries: CryptoPaperJournalEntry[] = journalRes.rows.map((r) =>
-    toCamelCase<CryptoPaperJournalEntry>(r),
+  const positions: PaperFlexPosition[] = positionsRes.rows.map((r) => toCamelCase<PaperFlexPosition>(r));
+  const recentOrders: PaperFlexOrder[] = ordersRes.rows.map((r) => toCamelCase<PaperFlexOrder>(r));
+  const journalEntries: PaperFlexJournalEntry[] = journalRes.rows.map((r) =>
+    toCamelCase<PaperFlexJournalEntry>(r),
   );
 
   const filledOrders = recentOrders.filter((o) => o.status === 'filled');
@@ -146,7 +142,7 @@ export async function getCryptoPaperSummary(c: Context) {
 
   const totalPnl = state.equity - state.t0Equity;
 
-  const summary: CryptoPaperSummary = {
+  const summary: PaperFlexSummary = {
     state,
     positions,
     recentOrders,
@@ -161,7 +157,7 @@ export async function getCryptoPaperSummary(c: Context) {
   return c.json(summary);
 }
 
-export async function upsertCryptoPaperState(c: Context) {
+export async function upsertPaperFlexState(c: Context) {
   const body = await c.req.json();
   const {
     equity,
@@ -176,7 +172,7 @@ export async function upsertCryptoPaperState(c: Context) {
   } = body;
 
   await query(
-    `INSERT INTO crypto_paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, updated_at)
+    `INSERT INTO paper_flex_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, updated_at)
      VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
      ON CONFLICT (id) DO UPDATE SET
        equity = EXCLUDED.equity,
@@ -195,7 +191,7 @@ export async function upsertCryptoPaperState(c: Context) {
   return c.json({ ok: true });
 }
 
-export async function upsertCryptoPaperPositions(c: Context) {
+export async function upsertPaperFlexPositions(c: Context) {
   const body = await c.req.json();
   const positions = body.positions as {
     symbol: string;
@@ -208,7 +204,7 @@ export async function upsertCryptoPaperPositions(c: Context) {
 
   // Atomic replace (one D1 batch): upsert current rows, delete only symbols no longer present.
   await replacePositions(
-    'crypto_paper_positions',
+    'paper_flex_positions',
     (Array.isArray(positions) ? positions : []).map((pos) => ({
       symbol: pos.symbol,
       quantity: pos.quantity,
@@ -222,7 +218,7 @@ export async function upsertCryptoPaperPositions(c: Context) {
   return c.json({ ok: true });
 }
 
-export async function upsertCryptoPaperOrders(c: Context) {
+export async function upsertPaperFlexOrders(c: Context) {
   const body = await c.req.json();
   const orders = body.orders as {
     id: string;
@@ -238,7 +234,7 @@ export async function upsertCryptoPaperOrders(c: Context) {
 
   for (const order of orders) {
     await query(
-      `INSERT INTO crypto_paper_orders (id, symbol, side, quantity, filled_qty, avg_fill_price, status, created_at, filled_at)
+      `INSERT INTO paper_flex_orders (id, symbol, side, quantity, filled_qty, avg_fill_price, status, created_at, filled_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE SET
          filled_qty = EXCLUDED.filled_qty,
@@ -262,12 +258,12 @@ export async function upsertCryptoPaperOrders(c: Context) {
   return c.json({ ok: true });
 }
 
-export async function postCryptoPaperJournal(c: Context) {
+export async function postPaperFlexJournal(c: Context) {
   const body = await c.req.json();
   const { id, symbol, note } = body;
 
   await query(
-    `INSERT INTO crypto_paper_journal (id, symbol, note, created_at)
+    `INSERT INTO paper_flex_journal (id, symbol, note, created_at)
      VALUES ($1, $2, $3, NOW())
      ON CONFLICT (id) DO UPDATE SET
        symbol = EXCLUDED.symbol,
@@ -278,84 +274,113 @@ export async function postCryptoPaperJournal(c: Context) {
   return c.json({ ok: true });
 }
 
-export async function refreshCryptoPaperLivePnl(c: Context) {
-  const alpacaApiKey = process.env.ALPACA_CRYPTO_API_KEY;
-  const alpacaSecretKey = process.env.ALPACA_CRYPTO_SECRET_KEY;
+interface AlpacaAccount {
+  equity: string;
+  cash: string;
+  buying_power: string;
+  portfolio_value: string;
+  long_market_value?: string;
+  short_market_value?: string;
+  last_equity?: string;
+}
 
-  if (!alpacaApiKey || !alpacaSecretKey) {
+interface AlpacaPosition {
+  symbol: string;
+  qty: string;
+  avg_entry_price: string;
+  market_value: string;
+  unrealized_pl: string;
+  side: string;
+}
+
+export async function refreshPaperFlexFromAlpaca(c: Context) {
+  const apiKey = process.env.ALPACA_FLEX_API_KEY;
+  const apiSecret = process.env.ALPACA_FLEX_SECRET_KEY;
+
+  if (!apiKey || !apiSecret) {
     return c.json(
       {
         ok: false,
-        error: 'ALPACA_CRYPTO_API_KEY and ALPACA_CRYPTO_SECRET_KEY environment variables required',
+        error:
+          'Alpaca FLEX API credentials not configured. Set ALPACA_FLEX_API_KEY and ALPACA_FLEX_SECRET_KEY environment variables.',
       },
-      500,
+      503,
     );
   }
 
-  const alpacaPaperUrl = 'https://paper-api.alpaca.markets';
+  const PAPER_API_BASE = 'https://paper-api.alpaca.markets';
 
   try {
-    const accountRes = await fetch(`${alpacaPaperUrl}/v2/account`, {
+    const accountRes = await fetch(`${PAPER_API_BASE}/v2/account`, {
       headers: {
-        'APCA-API-KEY-ID': alpacaApiKey,
-        'APCA-API-SECRET-KEY': alpacaSecretKey,
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
       },
     });
 
     if (!accountRes.ok) {
-      const errorText = await accountRes.text();
+      const errText = await accountRes.text().catch(() => '');
       return c.json(
         {
           ok: false,
-          error: `Alpaca API error: ${accountRes.status} ${errorText}`,
+          error: `Alpaca API error (${accountRes.status}): ${errText || accountRes.statusText}`,
         },
-        500,
+        502,
       );
     }
 
-    const account = await accountRes.json();
+    const account = (await accountRes.json()) as AlpacaAccount;
 
-    const positionsRes = await fetch(`${alpacaPaperUrl}/v2/positions`, {
+    const positionsRes = await fetch(`${PAPER_API_BASE}/v2/positions`, {
       headers: {
-        'APCA-API-KEY-ID': alpacaApiKey,
-        'APCA-API-SECRET-KEY': alpacaSecretKey,
+        'APCA-API-KEY-ID': apiKey,
+        'APCA-API-SECRET-KEY': apiSecret,
       },
     });
 
     if (!positionsRes.ok) {
-      const errorText = await positionsRes.text();
+      const errText = await positionsRes.text().catch(() => '');
       return c.json(
         {
           ok: false,
-          error: `Alpaca positions API error: ${positionsRes.status} ${errorText}`,
+          error: `Alpaca positions API error (${positionsRes.status}): ${errText || positionsRes.statusText}`,
         },
-        500,
+        502,
       );
     }
 
-    const positions = await positionsRes.json();
-
-    const equity = parseFloat(String((account as any).equity || '0'));
-    const cash = parseFloat(String((account as any).cash || '0'));
-    const buyingPower = parseFloat(String((account as any).buying_power || '0'));
+    const positions = (await positionsRes.json()) as AlpacaPosition[];
 
     const existingStateRes = await query<{
-      day_pnl: number;
-      week_pnl: number;
       status: string;
       mandate_start: string;
       mandate_end: string;
       strategy_note: string;
       t0_equity: number;
-    }>(`SELECT day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity FROM crypto_paper_state WHERE id = 1`);
+    }>(`SELECT status, mandate_start, mandate_end, strategy_note, t0_equity FROM paper_flex_state WHERE id = 1`);
 
-    const existingState = existingStateRes.rows[0];
-    const dayPnl = parseFloat(String((account as any).equity)) - parseFloat(String((account as any).last_equity || (account as any).equity));
-    const weekPnl = existingState?.week_pnl || 0;
-    const t0Equity = existingState?.t0_equity || 149953;
+    const existingState = existingStateRes.rows[0] || {
+      status: 'active',
+      mandate_start: '2026-09-08',
+      mandate_end: '2026-09-12',
+      strategy_note: 'FLEX-STK / A1 ORB-DAY-ETF',
+      t0_equity: 200000,
+    };
+
+    const equity = parseFloat(account.equity);
+    const cash = parseFloat(account.cash);
+    const buyingPower = parseFloat(account.buying_power);
+
+    const lastEquity = account.last_equity ? parseFloat(account.last_equity) : equity;
+    const dayPnl = equity - lastEquity;
+
+    const weekPnlRes = await query<{ week_pnl: number }>(
+      `SELECT week_pnl FROM paper_flex_state WHERE id = 1`,
+    );
+    const weekPnl = weekPnlRes.rows[0]?.week_pnl ?? 0;
 
     await query(
-      `INSERT INTO crypto_paper_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity, updated_at)
+      `INSERT INTO paper_flex_state (id, equity, cash, buying_power, day_pnl, week_pnl, status, mandate_start, mandate_end, strategy_note, t0_equity, updated_at)
        VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          equity = EXCLUDED.equity,
@@ -369,34 +394,55 @@ export async function refreshCryptoPaperLivePnl(c: Context) {
         buyingPower,
         dayPnl,
         weekPnl,
-        existingState?.status || 'active',
-        existingState?.mandate_start || '2026-09-08',
-        existingState?.mandate_end || '2026-09-12',
-        existingState?.strategy_note || 'Crypto-only paper trading',
-        t0Equity,
+        existingState.status,
+        existingState.mandate_start,
+        existingState.mandate_end,
+        existingState.strategy_note,
+        existingState.t0_equity,
       ],
     );
 
-    // Atomic replace in ONE D1 batch (see positions-sync.ts).
+    const settingsRes = await query<{ data: any }>(
+      `SELECT data FROM settings WHERE id = 1`
+    );
+    // D1 stores settings.data as JSON TEXT (Postgres JSONB came back as an object)
+    const rawSettings = settingsRes.rows[0]?.data;
+    let settings: any = rawSettings;
+    if (typeof rawSettings === 'string') {
+      try {
+        settings = JSON.parse(rawSettings);
+      } catch {
+        settings = null;
+      }
+    }
+    const themes = Array.isArray(settings?.themes) ? settings.themes : [];
+    
+    const getTheme = (symbol: string): string => {
+      const upper = symbol.toUpperCase();
+      const found = themes.find((t: any) => 
+        t.symbols && t.symbols.map((s: string) => s.toUpperCase()).includes(upper)
+      );
+      return found?.name || '';
+    };
+
+    // Atomic replace in ONE D1 batch (concurrent refreshes no longer interleave
+    // DELETE/INSERT → no more "UNIQUE constraint failed: paper_flex_positions.symbol").
+    // A non-empty theme already stored for a symbol is kept; otherwise derive it from settings.
     await replacePositions(
-      'crypto_paper_positions',
+      'paper_flex_positions',
       (positions as any[]).map((pos) =>
-        alpacaToPositionRow(pos, pos.asset_class === 'crypto' ? 'Crypto' : ''),
+        alpacaToPositionRow(pos, getTheme(pos.symbol), { signedByShortSide: true }),
       ),
+      { preserveExistingTheme: true },
     );
 
-    return c.json({
-      ok: true,
-      refreshedAt: new Date().toISOString(),
-      equity,
-      cash,
-      positions: (positions as any[]).length,
-    });
+    return c.json({ ok: true, refreshedAt: new Date().toISOString() });
   } catch (err) {
+    console.error('Alpaca FLEX refresh error:', err);
     return c.json(
       {
         ok: false,
-        error: String(err),
+        error: `Failed to refresh from Alpaca FLEX: ${String(err)}`,
       },
       500,
     );

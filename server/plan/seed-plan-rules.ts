@@ -4,7 +4,7 @@
  * Safe to call multiple times - won't duplicate or re-add deleted rules
  */
 
-import { query } from './db.js';
+import { query } from '../db.js';
 
 interface SeedRule {
   symbol: string;

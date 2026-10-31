@@ -19,16 +19,17 @@ import { cached } from '../core/isolate-cache.js';
 import { query } from '../db.js';
 import {
   __resetFundamentalsStateForTests,
-  fetchFundamentals,
-  fundamentalsBackoffActive,
   FUNDAMENTALS_MAX_SYMBOLS,
   holdFundamentals,
   isFundamentalsDue,
   isFundamentalsSkipped,
+  isNameChecked,
+  markNameChecked,
+  pickName,
   rememberFundamentalsFresh,
-  rememberFundamentalsMissing,
-  type FetchFundamentalsOptions,
+  type CapRequest,
 } from './fundamentals.js';
+import { allProvidersBackedOff, fetchFundamentals, type FetchFundamentalsOptions } from './fundamentals-providers.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT = 'Mozilla/5.0 (compatible; SeekTrack/1.0; +https://github.com/karthikl6333/Seek-Track)';
@@ -56,8 +57,10 @@ export interface QuoteData {
   week52Low: number | null;
   valChange: number | null;
   sessionOpen: number | null;
-  /** Company name from the same chart meta (shortName, else longName). */
+  /** Company name from the same chart meta (shortName, or longName when shortName is truncated). */
   shortName: string | null;
+  /** Chart meta instrumentType (EQUITY, ETF, ...): decides which market-cap providers apply. */
+  instrumentType: string | null;
 }
 
 export interface YahooMeta {
@@ -76,6 +79,7 @@ export interface YahooMeta {
   fiftyTwoWeekLow?: number;
   shortName?: string;
   longName?: string;
+  instrumentType?: string;
   symbol?: string;
   currentTradingPeriod?: {
     pre?: { start?: number; end?: number };
@@ -260,12 +264,14 @@ export function parseYahooChart(
     }
   }
 
-  // Val change ($): vs session open when today's regular session has an open bar, else vs baseline
+  // Val change ($): the SAME baseline as dayPct (previous close), so the two can never disagree in sign.
+  // (It used to be price - session open, which is a different quantity: e.g. +$20 next to -4.8%.)
+  // When only Yahoo's own regularMarketChangePercent is known, derive the amount from it.
   let valChange: number | null = null;
-  if (sessionOpen !== null) {
-    valChange = price - sessionOpen;
-  } else if (baseline !== null) {
+  if (baseline !== null) {
     valChange = price - baseline;
+  } else if (dayPct !== null && dayPct > -100) {
+    valChange = price - price / (1 + dayPct / 100);
   }
 
   // Volume
@@ -279,7 +285,6 @@ export function parseYahooChart(
     if (lastVol != null) volume = Number(lastVol);
   }
 
-  const cleanName = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Number(v) : null);
 
   return {
@@ -297,7 +302,8 @@ export function parseYahooChart(
     week52Low: num(meta.fiftyTwoWeekLow),
     valChange,
     sessionOpen,
-    shortName: cleanName(meta.shortName) ?? cleanName(meta.longName),
+    shortName: pickName(meta.shortName, meta.longName),
+    instrumentType: typeof meta.instrumentType === 'string' && meta.instrumentType ? meta.instrumentType.toUpperCase() : null,
   };
 }
 
@@ -682,11 +688,16 @@ async function persistQuotes(
 /**
  * Slow-cadence fundamentals (market cap, shares, name) for watchlist symbols in this refresh.
  *
- * Cost: a warm isolate adds ZERO reads/writes/fetches in steady state (in-memory gate). The first
- * refresh in an isolate does ONE small PK-indexed read of watchlist_quotes for the candidate symbols
- * (the same rows the watchlist GET reads); only symbols whose fundamentals_updated_at is missing or
- * >24h old trigger ONE batched Yahoo call and ONE batched upsert. Names that are still missing are
- * filled from the chart quote we already fetched (one UPDATE, once). Never throws.
+ * Two independent jobs:
+ *  1. NAMES: a watchlist row with no name gets the chart quote's name (one UPDATE, once per symbol per
+ *     isolate). This never depends on the market-cap providers, so it works while every one of them is
+ *     backed off (the prod bug: names stayed "-" because the whole step bailed out on Yahoo's 429).
+ *  2. MARKET CAP: symbols whose fundamentals_updated_at is missing or >24h old go through the provider
+ *     chain (fundamentals-providers.ts) in ONE call and ONE batched upsert. Symbols a provider could not
+ *     answer (error / back-off) are retried later; symbols every provider answered "no value" for (ETFs
+ *     without net assets) are stamped so they are not retried for 24h.
+ *
+ * Cost: a warm isolate adds ZERO reads/writes/fetches in steady state (in-memory gates). Never throws.
  */
 export async function refreshFundamentalsIfDue(
   universe: string[],
@@ -696,17 +707,17 @@ export async function refreshFundamentalsIfDue(
   const stats = { checked: 0, fetched: 0, written: 0, namesFilled: 0 };
   const now = opts.now ?? Date.now;
   try {
-    if (fundamentalsBackoffActive(now())) return stats; // Yahoo said slow down: keep last known values
+    const backedOff = allProvidersBackedOff(now(), opts.env);
     const watchlistSet = await getWatchlistSymbols();
-    const candidates = universe
-      .map((s) => s.toUpperCase())
-      .filter((s) => watchlistSet.has(s) && !isFundamentalsSkipped(s, now()))
+    const candidates = Array.from(new Set(universe.map((s) => s.toUpperCase())))
+      .filter((s) => watchlistSet.has(s) && (!isNameChecked(s) || (!backedOff && !isFundamentalsSkipped(s, now()))))
       .slice(0, FUNDAMENTALS_MAX_SYMBOLS);
     if (candidates.length === 0) return stats;
     stats.checked = candidates.length;
 
-    // Hold the candidates so a concurrent refresh in this isolate does not repeat the work.
-    holdFundamentals(candidates, now());
+    // Hold the symbols that may need a market-cap fetch so a concurrent refresh in this isolate does not repeat it.
+    const mayFetch = new Set(candidates.filter((s) => !backedOff && !isFundamentalsSkipped(s, now())));
+    holdFundamentals(Array.from(mayFetch), now());
 
     const placeholders = candidates.map((_, i) => `$${i + 1}`).join(', ');
     const res = await query<{ symbol: string; short_name: string | null; fundamentals_updated_at: string | Date | null }>(
@@ -719,17 +730,19 @@ export async function refreshFundamentalsIfDue(
     const nameOnly: Array<[string, string]> = [];
     for (const sym of candidates) {
       const row = rowBySym.get(sym);
-      if (isFundamentalsDue(row?.fundamentals_updated_at ?? null, now())) {
-        due.push(sym);
-        continue;
+      if (mayFetch.has(sym)) {
+        if (isFundamentalsDue(row?.fundamentals_updated_at ?? null, now())) {
+          due.push(sym);
+        } else {
+          rememberFundamentalsFresh(sym, Date.parse(String(row!.fundamentals_updated_at))); // warm isolate skips the read
+        }
       }
-      const ts = Date.parse(String(row!.fundamentals_updated_at));
-      rememberFundamentalsFresh(sym, ts); // fresh in D1: warm isolate skips the read from now on
       const chartName = quotes.get(sym)?.shortName;
-      if (!row!.short_name && chartName) nameOnly.push([sym, chartName]);
+      if (row && !row.short_name && chartName) nameOnly.push([sym, chartName]);
+      markNameChecked(sym);
     }
 
-    // Names missing on otherwise-fresh rows: fill from the chart quote (no extra Yahoo call).
+    // Names missing on existing rows: fill from the chart quote (no extra network call).
     if (nameOnly.length > 0) {
       const cases = nameOnly.map((_, i) => `WHEN $${i * 2 + 1} THEN $${i * 2 + 2}`).join(' ');
       const inList = nameOnly.map((_, i) => `$${nameOnly.length * 2 + i + 1}`).join(', ');
@@ -743,26 +756,33 @@ export async function refreshFundamentalsIfDue(
 
     if (due.length === 0) return stats;
 
-    const fundamentals = await fetchFundamentals(due, opts);
-    stats.fetched = fundamentals.size;
+    const requests: CapRequest[] = due.map((symbol) => ({
+      symbol,
+      price: quotes.get(symbol)?.price ?? null,
+      instrumentType: quotes.get(symbol)?.instrumentType ?? null,
+    }));
+    const { found, inconclusive } = await fetchFundamentals(requests, opts);
+    stats.fetched = found.size;
     const stamp = new Date(now()).toISOString();
 
     const rows: unknown[][] = [];
     for (const sym of due) {
-      const f = fundamentals.get(sym);
-      if (!f) {
-        // Failed (isolate back-off now active; retried when it lapses) or Yahoo has no data for the
-        // symbol (retry in 6h). Last known D1 values are kept either way.
-        if (fundamentalsBackoffActive(now())) holdFundamentals([sym], now(), 0);
-        else rememberFundamentalsMissing(sym, now());
+      const f = found.get(sym);
+      const chartName = quotes.get(sym)?.shortName ?? null;
+      if (!f && inconclusive.has(sym)) {
+        // A provider could not answer (error / back-off / budget): retry in 10 min (the providers have
+        // their own back-off). Last known D1 values are kept.
+        holdFundamentals([sym], now(), 10 * 60 * 1000);
         continue;
       }
+      // Found, or every provider answered "no value" (ETF without net assets, unknown ticker): stamp the
+      // row so it is not asked again for 24h; a stored cap is never cleared (COALESCE below).
       rows.push([
         sym,
-        f.marketCap,
-        f.sharesOutstanding,
-        f.marketCap !== null ? f.capPrice : null,
-        f.name ?? quotes.get(sym)?.shortName ?? null,
+        f?.marketCap ?? null,
+        f?.sharesOutstanding ?? null,
+        f ? (f.capPrice ?? quotes.get(sym)?.price ?? null) : null,
+        f?.name ?? chartName,
         stamp,
       ]);
       rememberFundamentalsFresh(sym, now());

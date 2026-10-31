@@ -4,15 +4,20 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetNewsCacheForTests,
+  cleanUrl,
   decodeEntities,
+  extractCanonicalUrl,
   fetchTopNews,
   getTopNews,
   isAdvisoryHeadline,
+  isYahooHost,
+  NEWS_COUNT,
   NEWS_FAIL_BACKOFF_MS,
   NEWS_TTL_MS,
   normalizeTitle,
   parseRss,
   parseYahooSearchNews,
+  resolvePublisherUrl,
   safeUrl,
   selectTopNews,
   type NewsItem,
@@ -55,6 +60,9 @@ describe('parseRss', () => {
     const all = items.map((i) => i.title).join('|');
     expect(all).not.toMatch(/Sponsored|Evil|No date|No link/);
   });
+  it('keeps publisher links as-is but strips tracking params (MarketWatch ?mod=)', () => {
+    expect(parseRss(MW, 'MarketWatch')[0].url).toBe('https://www.marketwatch.com/story/gta');
+  });
   it('decodes numeric entities (MarketWatch)', () => {
     expect(parseRss(MW, 'MarketWatch')[0].title).toBe('\u2018GTA 6\u2019 fans are missing work');
   });
@@ -80,6 +88,127 @@ describe('parseYahooSearchNews', () => {
     ]);
     expect(parseYahooSearchNews(null)).toEqual([]);
     expect(parseYahooSearchNews({ news: 'x' })).toEqual([]);
+  });
+});
+
+describe('original publisher links', () => {
+  it('cleanUrl strips tracking params + fragment, keeps real params, rejects non-http(s)', () => {
+    expect(cleanUrl('https://www.fool.com/a/b/?utm_source=yahoo&utm_medium=feed&referring_guid=1&id=42#x')).toBe('https://www.fool.com/a/b/?id=42');
+    expect(cleanUrl('https://a.com/s?fbclid=abc&guccounter=1')).toBe('https://a.com/s');
+    expect(cleanUrl('javascript:alert(1)')).toBeNull();
+  });
+  it('isYahooHost', () => {
+    expect(isYahooHost('https://finance.yahoo.com/news/x.html')).toBe(true);
+    expect(isYahooHost('https://yahoo.com/x')).toBe(true);
+    expect(isYahooHost('https://notyahoo.com/x')).toBe(false);
+    expect(isYahooHost('https://www.fool.com/x')).toBe(false);
+  });
+  it('parseYahooSearchNews prefers canonicalUrl/clickThroughUrl off Yahoo, else keeps the link', () => {
+    const t = 1793295300;
+    const out = parseYahooSearchNews({
+      news: [
+        { type: 'STORY', title: 'Canonical object', publisher: 'Motley Fool', link: 'https://finance.yahoo.com/a', canonicalUrl: { url: 'https://www.fool.com/a/?utm_source=y' }, providerPublishTime: t },
+        { type: 'STORY', title: 'Click through string', publisher: 'Zacks', link: 'https://finance.yahoo.com/b', clickThroughUrl: 'https://www.zacks.com/b', providerPublishTime: t },
+        { type: 'STORY', title: 'Canonical is yahoo', publisher: 'Benzinga', link: 'https://finance.yahoo.com/c', canonicalUrl: { url: 'https://finance.yahoo.com/c2' }, providerPublishTime: t },
+      ],
+    });
+    expect(out.map((i) => i.url)).toEqual(['https://www.fool.com/a/', 'https://www.zacks.com/b', 'https://finance.yahoo.com/c']);
+    expect(out.map((i) => i.source)).toEqual(['Motley Fool', 'Zacks', 'Benzinga']);
+  });
+  it('extractCanonicalUrl handles either attribute order and entities', () => {
+    expect(extractCanonicalUrl('<head><link rel="canonical" href="https://www.fool.com/x/?utm_source=a&amp;id=1"></head>')).toBe('https://www.fool.com/x/?id=1');
+    expect(extractCanonicalUrl("<link href='https://a.com/y' rel='canonical'/>")).toBe('https://a.com/y');
+    expect(extractCanonicalUrl('<link rel="stylesheet" href="https://a.com/s.css"><title>x</title>')).toBeNull();
+  });
+
+  const wrapper: NewsItem = { title: 'T', url: 'https://finance.yahoo.com/markets/stocks/articles/x-1.html', source: 'Motley Fool', publishedAt: '2026-10-31T01:00:00Z' };
+  const page = (canonical: string) =>
+    `<html><head><title>x</title><link rel="canonical" href="${canonical}"></head><body>${'x'.repeat(5000)}</body></html>`;
+  beforeEach(() => __resetNewsCacheForTests());
+
+  it('resolves a finance.yahoo.com wrapper to the publisher canonical URL, once (cached)', async () => {
+    const f = vi.fn(async () => new Response(page('https://www.fool.com/investing/2026/10/29/x/'), { status: 200 }));
+    expect(await resolvePublisherUrl(wrapper, f as never)).toBe('https://www.fool.com/investing/2026/10/29/x/');
+    expect(await resolvePublisherUrl(wrapper, f as never)).toBe('https://www.fool.com/investing/2026/10/29/x/');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+  it('leaves non-Yahoo links alone (no fetch)', async () => {
+    const f = vi.fn();
+    expect(await resolvePublisherUrl({ ...wrapper, url: 'https://www.cnbc.com/a.html?__source=x&utm_term=1' }, f as never)).toBe('https://www.cnbc.com/a.html?__source=x');
+    expect(f).not.toHaveBeenCalled();
+  });
+  it('returns null (item dropped) when blocked, no canonical, or the canonical is still Yahoo', async () => {
+    const blocked = vi.fn(async () => new Response('x', { status: 429 }));
+    expect(await resolvePublisherUrl(wrapper, blocked as never)).toBeNull();
+    const none = vi.fn(async () => new Response('<html><head></head></html>', { status: 200 }));
+    expect(await resolvePublisherUrl(wrapper, none as never)).toBeNull();
+    const boom = vi.fn(async () => { throw new Error('net'); });
+    expect(await resolvePublisherUrl(wrapper, boom as never)).toBeNull();
+    const yahoo = vi.fn(async () => new Response(page('https://finance.yahoo.com/x-1.html'), { status: 200 }));
+    expect(await resolvePublisherUrl(wrapper, yahoo as never)).toBeNull();
+    // failures are not cached: a later success resolves
+    const ok = vi.fn(async () => new Response(page('https://www.fool.com/ok/'), { status: 200 }));
+    expect(await resolvePublisherUrl(wrapper, ok as never)).toBe('https://www.fool.com/ok/');
+  });
+  it('allows a Yahoo-hosted canonical only for Yahoo Finance\'s own reporting', async () => {
+    const f = vi.fn(async () => new Response(page('https://finance.yahoo.com/news/own-1.html'), { status: 200 }));
+    expect(await resolvePublisherUrl({ ...wrapper, source: 'Yahoo Finance' }, f as never)).toBe('https://finance.yahoo.com/news/own-1.html');
+  });
+});
+
+describe('top 5 end to end', () => {
+  const at = Date.parse('2026-10-31T06:00:00Z');
+  const sources: NewsSource[] = [
+    { name: 'CNBC', url: 'https://cnbc.test/rss', kind: 'rss' },
+    { name: 'MarketWatch', url: 'https://mw.test/rss', kind: 'rss' },
+    { name: 'Yahoo Finance', url: 'https://yahoo.test/search', kind: 'yahoo-search' },
+  ];
+  beforeEach(() => {
+    __resetNewsCacheForTests();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns 5 items, every link on the publisher (no Yahoo wrappers), deduped, publisher as source', async () => {
+    const story = (title: string, slug: string, publisher: string, iso: string) => ({
+      type: 'STORY', title, publisher, link: `https://finance.yahoo.com/markets/stocks/articles/${slug}.html`, providerPublishTime: Date.parse(iso) / 1000,
+    });
+    const yahooNews = [
+      story('Oil climbs as Gulf supply worries grow', 'oil-1', 'Reuters', '2026-10-31T04:00:00Z'),
+      story('Retail sales rise more than expected in October', 'retail-2', 'Associated Press', '2026-10-31T03:30:00Z'),
+      story('Unresolvable wrapper story about crypto rules', 'crypto-3', 'Decrypt', '2026-10-31T03:00:00Z'),
+      story('Intel stock has worst day since 1970s, wiping about $12 billion off government stake', 'intel-4', 'CNBC', '2026-10-31T02:00:00Z'),
+      story('Chipmakers slide as export curbs widen', 'chips-5', 'Bloomberg', '2026-10-31T01:30:00Z'),
+    ];
+    const canon: Record<string, string> = {
+      'oil-1': 'https://www.reuters.com/markets/oil-1/?utm_source=yahoo',
+      'retail-2': 'https://apnews.com/article/retail-2',
+      'intel-4': 'https://www.cnbc.com/2026/10/30/intel.html', // same story as the CNBC RSS item -> deduped
+      'chips-5': 'https://www.bloomberg.com/news/chips-5',
+    };
+    const f = vi.fn(async (url: string) => {
+      if (url.includes('cnbc.test')) return new Response(CNBC, { status: 200 });
+      if (url.includes('mw.test')) return new Response(MW, { status: 200 });
+      if (url.includes('yahoo.test')) return new Response(JSON.stringify({ news: yahooNews }), { status: 200 });
+      const slug = /articles\/(.+)\.html/.exec(url)?.[1] ?? '';
+      if (!canon[slug]) return new Response('blocked', { status: 429 });
+      return new Response(`<head><link rel="canonical" href="${canon[slug]}"></head>`, { status: 200 });
+    });
+    const items = await fetchTopNews({ fetchImpl: f as never, sources, now: () => at });
+    expect(items).toHaveLength(5);
+    for (const i of items) {
+      expect(isYahooHost(i.url), i.url).toBe(false);
+      expect(i.url).not.toMatch(/utm_|\?mod=/);
+    }
+    expect(items.map((i) => i.url)).toEqual([
+      'https://www.marketwatch.com/story/gta',
+      'https://www.reuters.com/markets/oil-1/',
+      'https://apnews.com/article/retail-2',
+      'https://www.cnbc.com/2026/10/30/intel.html',
+      'https://www.bloomberg.com/news/chips-5',
+    ]);
+    expect(items.map((i) => i.source)).toEqual(['MarketWatch', 'Reuters', 'Associated Press', 'CNBC', 'Bloomberg']);
+    expect(new Set(items.map((i) => i.url)).size).toBe(5);
   });
 });
 
@@ -118,7 +247,7 @@ describe('helpers', () => {
 
 describe('selectTopNews (recency, dedupe, filtering)', () => {
   const now = Date.parse('2026-10-31T06:00:00Z');
-  it('returns the 3 most recent, newest first', () => {
+  it('returns the 3 most recent when asked for 3, newest first', () => {
     const items = [
       it$('Old story about oil prices', 'https://a.com/1', '2026-10-29T10:00:00Z'),
       it$('Newest story on bond yields', 'https://a.com/2', '2026-10-31T05:00:00Z'),
@@ -153,7 +282,7 @@ describe('selectTopNews (recency, dedupe, filtering)', () => {
     ];
     expect(selectTopNews(items, 3, now).map((i) => i.url)).toEqual(['https://a.com/3']);
   });
-  it('returns fewer than 3 when fewer exist, and [] for []', () => {
+  it('returns fewer than requested when fewer exist, and [] for []', () => {
     expect(selectTopNews([], 3, now)).toEqual([]);
   });
 });
@@ -181,10 +310,10 @@ describe('fetching + cache', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('merges all sources, newest first, max 3', async () => {
+  it('merges all sources, newest first, up to 5', async () => {
     const items = await fetchTopNews({ fetchImpl: happy() as never, sources, now: () => at });
-    expect(items).toHaveLength(3);
-    expect(items.map((i) => i.source)).toEqual(['MarketWatch', 'Yahoo', 'CNBC']);
+    expect(items.map((i) => i.source)).toEqual(['MarketWatch', 'Yahoo', 'CNBC', 'CNBC']);
+    expect(NEWS_COUNT).toBe(5);
   });
 
   it('survives one or two failing feeds; throws only if all fail', async () => {

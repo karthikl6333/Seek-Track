@@ -5,10 +5,12 @@ import {
   effectiveMarketCap,
   FUNDAMENTALS_BACKOFF_MAX_MS,
   FUNDAMENTALS_BACKOFF_MS,
-  fetchFundamentals,
-  fundamentalsBackoffActive,
   isFundamentalsDue,
+  isStockLike,
   parseQuoteFundamentals,
+  pickName,
+  providerBackoffActive,
+  setProviderBackoff,
 } from './fundamentals.js';
 
 const NOW = Date.parse('2026-10-31T10:00:00Z');
@@ -78,33 +80,53 @@ describe('backoffFromRetryAfter', () => {
   });
 });
 
-describe('fetchFundamentals', () => {
+describe('per-provider back-off state', () => {
   beforeEach(() => __resetFundamentalsStateForTests());
-
-  it('never throws: network error -> empty map + back-off active', async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('boom');
-    }) as unknown as typeof fetch;
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const out = await fetchFundamentals(['AVGO'], { fetchImpl, now: () => NOW });
-    expect(out.size).toBe(0);
-    expect(fundamentalsBackoffActive(NOW + 1000)).toBe(true);
-    expect(fundamentalsBackoffActive(NOW + FUNDAMENTALS_BACKOFF_MS + 1)).toBe(false);
+  it('backs off one provider without touching the others; lapses after the window', () => {
+    setProviderBackoff('yahoo', null, NOW);
+    expect(providerBackoffActive('yahoo', NOW + 1000)).toBe(true);
+    expect(providerBackoffActive('nasdaq', NOW + 1000)).toBe(false);
+    expect(providerBackoffActive('yahoo', NOW + FUNDAMENTALS_BACKOFF_MS + 1)).toBe(false);
   });
+  it('honours Retry-After', () => {
+    setProviderBackoff('nasdaq', '7200', NOW);
+    expect(providerBackoffActive('nasdaq', NOW + 7_000_000)).toBe(true);
+    expect(providerBackoffActive('nasdaq', NOW + 7_300_000)).toBe(false);
+  });
+});
 
-  it('reuses the crumb across calls (cookie+crumb once)', async () => {
-    const calls: string[] = [];
-    const fetchImpl = (async (url: string) => {
-      calls.push(url);
-      if (url.startsWith('https://fc.yahoo.com')) return new Response('', { status: 404, headers: { 'set-cookie': 'A3=x; Path=/' } });
-      if (url.includes('getcrumb')) return new Response('c1', { status: 200 });
-      return new Response(JSON.stringify({ quoteResponse: { result: [{ symbol: 'AVGO', marketCap: 1e12 }] } }), { status: 200 });
-    }) as unknown as typeof fetch;
-    const a = await fetchFundamentals(['AVGO'], { fetchImpl, now: () => NOW });
-    const b = await fetchFundamentals(['AVGO'], { fetchImpl, now: () => NOW + 1000 });
-    expect(a.get('AVGO')?.marketCap).toBe(1e12);
-    expect(b.size).toBe(1);
-    expect(calls.filter((u) => u.includes('getcrumb'))).toHaveLength(1);
-    expect(calls.filter((u) => u.includes('/v7/finance/quote'))).toHaveLength(2);
+describe('pickName', () => {
+  it('shortName normally; longName when shortName is cut at 30 chars (ETFs share a prefix)', () => {
+    expect(pickName('Broadcom Inc.', 'Broadcom Inc.')).toBe('Broadcom Inc.');
+    expect(pickName('Micron Technology, Inc.', undefined)).toBe('Micron Technology, Inc.');
+    expect(pickName('Defiance Daily Target 2X Short ', 'Defiance Daily Target 2X Short SMCI ETF')).toBe(
+      'Defiance Daily Target 2X Short SMCI ETF',
+    );
+    expect(pickName(undefined, 'Only Long Name')).toBe('Only Long Name');
+    expect(pickName('  ', null)).toBeNull();
+  });
+});
+
+describe('isStockLike', () => {
+  it('EQUITY and unknown are stock-like; ETFs/funds are not', () => {
+    expect(isStockLike('EQUITY')).toBe(true);
+    expect(isStockLike(null)).toBe(true);
+    expect(isStockLike('ETF')).toBe(false);
+    expect(isStockLike('MUTUALFUND')).toBe(false);
+  });
+});
+
+describe('parseQuoteFundamentals: ETFs', () => {
+  it('uses netAssets as the cap for non-equity quote types only', () => {
+    const out = parseQuoteFundamentals({
+      quoteResponse: {
+        result: [
+          { symbol: 'TSDD', quoteType: 'ETF', netAssets: 2.5e7, regularMarketPrice: 9 },
+          { symbol: 'AVGO', quoteType: 'EQUITY', netAssets: 5, regularMarketPrice: 320 },
+        ],
+      },
+    });
+    expect(out[0].marketCap).toBe(2.5e7);
+    expect(out[1].marketCap).toBeNull();
   });
 });

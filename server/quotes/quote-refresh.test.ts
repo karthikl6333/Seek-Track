@@ -171,30 +171,26 @@ describe('watchlist_quotes persistence of name / 52-wk from the one chart respon
 });
 
 // ---------------------------------------------------------------------------------------------
-// Fundamentals (market cap) gate: <= once per symbol per 24h, one batched call, back-off.
+// Fundamentals (market cap) gate: <= once per symbol per 24h, provider chain, per-provider back-off.
 // ---------------------------------------------------------------------------------------------
 describe('fundamentals refresh (market cap / shares / name)', () => {
   const NOW = Date.parse('2026-10-31T10:00:00Z');
   let urls: string[];
+  let nasdaqStatus = 200;
   let quoteStatus = 200;
   let quoteAttempts = 0;
   let failFirstWith401 = false;
+  let chartExtra: Record<string, unknown> = {};
+  let v7Result: (symbol: string) => Record<string, unknown> = (symbol) => ({
+    symbol,
+    quoteType: 'EQUITY',
+    marketCap: 1.5e12,
+    sharesOutstanding: 4.7e9,
+    regularMarketPrice: 320,
+  });
 
   function v7(symbols: string[]) {
-    return new Response(
-      JSON.stringify({
-        quoteResponse: {
-          result: symbols.map((symbol) => ({
-            symbol,
-            shortName: `${symbol} Corp`,
-            marketCap: 1.5e12,
-            sharesOutstanding: 4.7e9,
-            regularMarketPrice: 320,
-          })),
-        },
-      }),
-      { status: 200 },
-    );
+    return new Response(JSON.stringify({ quoteResponse: { result: symbols.map(v7Result) } }), { status: 200 });
   }
 
   beforeEach(() => {
@@ -205,14 +201,23 @@ describe('fundamentals refresh (market cap / shares / name)', () => {
     wq.clear();
     statements.length = 0;
     urls = [];
+    nasdaqStatus = 200;
     quoteStatus = 200;
     quoteAttempts = 0;
     failFirstWith401 = false;
+    chartExtra = {};
     watchlistSymbols = ['AVGO', 'MU'];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
         urls.push(url);
+        if (url.startsWith('https://api.nasdaq.com/')) {
+          if (nasdaqStatus !== 200) return new Response('slow down', { status: nasdaqStatus });
+          return new Response(JSON.stringify({ data: { summaryData: { MarketCap: { value: '$1,500,000,000,000' } } } }), { status: 200 });
+        }
+        if (url.includes('sec.gov')) return new Response('no', { status: 429 });
         if (url.startsWith('https://fc.yahoo.com')) {
           return new Response('', { status: 404, headers: { 'set-cookie': 'A3=d=abc; Domain=.yahoo.com; Path=/' } });
         }
@@ -223,83 +228,85 @@ describe('fundamentals refresh (market cap / shares / name)', () => {
           if (quoteStatus !== 200) return new Response('slow down', { status: quoteStatus });
           return v7(new URL(url).searchParams.get('symbols')!.split(','));
         }
-        return yahooOk(321, { shortName: 'Chart Name' });
+        return yahooOk(321, { shortName: 'Chart Name', ...chartExtra });
       }),
     );
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     watchlistSymbols = [];
   });
 
+  const nasdaqCalls = () => urls.filter((u) => u.startsWith('https://api.nasdaq.com/'));
   const v7Calls = () => urls.filter((u) => u.includes('/v7/finance/quote'));
+  const providerCalls = () => [...nasdaqCalls(), ...v7Calls()];
   const fundUpserts = () => statements.filter((s) => /INSERT INTO watchlist_quotes[\s\S]*cap_price = CASE/i.test(s.sql));
   const wqReads = () => statements.filter((s) => /^\s*SELECT/i.test(s.sql) && /watchlist_quotes/i.test(s.sql));
+  const nameUpdates = () => statements.filter((s) => /^\s*UPDATE watchlist_quotes SET short_name/i.test(s.sql));
 
-  it('first refresh: ONE batched v7 call for all due watchlist symbols and ONE batched upsert', async () => {
+  it('first refresh: Nasdaq answers per symbol (no Yahoo v7), ONE batched upsert with cap, price-at-fetch and chart name', async () => {
     await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(1);
-    expect(new URL(v7Calls()[0]).searchParams.get('symbols')).toBe('AVGO,MU');
-    expect(new URL(v7Calls()[0]).searchParams.get('crumb')).toBe('crumb123');
+    expect(nasdaqCalls()).toHaveLength(2);
+    expect(v7Calls()).toHaveLength(0);
     const ups = fundUpserts();
     expect(ups).toHaveLength(1);
     const ts = new Date(NOW).toISOString();
-    expect(ups[0].params).toEqual(['AVGO', 1.5e12, 4.7e9, 320, 'AVGO Corp', ts, 'MU', 1.5e12, 4.7e9, 320, 'MU Corp', ts]);
+    expect(ups[0].params).toEqual(['AVGO', 1.5e12, null, 321, 'Chart Name', ts, 'MU', 1.5e12, null, 321, 'Chart Name', ts]);
     expect(ups[0].sql).toMatch(/market_cap = COALESCE\(EXCLUDED\.market_cap, watchlist_quotes\.market_cap\)/);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[Fundamentals] provider=nasdaq ok=2/2'));
   });
 
-  it('staleness gate: fresh (<24h) symbols cost no Yahoo call and no write; a warm isolate does not even read', async () => {
+  it('staleness gate: fresh (<24h) symbols cost no provider call and no write; a warm isolate does not even read', async () => {
     const fresh = new Date(NOW - 3_600_000).toISOString();
     wq.set('AVGO', { short_name: 'Broadcom Inc.', fundamentals_updated_at: fresh });
     wq.set('MU', { short_name: 'Micron', fundamentals_updated_at: fresh });
     await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(0);
-    expect(urls.some((u) => u.includes('getcrumb'))).toBe(false);
+    expect(providerCalls()).toHaveLength(0);
     expect(fundUpserts()).toHaveLength(0);
     expect(wqReads()).toHaveLength(1);
     await refreshAllPrices(['AVGO', 'MU']);
     expect(wqReads()).toHaveLength(1);
-    expect(v7Calls()).toHaveLength(0);
+    expect(providerCalls()).toHaveLength(0);
   });
 
   it('only the stale symbol is refetched once its 24h lapse', async () => {
     wq.set('AVGO', { short_name: 'Broadcom Inc.', fundamentals_updated_at: new Date(NOW - 3_600_000).toISOString() });
     wq.set('MU', { short_name: 'Micron', fundamentals_updated_at: new Date(NOW - 25 * 3_600_000).toISOString() });
     await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(1);
-    expect(new URL(v7Calls()[0]).searchParams.get('symbols')).toBe('MU');
+    expect(nasdaqCalls()).toHaveLength(1);
+    expect(nasdaqCalls()[0]).toContain('/MU/');
   });
 
   it('does not run again in the same isolate once written', async () => {
     await refreshAllPrices(['AVGO', 'MU']);
     await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(1);
+    expect(nasdaqCalls()).toHaveLength(2);
     expect(fundUpserts()).toHaveLength(1);
   });
 
   it('ignores non-watchlist symbols (positions/research)', async () => {
     await refreshAllPrices(['AVGO', 'MU', 'ZZZ']);
-    expect(new URL(v7Calls()[0]).searchParams.get('symbols')).toBe('AVGO,MU');
+    expect(nasdaqCalls().every((u) => !u.includes('/ZZZ/'))).toBe(true);
+    expect(nasdaqCalls()).toHaveLength(2);
   });
 
-  it('429: backs off, keeps last values (no write, no throw), does not hammer Yahoo, then recovers', async () => {
-    quoteStatus = 429;
-    const res = await refreshAllPrices(['AVGO', 'MU']);
-    expect(res.ok).toBe(true);
-    expect(fundUpserts()).toHaveLength(0);
+  it('Nasdaq 429 -> Yahoo v7 supplies ONE batched call for the symbols; Nasdaq is not hammered', async () => {
+    nasdaqStatus = 429;
+    await refreshAllPrices(['AVGO', 'MU']);
+    expect(nasdaqCalls()).toHaveLength(2); // one wave, then the provider is backed off
     expect(v7Calls()).toHaveLength(1);
-    await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(1); // back-off active: no second attempt
-    expect(wqReads()).toHaveLength(1); // ...and no extra reads either
-    quoteStatus = 200;
-    vi.setSystemTime(NOW + 31 * 60_000);
-    await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(2);
-    expect(fundUpserts()).toHaveLength(1);
+    expect(new URL(v7Calls()[0]).searchParams.get('symbols')).toBe('AVGO,MU');
+    expect(new URL(v7Calls()[0]).searchParams.get('crumb')).toBe('crumb123');
+    const ups = fundUpserts();
+    expect(ups).toHaveLength(1);
+    expect(ups[0].params.slice(0, 6)).toEqual(['AVGO', 1.5e12, 4.7e9, 320, 'Chart Name', new Date(NOW).toISOString()]);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('provider=yahoo ok=2/2'));
   });
 
-  it('401 refreshes the crumb once and retries', async () => {
+  it('Yahoo 401 refreshes the crumb once and retries', async () => {
+    nasdaqStatus = 429;
     failFirstWith401 = true;
     await refreshAllPrices(['AVGO']);
     expect(v7Calls()).toHaveLength(2);
@@ -307,15 +314,60 @@ describe('fundamentals refresh (market cap / shares / name)', () => {
     expect(fundUpserts()).toHaveLength(1);
   });
 
-  it('missing names on fresh rows are filled from the chart quote (one UPDATE, no Yahoo call)', async () => {
+  it('EVERY provider 429: names are STILL filled from the chart, no cap write, no hammering, then recovers', async () => {
+    nasdaqStatus = 429;
+    quoteStatus = 429;
+    wq.set('AVGO', { short_name: null, fundamentals_updated_at: null });
+    wq.set('MU', { short_name: null, fundamentals_updated_at: null });
+    const res = await refreshAllPrices(['AVGO', 'MU']);
+    expect(res.ok).toBe(true);
+    expect(fundUpserts()).toHaveLength(0);
+    // the prod bug: with Yahoo backed off the name backfill never ran and every row showed "-"
+    expect(nameUpdates()).toHaveLength(1);
+    expect(nameUpdates()[0].params).toEqual(['AVGO', 'Chart Name', 'MU', 'Chart Name', 'AVGO', 'MU']);
+    const attempts = providerCalls().length;
+    await refreshAllPrices(['AVGO', 'MU']);
+    expect(providerCalls()).toHaveLength(attempts); // back-off active everywhere: no second attempt
+    expect(wqReads()).toHaveLength(1); // ...and no extra reads either
+    nasdaqStatus = 200;
+    quoteStatus = 200;
+    vi.setSystemTime(NOW + 31 * 60_000);
+    await refreshAllPrices(['AVGO', 'MU']);
+    expect(fundUpserts()).toHaveLength(1);
+  });
+
+  it('missing names on fresh rows are filled from the chart quote (one UPDATE, no provider call)', async () => {
     const fresh = new Date(NOW - 3_600_000).toISOString();
     wq.set('AVGO', { short_name: null, fundamentals_updated_at: fresh });
     wq.set('MU', { short_name: 'Micron', fundamentals_updated_at: fresh });
     await refreshAllPrices(['AVGO', 'MU']);
-    expect(v7Calls()).toHaveLength(0);
-    const upd = statements.filter((s) => /^\s*UPDATE watchlist_quotes SET short_name/i.test(s.sql));
-    expect(upd).toHaveLength(1);
-    expect(upd[0].params).toEqual(['AVGO', 'Chart Name', 'AVGO']);
-    expect(upd[0].sql).toMatch(/short_name IS NULL/);
+    expect(providerCalls()).toHaveLength(0);
+    expect(nameUpdates()).toHaveLength(1);
+    expect(nameUpdates()[0].params).toEqual(['AVGO', 'Chart Name', 'AVGO']);
+    expect(nameUpdates()[0].sql).toMatch(/short_name IS NULL/);
+  });
+
+  it('ETF: skips Nasdaq, takes Yahoo net assets; an ETF with none is stamped (shows "-") and not retried', async () => {
+    chartExtra = { instrumentType: 'ETF' };
+    watchlistSymbols = ['TSDD', 'SMCZ'];
+    v7Result = (symbol) =>
+      symbol === 'TSDD'
+        ? { symbol, quoteType: 'ETF', netAssets: 2.5e7, regularMarketPrice: 9 }
+        : { symbol, quoteType: 'ETF', regularMarketPrice: 6 };
+    await refreshAllPrices(['TSDD', 'SMCZ']);
+    expect(nasdaqCalls()).toHaveLength(0);
+    expect(v7Calls()).toHaveLength(1);
+    const ups = fundUpserts();
+    expect(ups).toHaveLength(1);
+    const rowOf = (sym: string) => {
+      const p = ups[0].params;
+      const at = p.findIndex((v, i) => v === sym && i % 6 === 0);
+      return p.slice(at, at + 6);
+    };
+    expect(rowOf('TSDD')[1]).toBe(2.5e7);
+    expect(rowOf('SMCZ')[1]).toBeNull(); // no cap: "-" in the UI
+    expect(rowOf('SMCZ')[5]).toBe(new Date(NOW).toISOString()); // but stamped: not asked again for 24h
+    await refreshAllPrices(['TSDD', 'SMCZ']);
+    expect(v7Calls()).toHaveLength(1);
   });
 });

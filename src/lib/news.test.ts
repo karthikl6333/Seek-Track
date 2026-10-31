@@ -43,9 +43,9 @@ describe('keepLastNews', () => {
     expect(keepLastNews(prev, null)).toBe(prev);
     expect(keepLastNews(prev, { items: [], fetchedAt: null, stale: true })).toBe(prev);
   });
-  it('takes new headlines (max 3) and drops non-http links', () => {
-    const next = { items: [item(1), item(2, { url: 'javascript:alert(1)' }), item(3), item(4), item(5)], fetchedAt: 'x', stale: false };
-    expect(keepLastNews([], next).map((i) => i.title)).toEqual(['Headline 1', 'Headline 3', 'Headline 4']);
+  it('takes new headlines (max 5) and drops non-http links', () => {
+    const next = { items: [item(1), item(2, { url: 'javascript:alert(1)' }), item(3), item(4), item(5), item(6), item(7)], fetchedAt: 'x', stale: false };
+    expect(keepLastNews([], next).map((i) => i.title)).toEqual(['Headline 1', 'Headline 3', 'Headline 4', 'Headline 5', 'Headline 6']);
   });
 });
 
@@ -53,12 +53,14 @@ describe('TopNews block', () => {
   it('renders nothing when there are no headlines', () => {
     expect(renderToStaticMarkup(createElement(TopNews, { items: [], nowMs: NOW }))).toBe('');
   });
-  it('renders 3 links that open in a new tab with rel=noopener, plus source and age; plain news only', () => {
-    const html = renderToStaticMarkup(createElement(TopNews, { items: [item(1), item(2), item(3), item(4)], nowMs: NOW }));
-    expect((html.match(/<a /g) ?? []).length).toBe(3);
+  it('renders 5 links that open in a new tab with rel=noopener, plus source and age; plain news only', () => {
+    const html = renderToStaticMarkup(createElement(TopNews, { items: [1, 2, 3, 4, 5, 6].map((n) => item(n)), nowMs: NOW }));
+    expect((html.match(/<a /g) ?? []).length).toBe(5);
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
     expect(html).toContain('CNBC · 1h ago');
+    expect(html).toContain('href="https://news.test/5"');
+    expect(html).not.toContain('news.test/6');
     expect(html).not.toMatch(/buy|sell|signal|sentiment|recommend|bullish|bearish/i);
   });
 });

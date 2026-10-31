@@ -8,6 +8,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "tsc -p tsconfig.app.json --noEmit && vite build",
     "build:server": "tsc -p tsconfig.server.json && cp server/schema.sql dist-server/schema.sql",
+    "prebuild:cf": "node -e \"for (const d of ['dist-cf', '.cf-build']) require('fs').rmSync(d, { recursive: true, force: true })\"",
     "build:cf": "npm run build:client && npm run build:server && node scripts/prepare-cf-pages.js",
     "preview": "vite preview",
     "dev:client": "vite",

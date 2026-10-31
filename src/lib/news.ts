@@ -14,6 +14,8 @@ export interface TopNewsResponse {
   stale: boolean;
 }
 
+/** Headlines shown in the sidebar (the server returns the top 5). */
+export const NEWS_COUNT = 5;
 export const NEWS_REFRESH_MS = 15 * 60_000;
 
 /** "just now" / "12m ago" / "3h ago" / "2d ago"; empty string for an unparseable time. */
@@ -45,5 +47,5 @@ export function keepLastNews(prev: NewsItem[], next: TopNewsResponse | null | un
   if (!Array.isArray(items) || items.length === 0) return prev;
   return items
     .filter((i) => i && typeof i.title === 'string' && /^https?:\/\//i.test(i.url))
-    .slice(0, 3);
+    .slice(0, NEWS_COUNT);
 }

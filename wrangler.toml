@@ -19,6 +19,9 @@ database_id = "af9e14d2-83fd-4e32-84b9-623cc5557da6"
 # wrangler pages secret put AUTH_USER --project-name=seek-track (optional, defaults to "admin")
 # wrangler pages secret put ALPACA_API_KEY --project-name=seek-track
 # wrangler pages secret put ALPACA_SECRET_KEY --project-name=seek-track
+# Optional market-cap providers (watchlist; both work without them):
+# wrangler pages secret put FINNHUB_API_KEY --project-name=seek-track   (free key from finnhub.io; tried first when set)
+# wrangler pages secret put SEC_USER_AGENT --project-name=seek-track    ("SeekTrack you@example.com", SEC asks for a real contact)
 
 [env.production]
 # Production environment - secrets set via wrangler pages secret put

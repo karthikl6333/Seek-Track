@@ -158,6 +158,61 @@ describe('parseYahooChart', () => {
     expect(parseYahooChart('X', chart('X', meta({ ...base }), [10]), 100).shortName).toBeNull();
   });
 
+  it('valChange has the SAME sign as dayPct (previous-close baseline), not the session-open delta', () => {
+    // MU-like: opened at 100 (above yesterday's 90 close) and sits at 95. Up 5.6% on the day (vs 90) but BELOW
+    // today's open. The old valChange (price - open = -5) disagreed in sign with dayPct (+5.56%).
+    const start = 1_791_466_200;
+    const m = meta({
+      previousClose: 90,
+      chartPreviousClose: 90,
+      regularMarketPrice: 95,
+      regularMarketTime: start + 600,
+      currentTradingPeriod: { regular: { start, end: start + 6.5 * 3600 } },
+    });
+    const data: YahooChartResponse = {
+      chart: {
+        result: [
+          {
+            meta: { ...m, symbol: 'MU' },
+            timestamp: [start, start + 60],
+            indicators: { quote: [{ close: [100, 95], open: [100, 95], volume: [1, 1] }] },
+          },
+        ],
+      },
+    };
+    const q = parseYahooChart('MU', data, start + 700);
+    expect(q.sessionOpen).toBe(100); // still stored for reference
+    expect(q.dayPct).toBeCloseTo(5.5556, 3);
+    expect(q.valChange).toBeCloseTo(5, 6);
+    expect(Math.sign(q.valChange!)).toBe(Math.sign(q.dayPct!));
+  });
+
+  it('valChange (negative day) mirrors dayPct and is derived from regularMarketChangePercent without a baseline', () => {
+    const down = parseYahooChart('T', chart('T', meta({ regularMarketPrice: 95, previousClose: 100, currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } } }), [95]), 100);
+    expect(down.valChange).toBeCloseTo(-5, 6);
+    expect(down.dayPct).toBeCloseTo(-5, 6);
+    const noBase = parseYahooChart(
+      'N',
+      chart('N', { regularMarketPrice: 105, previousClose: undefined, chartPreviousClose: undefined, regularMarketChangePercent: 5, currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } } }, [105]),
+      100,
+    );
+    expect(noBase.valChange).toBeCloseTo(5, 6);
+  });
+
+  it('reads instrumentType and prefers longName when shortName is truncated at 30 chars', () => {
+    const m = meta({
+      regularMarketPrice: 6,
+      previousClose: 6,
+      instrumentType: 'ETF',
+      shortName: 'Defiance Daily Target 2X Short ',
+      longName: 'Defiance Daily Target 2X Short SMCI ETF',
+      currentTradingPeriod: { regular: { start: 1, end: 9_999_999_999 } },
+    });
+    const q = parseYahooChart('SMCZ', chart('SMCZ', m, [6]), 100);
+    expect(q.instrumentType).toBe('ETF');
+    expect(q.shortName).toBe('Defiance Daily Target 2X Short SMCI ETF');
+  });
+
   it('throws when no usable price exists', () => {
     const m: YahooMeta = { previousClose: undefined, regularMarketPrice: undefined };
     expect(() => parseYahooChart('Z', chart('Z', m, [null, null]))).toThrow(/No price/);
@@ -181,6 +236,7 @@ describe('selectQuotesToPersist (never blank)', () => {
     valChange: null,
     sessionOpen: null,
     shortName: null,
+    instrumentType: null,
   });
 
   it('never writes a null / 0 / NaN quote over an existing mark', () => {

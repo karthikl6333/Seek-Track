@@ -3,7 +3,7 @@ import * as db from '../api/client';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';
-import { viewFromHash } from '../lib/views';
+import { hashForView, viewFromHash } from '../lib/views';
 import type {
   AppSettings,
   CalculatorState,
@@ -31,7 +31,7 @@ function viewFromLocation(): ViewId {
 }
 
 function writeViewHash(view: ViewId): void {
-  const next = `#${view}`;
+  const next = hashForView(view, window.location.hash);
   if (window.location.hash !== next) {
     window.history.replaceState(null, '', next);
   }

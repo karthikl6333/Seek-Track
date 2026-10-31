@@ -10,4 +10,5 @@ export const NAV: { id: ViewId; label: string }[] = [
   { id: 'paper', label: 'Paper' },
   { id: 'paperFlex', label: 'Paper Flex' },
   { id: 'cryptoPaper', label: 'Crypto Paper' },
+  { id: 'ideas', label: 'Ideas' },
 ];

@@ -1,5 +1,5 @@
 import './App.css';
-import { useCallback, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useRef, useState } from 'react';
 import { Charges } from './pages/charges/Charges';
 import { Charts } from './pages/charts/Charts';
 import { Research, type ResearchRef } from './pages/research/Research';
@@ -9,6 +9,8 @@ import { CryptoPaper } from './pages/paper/CryptoPaper';
 import { PaperFlex } from './pages/paper/PaperFlex';
 import { Positions } from './pages/positions/Positions';
 import { Trades } from './pages/trades/Trades';
+// Markdown + DOMPurify + the report text only load when the Ideas tab is opened
+const Ideas = lazy(() => import('./pages/ideas/Ideas').then((m) => ({ default: m.Ideas })));
 import type { WatchlistRef } from './pages/overview/Watchlist';
 import { useStore } from './hooks/useStore';
 import { useRefreshScheduler } from './hooks/useRefreshScheduler';
@@ -122,6 +124,11 @@ export default function App() {
         {store.view === 'paper' && <Paper />}
         {store.view === 'paperFlex' && <PaperFlex />}
         {store.view === 'cryptoPaper' && <CryptoPaper />}
+        {store.view === 'ideas' && (
+          <Suspense fallback={<p className="muted">Loading…</p>}>
+            <Ideas />
+          </Suspense>
+        )}
       </main>
     </div>
   );

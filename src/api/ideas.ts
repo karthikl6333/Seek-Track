@@ -1,4 +1,4 @@
-import { apiGet, API_BASE } from './http';
+import { apiGet, apiSend, API_BASE } from './http';
 import { ideaAssetUrl, ideaPageUrl, type Idea, type IdeaListResponse } from '../lib/ideas';
 
 /** Authed API calls for the Ideas tab. Same-origin requests carry the browser's Basic-auth credentials. */
@@ -18,4 +18,13 @@ export function resolveIdeaImage(ref: string): string | null {
 /** The brochure page URL for the iframe and the "Open full screen" link. */
 export function resolveIdeaPage(slug: string): string | null {
   return ideaPageUrl(slug, API_BASE);
+}
+
+export interface IdeaMetadataUpdate {
+  status?: 'new' | 'reading' | 'done' | 'archived';
+  pinned?: boolean;
+}
+
+export function updateIdeaMetadata(slug: string, meta: IdeaMetadataUpdate): Promise<{ status: string; pinned: boolean; updatedAt: string }> {
+  return apiSend(`/api/ideas/${encodeURIComponent(slug)}/meta`, 'PATCH', meta);
 }

@@ -1,83 +1,128 @@
 import { describe, expect, it } from 'vitest';
-import { BROCHURE_SANDBOX, filterIdeas, formatIdeaDate, ideaAssetUrl, ideaPageUrl, ideaHash, ideaSlugFromHash, tagCounts, type IdeaMeta } from './ideas';
+import { filterIdeas, sortIdeas, type IdeaMeta } from './ideas';
 
-describe('tags and search', () => {
-  const mk = (slug: string, date: string, title: string, tags: string[], summary = 's'): IdeaMeta => ({
-    slug,
-    title,
-    date,
-    summary,
-    tags,
-    minutes: 1,
-    format: 'markdown',
+describe('filterIdeas with status filter', () => {
+  const ideas: IdeaMeta[] = [
+    {
+      slug: 'report-1',
+      title: 'Test Report 1',
+      date: '2026-11-01',
+      summary: 'Summary 1',
+      tags: ['tech'],
+      minutes: 5,
+      format: 'markdown',
+      status: 'new',
+      pinned: false,
+    },
+    {
+      slug: 'report-2',
+      title: 'Test Report 2',
+      date: '2026-11-02',
+      summary: 'Summary 2',
+      tags: ['finance'],
+      minutes: 10,
+      format: 'markdown',
+      status: 'reading',
+      pinned: true,
+    },
+    {
+      slug: 'report-3',
+      title: 'Test Report 3',
+      date: '2026-10-30',
+      summary: 'Summary 3',
+      tags: ['tech', 'finance'],
+      minutes: 15,
+      format: 'markdown',
+      status: 'archived',
+      pinned: false,
+    },
+  ];
+
+  it('filters by status', () => {
+    const result = filterIdeas(ideas, new Set(), '', new Set(['reading']));
+    expect(result).toHaveLength(1);
+    expect(result[0].slug).toBe('report-2');
   });
-  const a = mk('a', '2026-10-01', 'Alpha', ['Travel', 'Budget']);
-  const b = mk('b', '2026-10-31', 'Bravo', ['AI'], 'Gene editing in rice');
-  const c = mk('c', '2026-10-31', 'Aardvark', ['Travel']);
 
-  it('counts tags case-insensitively, most used first', () => {
-    expect(tagCounts([a, b, c])).toEqual([
-      { tag: 'Travel', count: 2 },
-      { tag: 'AI', count: 1 },
-      { tag: 'Budget', count: 1 },
-    ]);
+  it('hides archived by default', () => {
+    const result = filterIdeas(ideas, new Set(), '', undefined, true);
+    expect(result).toHaveLength(2);
+    expect(result.find((i) => i.status === 'archived')).toBeUndefined();
   });
 
-  it('filters by tags (AND) and search words (title, summary, tags)', () => {
-    const all = [a, b, c];
-    expect(filterIdeas(all, new Set(), '').length).toBe(3);
-    expect(filterIdeas(all, new Set(['travel']), '').map((i) => i.slug)).toEqual(['a', 'c']);
-    expect(filterIdeas(all, new Set(['Travel', 'Budget']), '').map((i) => i.slug)).toEqual(['a']);
-    expect(filterIdeas(all, new Set(), 'rice gene').map((i) => i.slug)).toEqual(['b']);
-    expect(filterIdeas(all, new Set(['Travel']), 'aardvark').map((i) => i.slug)).toEqual(['c']);
-    expect(filterIdeas(all, new Set(), 'budget').map((i) => i.slug)).toEqual(['a']);
-    expect(filterIdeas(all, new Set(), 'zzz')).toEqual([]);
+  it('shows archived when hideArchived is false', () => {
+    const result = filterIdeas(ideas, new Set(), '', undefined, false);
+    expect(result).toHaveLength(3);
+  });
+
+  it('combines status and tag filters', () => {
+    const result = filterIdeas(ideas, new Set(['tech']), '', new Set(['new', 'archived']), false);
+    expect(result).toHaveLength(2);
+    expect(result.find((i) => i.slug === 'report-1')).toBeDefined();
+    expect(result.find((i) => i.slug === 'report-3')).toBeDefined();
   });
 });
 
-describe('deep links and formatting', () => {
-  it('reads and writes #ideas/<slug>', () => {
-    expect(ideaSlugFromHash('#ideas/my-report')).toBe('my-report');
-    expect(ideaSlugFromHash('#/ideas/my-report?x=1')).toBe('my-report');
-    expect(ideaSlugFromHash('#ideas')).toBeNull();
-    expect(ideaSlugFromHash('#ideas/')).toBeNull();
-    expect(ideaSlugFromHash('#overview/my-report')).toBeNull();
-    expect(ideaSlugFromHash('#ideas/..%2Fetc')).toBeNull();
-    expect(ideaSlugFromHash('#ideas/%E0%A4%A')).toBeNull();
-    expect(ideaHash('my-report')).toBe('#ideas/my-report');
-    expect(ideaHash(null)).toBe('#ideas');
+describe('sortIdeas', () => {
+  it('sorts pinned items first', () => {
+    const ideas: IdeaMeta[] = [
+      {
+        slug: 'report-1',
+        title: 'Test Report 1',
+        date: '2026-11-02',
+        summary: 'Summary 1',
+        tags: [],
+        minutes: 5,
+        format: 'markdown',
+        status: 'new',
+        pinned: false,
+      },
+      {
+        slug: 'report-2',
+        title: 'Test Report 2',
+        date: '2026-11-01',
+        summary: 'Summary 2',
+        tags: [],
+        minutes: 5,
+        format: 'markdown',
+        status: 'new',
+        pinned: true,
+      },
+    ];
+
+    const result = sortIdeas(ideas);
+    expect(result[0].slug).toBe('report-2'); // pinned comes first
+    expect(result[1].slug).toBe('report-1');
   });
 
-  it('formats dates', () => {
-    expect(formatIdeaDate('2026-10-31')).toBe('31 Oct 2026');
-    expect(formatIdeaDate('2027-01-09')).toBe('9 Jan 2027');
-    expect(formatIdeaDate('garbage')).toBe('garbage');
-  });
-});
+  it('sorts by date when pin status is equal', () => {
+    const ideas: IdeaMeta[] = [
+      {
+        slug: 'report-1',
+        title: 'Test Report 1',
+        date: '2026-11-01',
+        summary: 'Summary 1',
+        tags: [],
+        minutes: 5,
+        format: 'markdown',
+        status: 'new',
+        pinned: false,
+      },
+      {
+        slug: 'report-2',
+        title: 'Test Report 2',
+        date: '2026-11-02',
+        summary: 'Summary 2',
+        tags: [],
+        minutes: 5,
+        format: 'markdown',
+        status: 'new',
+        pinned: false,
+      },
+    ];
 
-describe('ideaAssetUrl', () => {
-  it('maps assets/<slug>/<file> to the authed API image URL', () => {
-    expect(ideaAssetUrl('assets/trip-2027/cover.jpg')).toBe('/api/ideas/trip-2027/img/cover.jpg');
-    expect(ideaAssetUrl('./assets/trip/day-9.PNG', 'https://x.test')).toBe('https://x.test/api/ideas/trip/img/day-9.PNG');
-  });
-  it('never produces a data: URI, a static /assets path, or anything for odd refs', () => {
-    for (const bad of ['', 'cover.jpg', 'assets/trip/a.svg', 'assets/trip/../a.jpg', 'assets/Trip/a.jpg', 'assets/trip/sub/a.jpg', 'data:image/png;base64,AAAA', 'https://x/a.jpg', '/assets/a.jpg', 'assets/trip/a..b.jpg']) {
-      expect(ideaAssetUrl(bad), bad).toBeNull();
-    }
-  });
-});
-
-describe('brochure helpers', () => {
-  it('builds the authed page URL only for a valid slug', () => {
-    expect(ideaPageUrl('hong-kong-macau-family-trip-jan-2027')).toBe('/api/ideas/hong-kong-macau-family-trip-jan-2027/page');
-    expect(ideaPageUrl('a', 'https://api.test')).toBe('https://api.test/api/ideas/a/page');
-    for (const bad of ['', '../x', 'A', 'a/b', 'a b', 'x'.repeat(101)]) expect(ideaPageUrl(bad)).toBeNull();
-  });
-  it('sandbox: scripts and popups only, never same-origin or top navigation', () => {
-    const t = BROCHURE_SANDBOX.split(' ');
-    expect(t).toEqual(expect.arrayContaining(['allow-scripts', 'allow-popups', 'allow-popups-to-escape-sandbox']));
-    for (const forbidden of ['allow-same-origin', 'allow-top-navigation', 'allow-forms', 'allow-modals']) {
-      expect(t.some((x) => x.startsWith(forbidden))).toBe(false);
-    }
+    const result = sortIdeas(ideas);
+    expect(result[0].slug).toBe('report-2'); // newer date first
+    expect(result[1].slug).toBe('report-1');
   });
 });

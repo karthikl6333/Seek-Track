@@ -1394,3 +1394,28 @@ button.linkish:hover { opacity: 0.85; }
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Watchlist data source indicator */
+.wl-data-source {
+  display: inline-block;
+  font-size: 11px;
+  cursor: help;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.wl-data-source:hover {
+  opacity: 1;
+}
+
+.wl-data-source-ok {
+  color: var(--accent-2);
+}
+
+.wl-data-source-stale {
+  color: var(--warn);
+}
+
+.wl-data-source-missing {
+  color: var(--danger);
+}

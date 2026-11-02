@@ -46,12 +46,21 @@ export function IdeaReport({ slug, onBack }: { slug: string; onBack: () => void 
 
   const pageUrl = idea?.format === 'brochure' ? resolveIdeaPage(idea.slug) : null;
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className={`idea-report${pageUrl ? ' idea-report-brochure' : ''}`}>
-      <div className="idea-report-bar">
+      <div className="idea-report-bar no-print">
         <button type="button" className="btn small" onClick={onBack}>
           ← All reports
         </button>
+        {!pageUrl && idea && (
+          <button type="button" className="btn small" onClick={handlePrint} title="Print or save as PDF">
+            🖨️ Print / PDF
+          </button>
+        )}
         {pageUrl && (
           <a className="btn small" href={pageUrl} target="_blank" rel="noopener noreferrer">
             Open full screen ↗

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './ideas.css';
 import { FilterChips } from '../../components/FilterChips';
-import { loadIdeaList } from '../../api/ideas';
-import { filterIdeas, formatIdeaDate, ideaHash, ideaSlugFromHash, tagCounts, type IdeaListResponse } from '../../lib/ideas';
+import { loadIdeaList, updateIdeaMetadata } from '../../api/ideas';
+import { filterIdeas, formatIdeaDate, ideaHash, ideaSlugFromHash, sortIdeas, tagCounts, type IdeaListResponse } from '../../lib/ideas';
 import { IdeaReport } from './IdeaReport';
 
 /** Ideas tab: saved research reports. List with tag chips and search; `#ideas/<slug>` opens one. */
@@ -13,6 +13,8 @@ export function Ideas() {
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState('');
   const [tags, setTags] = useState<ReadonlySet<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
   // True when the open report was reached from the list inside this session, so Back can use history.
   const fromList = useRef(false);
 
@@ -52,9 +54,9 @@ export function Ideas() {
     }
   }, []);
 
-  const ideas = list?.ideas ?? [];
-  const chips = useMemo(() => tagCounts(ideas), [list]); // eslint-disable-line react-hooks/exhaustive-deps
-  const visible = useMemo(() => filterIdeas(ideas, tags, query), [list, tags, query]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ideas = useMemo(() => sortIdeas(list?.ideas ?? []), [list]);
+  const chips = useMemo(() => tagCounts(ideas), [ideas]);
+  const visible = useMemo(() => filterIdeas(ideas, tags, query, statusFilter, !showArchived), [ideas, tags, query, statusFilter, showArchived]);
 
   if (slug) return <IdeaReport slug={slug} onBack={back} />;
 
@@ -65,6 +67,32 @@ export function Ideas() {
       else next.add(tag);
       return next;
     });
+
+  const toggleStatus = (status: string) =>
+    setStatusFilter((cur) => {
+      const next = new Set(cur);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+
+  const togglePin = async (slug: string, currentPinned: boolean) => {
+    try {
+      await updateIdeaMetadata(slug, { pinned: !currentPinned });
+      setAttempt((n) => n + 1); // Reload the list
+    } catch (e) {
+      console.error('Failed to toggle pin:', e);
+    }
+  };
+
+  const changeStatus = async (slug: string, status: 'new' | 'reading' | 'done' | 'archived') => {
+    try {
+      await updateIdeaMetadata(slug, { status });
+      setAttempt((n) => n + 1); // Reload the list
+    } catch (e) {
+      console.error('Failed to update status:', e);
+    }
+  };
 
   return (
     <section className="ideas" aria-label="Ideas">
@@ -94,6 +122,16 @@ export function Ideas() {
             autoComplete="off"
           />
         </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+          <button
+            type="button"
+            className={`btn small${showArchived ? ' primary' : ''}`}
+            onClick={() => setShowArchived(!showArchived)}
+            title={showArchived ? 'Hide archived reports' : 'Show archived reports'}
+          >
+            {showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+        </div>
         <p className="muted ideas-count">
           {!list
             ? error
@@ -114,6 +152,20 @@ export function Ideas() {
           onClear={() => setTags(new Set())}
         />
       )}
+      <div style={{ marginTop: '8px' }}>
+        <FilterChips
+          ariaLabel="Filter reports by status"
+          options={[
+            { key: 'new', label: 'New', count: ideas.filter((i) => (i.status ?? 'new') === 'new').length },
+            { key: 'reading', label: 'Reading', count: ideas.filter((i) => i.status === 'reading').length },
+            { key: 'done', label: 'Done', count: ideas.filter((i) => i.status === 'done').length },
+          ]}
+          active={statusFilter}
+          totalCount={ideas.length}
+          onToggle={toggleStatus}
+          onClear={() => setStatusFilter(new Set())}
+        />
+      </div>
       {!list ? (
         error ? null : <p className="muted">Loading reports…</p>
       ) : visible.length === 0 ? (
@@ -122,36 +174,65 @@ export function Ideas() {
         </div>
       ) : (
         <ul className="ideas-list">
-          {visible.map((i) => (
-            <li key={i.slug}>
-              <a
-                className="card idea-card"
-                href={ideaHash(i.slug)}
-                onClick={(e) => {
-                  // plain click: keep Ideas state and use the same navigation as the rest of the page
-                  if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-                    e.preventDefault();
-                    open(i.slug);
-                  }
-                }}
-              >
-                <span className="idea-card-title">{i.title}</span>
-                <span className="idea-card-meta muted">
-                  {formatIdeaDate(i.date)} · {i.minutes} min read
-                </span>
-                <span className="idea-card-summary">{i.summary}</span>
-                {i.tags.length > 0 && (
-                  <span className="idea-tags">
-                    {i.tags.map((t) => (
-                      <span key={t} className="idea-tag">
-                        {t}
+          {visible.map((i) => {
+            const status = i.status ?? 'new';
+            const pinned = i.pinned ?? false;
+            return (
+              <li key={i.slug}>
+                <div className="card idea-card-wrapper">
+                  <div className="idea-card-controls">
+                    <button
+                      type="button"
+                      className={`btn small ghost idea-pin-btn${pinned ? ' pinned' : ''}`}
+                      onClick={() => togglePin(i.slug, pinned)}
+                      title={pinned ? 'Unpin report' : 'Pin report to top'}
+                      aria-label={pinned ? 'Unpin report' : 'Pin report'}
+                    >
+                      {pinned ? '📌' : '📍'}
+                    </button>
+                    <select
+                      className="idea-status-select"
+                      value={status}
+                      onChange={(e) => changeStatus(i.slug, e.target.value as any)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Change status"
+                    >
+                      <option value="new">New</option>
+                      <option value="reading">Reading</option>
+                      <option value="done">Done</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                  </div>
+                  <a
+                    className="idea-card-link"
+                    href={ideaHash(i.slug)}
+                    onClick={(e) => {
+                      // plain click: keep Ideas state and use the same navigation as the rest of the page
+                      if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                        e.preventDefault();
+                        open(i.slug);
+                      }
+                    }}
+                  >
+                    <span className="idea-card-title">{i.title}</span>
+                    <span className="idea-card-meta muted">
+                      {formatIdeaDate(i.date)} · {i.minutes} min read
+                    </span>
+                    <span className="idea-card-summary">{i.summary}</span>
+                    {i.tags.length > 0 && (
+                      <span className="idea-tags">
+                        {i.tags.map((t) => (
+                          <span key={t} className="idea-tag">
+                            {t}
+                          </span>
+                        ))}
                       </span>
-                    ))}
-                  </span>
-                )}
-              </a>
-            </li>
-          ))}
+                    )}
+                  </a>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

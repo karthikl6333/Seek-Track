@@ -19,6 +19,8 @@ export interface WatchlistQuoteRow {
   /** Company name (Yahoo shortName/longName), stored with the quote; null until first seen. */
   name: string | null;
   updatedAt: string | null;
+  /** When fundamentals (market cap) were last updated; null means never fetched. */
+  fundamentalsUpdatedAt: string | null;
 }
 
 export interface WatchlistPayload {
@@ -138,6 +140,7 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
       shares_outstanding: number | null;
       cap_price: number | null;
       updated_at: Date | string | null;
+      fundamentals_updated_at: Date | string | null;
     }>(
       `SELECT
          UPPER(w.symbol) AS symbol,
@@ -155,7 +158,8 @@ function loadWatchlistRows(): Promise<{ symbols: string[]; rows: WatchlistQuoteR
          wq.short_name,
          wq.shares_outstanding,
          wq.cap_price,
-         COALESCE(m.updated_at, wq.updated_at) AS updated_at
+         COALESCE(m.updated_at, wq.updated_at) AS updated_at,
+         wq.fundamentals_updated_at
        FROM watchlist w
        LEFT JOIN marks m ON m.symbol = UPPER(w.symbol)
        LEFT JOIN watchlist_quotes wq ON wq.symbol = UPPER(w.symbol)
@@ -203,9 +207,16 @@ export function toWatchlistRow(r: {
   shares_outstanding?: number | null;
   cap_price?: number | null;
   updated_at: Date | string | null;
+  fundamentals_updated_at?: Date | string | null;
 }): WatchlistQuoteRow {
   const updatedAt =
     r.updated_at == null ? null : typeof r.updated_at === 'string' ? r.updated_at : r.updated_at.toISOString();
+  const fundamentalsUpdatedAt =
+    r.fundamentals_updated_at == null
+      ? null
+      : typeof r.fundamentals_updated_at === 'string'
+        ? r.fundamentals_updated_at
+        : r.fundamentals_updated_at.toISOString();
   return {
     symbol: r.symbol.toUpperCase(),
     last: r.last != null ? Number(r.last) : null,
@@ -229,6 +240,7 @@ export function toWatchlistRow(r: {
     week52Low: r.week52_low != null ? Number(r.week52_low) : null,
     name: r.short_name ? String(r.short_name) : null,
     updatedAt,
+    fundamentalsUpdatedAt,
   };
 }
 

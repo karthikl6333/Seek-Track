@@ -143,6 +143,10 @@ export function parseSchwabCsv(
 
   const trades: Trade[] = [];
   let skipped = 0;
+  // Occurrence count of each identical row within THIS file. Schwab lists partial fills as separate
+  // identical rows, so the Nth copy (N >= 2) gets a "#N" suffix and is a distinct trade; the first
+  // copy keeps the exact legacy hash, so rows already in the DB still match and re-imports add nothing.
+  const occurrences = new Map<string, number>();
   const now = new Date().toISOString();
 
   for (let li = 1; li < lines.length; li++) {
@@ -180,7 +184,7 @@ export function parseSchwabCsv(
       continue;
     }
 
-    const rowHash = hashTradeRow({
+    const baseHash = hashTradeRow({
       date,
       action,
       symbol,
@@ -190,6 +194,10 @@ export function parseSchwabCsv(
       fees,
       amount,
     });
+
+    const occurrence = (occurrences.get(baseHash) ?? 0) + 1;
+    occurrences.set(baseHash, occurrence);
+    const rowHash = occurrence === 1 ? baseHash : `${baseHash}#${occurrence}`;
 
     if (existingHashes.has(rowHash)) {
       skipped++;

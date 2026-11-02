@@ -574,3 +574,82 @@ i.viz-sw { fill: none; }
     padding: var(--space-2) var(--space-3);
   }
 }
+
+/* Slide-style reports: <section class="idea-slide"> cards, numbered by a CSS counter, accent cycling through --viz-0..5.
+   Generic: any report may use it (docs/ADDING_IDEAS.md, "Slide-style reports"). */
+.idea-body {
+  counter-reset: idea-slide;
+}
+.idea-slide {
+  --slide-accent: var(--viz-0);
+  counter-increment: idea-slide;
+  position: relative;
+  margin: 28px 0;
+  padding: 22px 24px 14px;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--slide-accent);
+  border-radius: 10px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--slide-accent) 9%, var(--bg-elev)) 0%, var(--bg-elev) 220px);
+  min-width: 0;
+}
+.idea-slide:nth-of-type(6n + 2) { --slide-accent: var(--viz-1); }
+.idea-slide:nth-of-type(6n + 3) { --slide-accent: var(--viz-2); }
+.idea-slide:nth-of-type(6n + 4) { --slide-accent: var(--viz-3); }
+.idea-slide:nth-of-type(6n + 5) { --slide-accent: var(--viz-4); }
+.idea-slide:nth-of-type(6n) { --slide-accent: var(--viz-5); }
+.idea-body .idea-slide > h2 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 0;
+  border-bottom: 0;
+  font-size: 26px;
+  line-height: 1.2;
+}
+.idea-body .idea-slide > h2::before {
+  content: counter(idea-slide);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--slide-accent);
+  color: var(--bg);
+  font-size: 18px;
+  font-weight: 700;
+}
+.idea-slide ul {
+  list-style: none;
+  padding-left: 4px;
+}
+.idea-slide > ul > li {
+  position: relative;
+  margin: 8px 0;
+  padding-left: 22px;
+  font-size: 15.5px;
+}
+.idea-slide > ul > li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--slide-accent);
+}
+.idea-slide h3 {
+  margin: 20px 0 8px;
+  color: var(--slide-accent);
+}
+@media (max-width: 640px) {
+  .idea-slide {
+    padding: 16px 12px 8px;
+  }
+  .idea-body .idea-slide > h2 {
+    font-size: 21px;
+    gap: 10px;
+  }
+}

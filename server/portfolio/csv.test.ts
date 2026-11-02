@@ -206,3 +206,49 @@ describe('parseSchwabCsv', () => {
     });
   });
 });
+
+describe('identical rows within one file (partial fills)', () => {
+  const H = 'Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount';
+  const fill = '11/02/2026,Buy,SNDG,Buy SNDG,1000,4.08,0,-4080.00';
+  const other = '11/02/2026,Buy,SNDG,Buy SNDG,500,4.00,0,-2000.00';
+
+  it('imports two identical rows as two trades with distinct hashes; the first keeps the legacy hash', () => {
+    const { trades, result } = parseSchwabCsv([H, fill, other, fill].join('\n'), new Set());
+    expect(result.added).toBe(3);
+    expect(result.skipped).toBe(0);
+    const [a, , c] = trades;
+    expect(c.rowHash).toBe(`${a.rowHash}#2`);
+    expect(new Set(trades.map((t) => t.rowHash)).size).toBe(3);
+    // legacy hash == hash of the single-row file
+    const single = parseSchwabCsv([H, fill].join('\n'), new Set());
+    expect(single.trades[0].rowHash).toBe(a.rowHash);
+  });
+
+  it('numbers a third identical copy #3', () => {
+    const { trades } = parseSchwabCsv([H, fill, fill, fill].join('\n'), new Set());
+    expect(trades.map((t) => t.rowHash.split('#')[1])).toEqual([undefined, '2', '3']);
+  });
+
+  it('re-importing the same file adds nothing', () => {
+    const csv = [H, fill, fill].join('\n');
+    const first = parseSchwabCsv(csv, new Set());
+    const again = parseSchwabCsv(csv, new Set(first.trades.map((t) => t.rowHash)));
+    expect(again.result.added).toBe(0);
+    expect(again.result.skipped).toBe(2);
+  });
+
+  it('adds only the missing copy when the DB has one legacy row and the file has two', () => {
+    const legacy = parseSchwabCsv([H, fill].join('\n'), new Set());
+    const res = parseSchwabCsv([H, fill, fill].join('\n'), new Set(legacy.trades.map((t) => t.rowHash)));
+    expect(res.result.added).toBe(1);
+    expect(res.result.skipped).toBe(1);
+    expect(res.trades[0].rowHash).toBe(`${legacy.trades[0].rowHash}#2`);
+  });
+
+  it('leaves unrelated rows unchanged (hash equals the single-row hash)', () => {
+    const csv = [H, '10/15/2026,Buy,SNDG,Buy SNDG,1000,3.50,0,-3500.00', '10/26/2026,Sell,SNDG,Sell SNDG,1000,3.90,0,3900.00'].join('\n');
+    const { trades } = parseSchwabCsv(csv, new Set());
+    expect(trades).toHaveLength(2);
+    for (const t of trades) expect(t.rowHash).not.toContain('#');
+  });
+});

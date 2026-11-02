@@ -54,7 +54,9 @@ export async function insertTradesIdempotent(
   );
   const seen = new Set(existing.rows.map((r) => r.row_hash));
 
-  // Filter to new trades, also de-duplicating identical rows within this same file
+  // Filter to new trades. Genuinely separate identical fills in one file already carry distinct
+  // hashes ("<hash>#2", ... from parseSchwabCsv), so this only drops a repeated hash (same row twice
+  // in the batch from any other caller), never a real second fill.
   const newTrades: Array<Trade & { source?: string }> = [];
   for (const t of trades) {
     if (seen.has(t.rowHash)) continue;
@@ -219,7 +221,7 @@ async function importCsv(c: Context, csvText: string, overrideManual: boolean) {
 
     if (symbols.length) {
       // CSV wins for symbols in this file: remove conflicting manual additions.
-      // Identical CSV rows still dedupe by row_hash on insert.
+      // Identical CSV rows still dedupe by row_hash on insert (repeat fills carry a "#N" suffix).
       // ANY($1) converted to IN (?, ?, ...) by db adapter
       const del = await query(
         `DELETE FROM trades

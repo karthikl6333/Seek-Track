@@ -112,8 +112,10 @@ describe('bundled reports: charts', () => {
   const blocks = (src: string) => [...src.matchAll(/```viz\n([\s\S]*?)\n```/g)].map((m) => m[1]);
   const reportsWithCharts = reports.filter((f) => blocks(readFileSync(join(dir, f), 'utf8')).length > 0);
 
-  it('both visualised reports are present', () => {
-    expect(reportsWithCharts).toEqual(expect.arrayContaining(['ai-retail-theft-camera.md', 'boosted-breeding-in-agriculture.md']));
+  it('all visualised reports are present', () => {
+    expect(reportsWithCharts).toEqual(
+      expect.arrayContaining(['ai-retail-theft-camera.md', 'boosted-breeding-in-agriculture.md', 'ai-camera-kirana-slides.md']),
+    );
   });
 
   it.each(reportsWithCharts)('%s: every chart renders without error and its numbers appear in the report', (file) => {
@@ -133,5 +135,66 @@ describe('bundled reports: charts', () => {
     }
     // A figure on a chart that is not in the text is a number we invented: none allowed, except a short explicit allow-list of derived scenario labels.
     expect(missing).toEqual([]);
+  });
+});
+
+describe('slide-style reports', () => {
+  const dir = join(process.cwd(), 'content', 'ideas');
+  const md = '<section class="idea-slide">\n\n## First slide\n\n- one\n- two\n- three\n\n</section>\n\n<section class="idea-slide">\n\n## Second slide\n\nText with **bold**.\n\n</section>\n';
+
+  it('keeps the section and class through the sanitizer, parses the markdown inside and lists the slide headings', () => {
+    const r = renderIdeaMarkdown(md, () => '/x.webp');
+    const d = doc(sanitize(r.html));
+    const slides = [...d.querySelectorAll('section.idea-slide')];
+    expect(slides).toHaveLength(2);
+    expect(slides[0].querySelector('h2')?.textContent).toBe('First slide');
+    expect(slides[0].querySelectorAll(':scope > ul > li')).toHaveLength(3);
+    expect(slides[1].querySelector('strong')?.textContent).toBe('bold');
+    expect(r.toc.map((t) => t.text)).toEqual(['First slide', 'Second slide']);
+  });
+
+  it('ai-camera-kirana-slides: 8 slides, each with a heading, 3 to 5 bullets and at least one visual', () => {
+    const src = readFileSync(join(dir, 'ai-camera-kirana-slides.md'), 'utf8');
+    const d = doc(sanitize(renderIdeaMarkdown(src.replace(/^---[\s\S]*?\n---\n/, ''), () => '/x.webp').html));
+    const slides = [...d.querySelectorAll('section.idea-slide')];
+    expect(slides).toHaveLength(8);
+    for (const s of slides) {
+      expect(s.querySelectorAll(':scope > h2')).toHaveLength(1);
+      const bullets = s.querySelectorAll(':scope > ul > li').length;
+      expect(bullets, s.querySelector('h2')?.textContent ?? '').toBeGreaterThanOrEqual(3);
+      expect(bullets, s.querySelector('h2')?.textContent ?? '').toBeLessThanOrEqual(5);
+      expect(s.querySelectorAll('figure.idea-viz, img').length, s.querySelector('h2')?.textContent ?? '').toBeGreaterThan(0);
+    }
+  });
+
+  it('ai-camera-kirana-slides: cross-links to the theft camera report and cites sources', () => {
+    const src = readFileSync(join(dir, 'ai-camera-kirana-slides.md'), 'utf8');
+    expect(src).toContain('(#ideas/ai-retail-theft-camera)');
+    expect(src).toMatch(/^## Sources$/m);
+    for (const n of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']) expect(src).toContain(`**[${n}]**`);
+  });
+
+  it('ai-camera-kirana-slides: TAM, SAM and SOM follow from the stated shop counts and price', () => {
+    const price = 149 * 12;
+    const shops = { india: 13, china: 7, sea: 3.57 + 1.3 + 1.4 + 0.4 };
+    const crore = (millions: number) => (millions * 1e6 * price) / 1e7;
+    const r1 = (x: number) => Math.round(x * 10) / 10;
+    expect(price).toBe(1788);
+    expect(r1(shops.sea * 100) / 100).toBe(6.67);
+    expect(r1(crore(shops.india))).toBe(2324.4);
+    expect(r1(crore(shops.china))).toBe(1251.6);
+    expect(r1(crore(shops.sea))).toBe(1192.6);
+    expect(r1(crore(shops.india + shops.china + shops.sea))).toBe(4768.6);
+    const sam = shops.india * 0.68 * 0.25;
+    expect(Math.round(sam * 100) / 100).toBe(2.21);
+    expect(r1(crore(sam))).toBe(395.1);
+    const som = Math.round(sam * 0.01 * 1e6 / 100) * 100;
+    expect(som).toBe(22100);
+    expect(Math.round((som * price) / 1e5) / 100).toBe(3.95);
+    expect(Math.round((som * 99 * 12) / 1e5) / 100).toBe(2.63);
+    expect(Math.round((som * 199 * 12) / 1e5) / 100).toBe(5.28);
+    expect(Math.round(1599 / (300 - 149) * 10) / 10).toBe(10.6);
+    expect(Math.round(1599 / (500 - 149) * 10) / 10).toBe(4.6);
+    expect(Math.round(1599 / (1000 - 149) * 10) / 10).toBe(1.9);
   });
 });

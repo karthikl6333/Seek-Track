@@ -77,6 +77,38 @@ Every spec needs `"type"`:
 
 Charts scroll sideways inside the page rather than shrinking below a readable size on a phone.
 
+## 2B. Slide-style reports (`<section class="idea-slide">`)
+
+For a short, visual summary, wrap each slide in a raw HTML `<section class="idea-slide">`. Put a blank line
+after the opening tag and before the closing tag so the markdown inside is still parsed (headings, lists,
+tables, images and ```` ```viz ```` blocks all work, and the `##` heading still reaches the table of contents).
+
+````markdown
+<section class="idea-slide">
+
+## The idea
+
+- Three to five short bullets.
+- Each bullet one line.
+
+```viz
+{"type": "bar", "items": [{"label": "A", "value": 3, "display": "3 million"}]}
+```
+
+</section>
+````
+
+What you get: a card per slide with a large `##` heading, a round number badge (a CSS counter, so slides
+number themselves 1, 2, 3 ...), a coloured top border and tint that cycle through the chart palette, and square
+bullet markers on the slide's top-level list. Everything uses theme variables, so it follows the dark and
+seasonal themes, and the cards tighten on a phone.
+
+Guidelines: one `##` per slide, 3 to 5 bullets, and at least one visual (a chart, a flow, an image or a table)
+per slide. Keep text before and after the slides (an intro note, a Sources list) outside the sections.
+The rules in section 2A still apply: every number in a chart must also appear in the text.
+`section` and `class` survive the sanitizer; inline styles do not, so there are no per-slide colour overrides.
+Example: `content/ideas/ai-camera-kirana-slides.md`.
+
 ## 3. Images
 
 Put files under `content/ideas/assets/<slug>/` (webp preferred, also jpg, png, gif; no svg; resize and compress first, about 1280 px wide and 30 to 130 KB each) and reference them relative to `content/ideas/`:

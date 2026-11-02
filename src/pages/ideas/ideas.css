@@ -34,22 +34,63 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
   gap: var(--space-3);
 }
-.idea-card {
+.idea-card-wrapper {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   height: 100%;
-  color: var(--text);
-  text-decoration: none;
   transition: border-color var(--ease), background var(--ease);
 }
-.idea-card:hover {
+.idea-card-wrapper:hover {
   border-color: var(--accent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--bg-elev)) 0%, #080c12 100%);
 }
-.idea-card:focus-visible {
+.idea-card-controls {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+.idea-pin-btn {
+  font-size: 16px;
+  padding: 2px 6px;
+  min-width: auto;
+  opacity: 0.6;
+  transition: opacity var(--ease);
+}
+.idea-pin-btn.pinned {
+  opacity: 1;
+}
+.idea-pin-btn:hover {
+  opacity: 1;
+}
+.idea-status-select {
+  flex: 1;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.idea-status-select:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.idea-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  color: var(--text);
+  text-decoration: none;
+}
+.idea-card-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 .idea-card-title {
   font-size: 16px;
@@ -572,5 +613,119 @@ i.viz-sw { fill: none; }
 @media (max-width: 720px) {
   .idea-viz {
     padding: var(--space-2) var(--space-3);
+  }
+}
+
+/* Print styles for PDF export */
+@media print {
+  /* Hide navigation and chrome */
+  .no-print,
+  .idea-report-bar {
+    display: none !important;
+  }
+  
+  /* Reset backgrounds and colors for print */
+  body {
+    background: white;
+    color: black;
+  }
+  
+  .idea-article {
+    max-width: none;
+    padding: 0;
+    background: white;
+    border: none;
+    box-shadow: none;
+  }
+  
+  .idea-header h1 {
+    color: black;
+    page-break-after: avoid;
+  }
+  
+  .idea-card-meta,
+  .idea-summary {
+    color: #333;
+  }
+  
+  .idea-tag {
+    background: #f0f0f0;
+    color: #333;
+    border-color: #ccc;
+  }
+  
+  .idea-body {
+    color: black;
+  }
+  
+  .idea-body h2,
+  .idea-body h3,
+  .idea-body h4 {
+    color: black;
+    page-break-after: avoid;
+  }
+  
+  .idea-body h2 {
+    border-bottom-color: #ccc;
+  }
+  
+  .idea-body a {
+    color: #0066cc;
+    text-decoration: underline;
+  }
+  
+  .idea-body pre,
+  .idea-body code {
+    background: #f5f5f5;
+    border-color: #ddd;
+  }
+  
+  .idea-body img {
+    max-width: 100%;
+    page-break-inside: avoid;
+    border-color: #ddd;
+  }
+  
+  .idea-body blockquote {
+    background: #f9f9f9;
+    border-color: #ccc;
+  }
+  
+  .idea-body table {
+    page-break-inside: avoid;
+  }
+  
+  .idea-body th {
+    background: #f0f0f0;
+    color: #333;
+  }
+  
+  .idea-toc {
+    background: #f9f9f9;
+    border-color: #ddd;
+    page-break-inside: avoid;
+  }
+  
+  .idea-viz {
+    background: white;
+    border-color: #ddd;
+    page-break-inside: avoid;
+  }
+  
+  /* Ensure charts render properly */
+  .idea-viz svg {
+    max-width: 100%;
+  }
+  
+  /* Page breaks */
+  .idea-body h2 {
+    page-break-before: auto;
+  }
+  
+  .idea-body p,
+  .idea-body ul,
+  .idea-body ol {
+    orphans: 3;
+    widows: 3;
   }
 }

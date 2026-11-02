@@ -17,6 +17,10 @@ export interface IdeaMeta {
   minutes: number;
   /** "markdown": rendered by the app. "brochure": a full HTML page shown in a sandboxed iframe. */
   format: IdeaFormat;
+  /** User metadata: status (default 'new'). */
+  status?: 'new' | 'reading' | 'done' | 'archived';
+  /** User metadata: pinned flag (default false). */
+  pinned?: boolean;
 }
 
 export type IdeaFormat = 'markdown' | 'brochure';
@@ -67,14 +71,38 @@ export function tagCounts(ideas: readonly IdeaMeta[]): TagCount[] {
 }
 
 /** Tag filter is AND across the selected tags; search is every word found in title, summary or tags. */
-export function filterIdeas<T extends IdeaMeta>(ideas: readonly T[], tags: ReadonlySet<string>, query: string): T[] {
+export function filterIdeas<T extends IdeaMeta>(
+  ideas: readonly T[],
+  tags: ReadonlySet<string>,
+  query: string,
+  statusFilter?: Set<string>,
+  hideArchived = true,
+): T[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return ideas.filter((i) => {
+    // Status filter
+    const status = i.status ?? 'new';
+    if (hideArchived && status === 'archived') return false;
+    if (statusFilter && statusFilter.size > 0 && !statusFilter.has(status)) return false;
+    
+    // Tag filter
     const own = new Set(i.tags.map((t) => t.toLowerCase()));
     for (const t of tags) if (!own.has(t.toLowerCase())) return false;
+    
+    // Search filter
     if (words.length === 0) return true;
     const hay = `${i.title} ${i.summary} ${i.tags.join(' ')}`.toLowerCase();
     return words.every((w) => hay.includes(w));
+  });
+}
+
+/** Sort ideas: pinned first, then by date (newest first). */
+export function sortIdeas<T extends IdeaMeta>(ideas: readonly T[]): T[] {
+  return [...ideas].sort((a, b) => {
+    const aPin = a.pinned ?? false;
+    const bPin = b.pinned ?? false;
+    if (aPin !== bPin) return bPin ? 1 : -1;
+    return b.date.localeCompare(a.date);
   });
 }
 

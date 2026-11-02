@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono';
 import { getIdeaStore, isValidImageName, isValidSlug, readExternalImage } from '../ideas/store.js';
+import { query } from '../db.js';
 
 /**
  * Ideas (saved research reports). Authed like every other /api route: the auth middleware is registered
@@ -12,12 +13,65 @@ import { getIdeaStore, isValidImageName, isValidSlug, readExternalImage } from '
  *   GET /api/ideas/:slug/page             the HTML page of a `format: brochure` report (for a sandboxed iframe)
  *   ALL /_private/*                       always 404 (401 first without credentials): see the worker gate
  */
+export interface IdeaMetadata {
+  status: 'new' | 'reading' | 'done' | 'archived';
+  pinned: boolean;
+  updatedAt: string;
+}
+
+async function getIdeasMetadata(): Promise<Record<string, IdeaMetadata>> {
+  const res = await query<{ data: string | null }>(`SELECT data FROM settings WHERE id = 1`);
+  const dataStr = res.rows[0]?.data;
+  let data: any;
+  try {
+    data = dataStr ? JSON.parse(dataStr) : {};
+  } catch {
+    data = {};
+  }
+  return data?.ideas ?? {};
+}
+
+async function setIdeaMetadata(slug: string, meta: Partial<IdeaMetadata>): Promise<void> {
+  const all = await getIdeasMetadata();
+  const current = all[slug] ?? { status: 'new', pinned: false, updatedAt: new Date().toISOString() };
+  all[slug] = {
+    ...current,
+    ...meta,
+    updatedAt: new Date().toISOString(),
+  };
+  
+  const res = await query<{ data: string | null }>(`SELECT data FROM settings WHERE id = 1`);
+  const dataStr = res.rows[0]?.data;
+  let data: any;
+  try {
+    data = dataStr ? JSON.parse(dataStr) : {};
+  } catch {
+    data = {};
+  }
+  data.ideas = all;
+  
+  await query(
+    `INSERT INTO settings (id, data) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
+    [JSON.stringify(data)],
+  );
+}
+
 export function registerIdeasRoutes(app: Hono): void {
   app.get('/api/ideas', async (c) => {
     const store = await loadStore(c);
     if (store instanceof Response) return store;
+    const metadata = await getIdeasMetadata();
+    
+    // Enrich the list with metadata
+    const enrichedIdeas = store.list.map((idea) => ({
+      ...idea,
+      status: metadata[idea.slug]?.status ?? 'new',
+      pinned: metadata[idea.slug]?.pinned ?? false,
+    }));
+    
     c.header('Cache-Control', 'private, no-cache');
-    return c.json({ ideas: store.list, errors: store.errors });
+    return c.json({ ideas: enrichedIdeas, errors: store.errors });
   });
 
   app.get('/api/ideas/:slug', async (c) => {
@@ -76,6 +130,40 @@ export function registerIdeasRoutes(app: Hono): void {
         'X-Frame-Options': 'SAMEORIGIN',
       },
     });
+  });
+
+  // Update idea metadata (status, pinned)
+  app.patch('/api/ideas/:slug/meta', async (c) => {
+    const slug = c.req.param('slug');
+    if (!isValidSlug(slug)) return c.json({ error: 'invalid report id' }, 400);
+    
+    const store = await loadStore(c);
+    if (store instanceof Response) return store;
+    if (!store.get(slug)) return c.json({ error: 'report not found' }, 404);
+    
+    let body: { status?: string; pinned?: boolean } = {};
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ error: 'JSON body required' }, 400);
+    }
+    
+    const validStatuses = ['new', 'reading', 'done', 'archived'];
+    if (body.status !== undefined && !validStatuses.includes(body.status)) {
+      return c.json({ error: 'invalid status' }, 400);
+    }
+    
+    const meta: Partial<IdeaMetadata> = {};
+    if (body.status !== undefined) meta.status = body.status as IdeaMetadata['status'];
+    if (body.pinned !== undefined) meta.pinned = body.pinned;
+    
+    await setIdeaMetadata(slug, meta);
+    
+    const allMeta = await getIdeasMetadata();
+    const current = allMeta[slug];
+    
+    c.header('Cache-Control', 'private, no-cache');
+    return c.json(current);
   });
 
   // The static output has a private image prefix (/_private/...). The worker routes every request for it

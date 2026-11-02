@@ -300,3 +300,9 @@ CREATE INDEX IF NOT EXISTS marks_updated_at_idx ON marks (updated_at);
 CREATE INDEX IF NOT EXISTS price_alerts_status_symbol_idx ON price_alerts (status, symbol);
 -- Pair resolution by underlying: WHERE underlying = ?
 CREATE INDEX IF NOT EXISTS pair_cache_underlying_idx ON pair_cache (underlying);
+
+-- Ideas metadata: per-report status and pin flag (persisted in settings table as JSON)
+-- Example: {"ideas": {"my-report-slug": {"status": "reading", "pinned": true, "updatedAt": "2026-11-02T04:52:00Z"}}}
+-- Stored in settings.data.ideas[slug] = { status, pinned, updatedAt }
+-- No dedicated table: the Ideas store reads from content/ideas/ on startup and serves via API;
+-- this metadata enriches the list response with user state.

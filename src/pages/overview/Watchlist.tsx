@@ -20,6 +20,41 @@ import type { PairDef } from '../../types/index';
 import { apiGet, apiSend } from '../../api/http';
 const FILTER_KEY = 'watchlist-filter-open';
 
+function getDataSourceInfo(marketCap: number | null, fundamentalsUpdatedAt: string | null): {
+  status: 'ok' | 'stale' | 'missing';
+  message: string;
+} {
+  if (marketCap == null) {
+    return {
+      status: 'missing',
+      message: fundamentalsUpdatedAt
+        ? 'No data: provider returned no market cap'
+        : 'No data: not yet refreshed',
+    };
+  }
+  
+  if (!fundamentalsUpdatedAt) {
+    return { status: 'ok', message: 'Live price × shares' };
+  }
+  
+  const age = Date.now() - Date.parse(fundamentalsUpdatedAt);
+  const hours = Math.floor(age / (1000 * 60 * 60));
+  const days = Math.floor(hours / 24);
+  
+  if (days > 2) {
+    return {
+      status: 'stale',
+      message: `Stale: ${days}d old (refreshes daily)`,
+    };
+  }
+  
+  if (hours < 1) {
+    return { status: 'ok', message: 'Fresh: updated <1h ago' };
+  }
+  
+  return { status: 'ok', message: `Updated ${hours}h ago` };
+}
+
 export interface WatchlistRef {
   /**
    * Read-only: GET /api/watchlist (for auto-cycle). Pass `checkedAt` (client time) when the caller
@@ -45,6 +80,7 @@ interface WatchlistRow {
   week52High: number | null;
   week52Low: number | null;
   updatedAt: string | null;
+  fundamentalsUpdatedAt?: string | null;
 }
 
 interface WatchlistPayload {
@@ -392,7 +428,21 @@ export function Watchlist(props: WatchlistProps = {}) {
                 </td>
                 <td className={pnlClass(r.valChange)}>{fmtSigned(r.valChange)}</td>
                 <td className={pnlClass(r.pctChange)}>{fmtSigned(r.pctChange, 2, '%')}</td>
-                <td className="mono">{fmtMarketCap(r.marketCap)}</td>
+                <td className="mono">
+                  {fmtMarketCap(r.marketCap)}
+                  {(() => {
+                    const info = getDataSourceInfo(r.marketCap, r.fundamentalsUpdatedAt ?? null);
+                    return (
+                      <span
+                        className={`wl-data-source wl-data-source-${info.status}`}
+                        title={info.message}
+                        style={{ marginLeft: 6 }}
+                      >
+                        ⓘ
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td className="wl-range-col">
                   <RangeBar last={r.last} low={r.week52Low} high={r.week52High} />
                 </td>

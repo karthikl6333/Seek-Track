@@ -181,4 +181,65 @@ describe('computePositions FIFO lot matching', () => {
     expect(tslaPosition).toBeDefined();
     expect(tslaPosition?.quantity).toBe(-200);
   });
+
+  describe('short -> cover -> rebuy (AVL 2026-11-05 repro)', () => {
+    let n = 0;
+    const tr = (date: string, action: string, quantity: number, price: number, fees = 0): Trade => {
+      n += 1;
+      return {
+        id: `avl-${n}`,
+        rowHash: `avl-h${n}`,
+        date,
+        symbol: 'AVL',
+        action,
+        description: `${action} AVL`,
+        quantity,
+        price,
+        fees,
+        amount: 0,
+        importedAt: `2026-11-05T15:00:${String(n).padStart(2, '0')}Z`,
+      };
+    };
+
+    it('plain Buy covers an open short first; avg cost reflects only the open long lot', () => {
+      const trades = [
+        tr('09/14/2026', 'Buy', 12000, 34),
+        tr('11/05/2026', 'Sell', 12000, 26.36, 6.52),
+        tr('11/05/2026', 'Sell Short', 10000, 26.43, 5.44),
+        tr('11/05/2026', 'Buy', 10000, 25.2099), // covers the short
+        tr('11/05/2026', 'Buy', 10000, 25.18), // new long
+      ];
+      const [p] = computePositions(trades, [], {}).positions;
+      expect(p.quantity).toBe(10000);
+      expect(p.avgCost).toBeCloseTo(25.18, 6);
+      expect(p.costBasis).toBeCloseTo(251800, 4);
+      expect(p.openLots).toHaveLength(1);
+      expect(p.openLots[0].quantity).toBe(10000);
+      // sell 12000 long: (26.36-34)*12000 - 6.52 ; short cover: (26.43-25.2099)*10000 - 5.44
+      expect(p.realizedPnl).toBeCloseTo(-7.64 * 12000 - 6.52 + 1.2201 * 10000 - 5.44, 4);
+    });
+
+    it('a Buy larger than the open short covers it and opens a long for the remainder', () => {
+      const trades = [
+        tr('11/01/2026', 'Sell Short', 100, 20),
+        tr('11/02/2026', 'Buy', 150, 18, 3),
+      ];
+      const [p] = computePositions(trades, [], {}).positions;
+      expect(p.quantity).toBe(50);
+      expect(p.avgCost).toBeCloseTo(18, 6);
+      expect(p.costBasis).toBeCloseTo(50 * 18 + 1, 6);
+      expect(p.realizedPnl).toBeCloseTo(100 * 2 - 2, 6);
+    });
+
+    it('a position that returns to flat does not leak earlier costs into later lots', () => {
+      const trades = [
+        tr('10/01/2026', 'Buy', 100, 50),
+        tr('10/02/2026', 'Sell', 100, 60),
+        tr('10/03/2026', 'Buy', 10, 40),
+      ];
+      const [p] = computePositions(trades, [], {}).positions;
+      expect(p.quantity).toBe(10);
+      expect(p.avgCost).toBe(40);
+    });
+  });
 });

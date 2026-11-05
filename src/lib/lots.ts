@@ -127,24 +127,34 @@ export function computePositions(
           tradeId: t.id,
         });
       } else if (isBuyToCover(t.action)) {
-        realized += closeLots(lots, qty, t.price, fees, 'cover');
+        realized += closeLots(lots, qty, t.price, fees, 'cover').realized;
       } else if (isBuy(t.action)) {
-        lots.push({
-          id: crypto.randomUUID(),
-          symbol,
-          quantity: qty,
-          costPerShare: t.price,
-          feesAllocated: fees,
-          openDate: t.date,
-          tradeId: t.id,
-        });
+        // A plain "Buy" while short lots are open covers them first (brokers
+        // label a cover as "Buy"); only the remainder opens a new long lot.
+        const covered = closeLots(lots, qty, t.price, fees, 'cover');
+        realized += covered.realized;
+        const rest = covered.remaining;
+        if (rest > 1e-10) {
+          lots.push({
+            id: crypto.randomUUID(),
+            symbol,
+            quantity: rest,
+            costPerShare: t.price,
+            feesAllocated: fees * (rest / qty),
+            openDate: t.date,
+            tradeId: t.id,
+          });
+        }
       } else if (isSell(t.action)) {
-        realized += closeLots(lots, qty, t.price, fees, 'sell');
+        realized += closeLots(lots, qty, t.price, fees, 'sell').realized;
       }
     }
 
     const netQty = lots.reduce((s, l) => s + l.quantity, 0);
-    const absCost = lots.reduce((s, l) => s + Math.abs(l.quantity) * l.costPerShare + l.feesAllocated, 0);
+    // Avg cost / basis reflect only lots on the side of the net position
+    // (open longs for a long position, open shorts for a short one).
+    const sideLots = lots.filter((l) => (netQty > 0 ? l.quantity > 0 : l.quantity < 0));
+    const absCost = sideLots.reduce((s, l) => s + Math.abs(l.quantity) * l.costPerShare + l.feesAllocated, 0);
     const signedCost = lots.reduce((s, l) => {
       // Long: cost basis positive cash out; short: credit
       if (l.quantity >= 0) return s + l.quantity * l.costPerShare + l.feesAllocated;
@@ -153,7 +163,8 @@ export function computePositions(
 
     const avgCost =
       netQty !== 0
-        ? lots.reduce((s, l) => s + Math.abs(l.quantity) * l.costPerShare, 0) / Math.abs(netQty)
+        ? sideLots.reduce((s, l) => s + Math.abs(l.quantity) * l.costPerShare, 0) /
+          sideLots.reduce((s, l) => s + Math.abs(l.quantity), 0)
         : 0;
 
     const mark = marks[symbol] ?? null;
@@ -245,7 +256,7 @@ function closeLots(
   exitPrice: number,
   exitFees: number,
   mode: 'sell' | 'cover',
-): number {
+): { realized: number; remaining: number } {
   let remaining = qtyToClose;
   let realized = 0;
   let feesLeft = exitFees;
@@ -280,7 +291,7 @@ function closeLots(
     }
   }
 
-  return realized;
+  return { realized, remaining: remaining > 1e-10 ? remaining : 0 };
 }
 
 export function calcWhatIf(input: {

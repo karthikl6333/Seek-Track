@@ -53,13 +53,9 @@ can't hide a write.
 ### Price refresh behavior (unchanged by the refactor)
 
 Driven by `hooks/useRefreshScheduler.ts` using `lib/marketHours.ts` / `lib/pollGate.ts`:
-30 s holdings+watchlist in regular hours; 60 s after-hours; pre-market refreshes holdings+mapped
-underlyings every 5 min and watchlist every 60 s; weekday overnight (closed) refreshes
-holdings+mapped underlyings every 5 min with **no** watchlist/universe auto-refresh. No automatic
-refresh from Fri 20:00 ET to Mon 04:00 ET and on NYSE holidays. Manual refresh always works.
-Yahoo quotes use `includePrePost=true` (last 1m bar), so pre/after-hours prints update marks when a
-refresh runs. Prices are never shown blank: the last known mark is kept when a refresh fails or a
-symbol has no new quote.
+30 s regular session, 60 s pre/after-hours, 10 min when closed on weekdays, no automatic refresh from
+Fri 20:00 ET to Mon 04:00 ET and on NYSE holidays. Manual refresh always works. Prices are never
+shown blank: the last known mark is kept when a refresh fails or a symbol has no new quote.
 
 ## Ideas tab
 

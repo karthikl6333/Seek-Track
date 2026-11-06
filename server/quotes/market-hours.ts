@@ -256,44 +256,12 @@ export function nonTradingPricesLabel(w: NonTradingWindow): string {
 // Refresh cadence
 // ---------------------------------------------------------------------------------------------
 
-/**
- * What the holdings-cadence timer refreshes.
- * - holdings_watchlist: open positions (+ mapped underlyings) and watchlist symbols
- * - holdings_underlyings: open positions + mapped underlyings ONLY (no watchlist / research)
- */
-export type HoldingsRefreshScope = 'holdings_watchlist' | 'holdings_underlyings';
-
-/**
- * Holdings (+ underlyings) auto-refresh cadence per session; null = no automatic refresh.
- * Closed and pre-market use a 5-minute holdings+underlyings-only loop.
- */
+/** Holdings + watchlist auto-refresh cadence per session; null = no automatic refresh. */
 export const HOLDINGS_REFRESH_MS: Record<MarketSession, number | null> = {
   regular: 30_000,
-  premarket: 5 * 60_000,
-  afterhours: 60_000,
-  // Weekday overnight (20:00→04:00 ET): keep marks moving into pre-market prints.
-  closed: 5 * 60_000,
-  nontrading: null,
-};
-
-/** Scope for HOLDINGS_REFRESH_MS. */
-export const HOLDINGS_REFRESH_SCOPE: Record<MarketSession, HoldingsRefreshScope | null> = {
-  regular: 'holdings_watchlist',
-  premarket: 'holdings_underlyings',
-  afterhours: 'holdings_watchlist',
-  closed: 'holdings_underlyings',
-  nontrading: null,
-};
-
-/**
- * Extra watchlist cadence when the holdings timer is holdings+underlyings only (pre-market).
- * Regular/after-hours already include watchlist in HOLDINGS_REFRESH_MS. Closed: null.
- */
-export const WATCHLIST_REFRESH_MS: Record<MarketSession, number | null> = {
-  regular: null,
   premarket: 60_000,
-  afterhours: null,
-  closed: null,
+  afterhours: 60_000,
+  closed: 10 * 60_000, // overnight between trading days: few/no new prints
   nontrading: null,
 };
 
@@ -302,8 +270,7 @@ export const FULL_UNIVERSE_REFRESH_MS: Record<MarketSession, number | null> = {
   regular: 15 * 60_000,
   premarket: 15 * 60_000,
   afterhours: 15 * 60_000,
-  // Closed overnight: do NOT refresh watchlist/universe on the holdings loop.
-  closed: null,
+  closed: 60 * 60_000,
   nontrading: null,
 };
 
@@ -317,13 +284,9 @@ export function fullUniverseRefreshIntervalMs(date: Date): number | null {
 
 export interface AutoRefreshPlan {
   session: MarketSession;
-  /** Holdings cadence interval, null = no automatic holdings refresh. */
+  /** Holdings/watchlist interval, null = no automatic refresh. */
   holdingsMs: number | null;
-  /** What the holdings timer refreshes (watchlist vs holdings+underlyings only). */
-  holdingsScope: HoldingsRefreshScope | null;
-  /** Extra watchlist-only cadence (pre-market); null when watchlist is already in holdingsMs. */
-  watchlistMs: number | null;
-  /** Full-universe interval, null = no automatic full-universe refresh. */
+  /** Full-universe interval, null = no automatic refresh. */
   fullMs: number | null;
   /** When paused (weekend/holiday): ms until next trading day 04:00 ET, else null. */
   resumeInMs: number | null;
@@ -338,8 +301,6 @@ export function autoRefreshPlan(date: Date): AutoRefreshPlan {
   return {
     session,
     holdingsMs: HOLDINGS_REFRESH_MS[session],
-    holdingsScope: HOLDINGS_REFRESH_SCOPE[session],
-    watchlistMs: WATCHLIST_REFRESH_MS[session],
     fullMs: FULL_UNIVERSE_REFRESH_MS[session],
     resumeInMs: window ? Math.max(0, window.resumesAt.getTime() - date.getTime()) : null,
     window,

@@ -89,15 +89,11 @@ describe('weekend boundaries (Fri 20:00 ET → Mon 04:00 ET)', () => {
     expect(marketSessionAt(ny(2026, 10, 12, 4, 0))).toBe('premarket');
   });
 
-  it('weekday overnight between trading days: 5m holdings-only, no full-universe auto-refresh', () => {
+  it('weekday overnight between trading days keeps 10m / 60m', () => {
     for (const t of [ny(2026, 10, 13, 2, 0), ny(2026, 10, 15, 22, 0)]) {
       expect(marketSessionAt(t)).toBe('closed');
-      expect(holdingsRefreshIntervalMs(t)).toBe(5 * 60_000);
-      expect(fullUniverseRefreshIntervalMs(t)).toBeNull();
-      const plan = autoRefreshPlan(t);
-      expect(plan.holdingsScope).toBe('holdings_underlyings');
-      expect(plan.watchlistMs).toBeNull();
-      expect(plan.fullMs).toBeNull();
+      expect(holdingsRefreshIntervalMs(t)).toBe(10 * 60_000);
+      expect(fullUniverseRefreshIntervalMs(t)).toBe(60 * 60_000);
     }
   });
 
@@ -184,22 +180,11 @@ describe('autoRefreshPlan', () => {
     expect(autoRefreshPlan(ny(2026, 10, 8, 10, 0))).toEqual({
       session: 'regular',
       holdingsMs: 30_000,
-      holdingsScope: 'holdings_watchlist',
-      watchlistMs: null,
       fullMs: 15 * 60_000,
       resumeInMs: null,
       window: null,
     });
-    // Pre-market: 5m holdings+underlyings, separate 60s watchlist, full still on
-    expect(autoRefreshPlan(ny(2026, 10, 8, 8, 0))).toEqual({
-      session: 'premarket',
-      holdingsMs: 5 * 60_000,
-      holdingsScope: 'holdings_underlyings',
-      watchlistMs: 60_000,
-      fullMs: 15 * 60_000,
-      resumeInMs: null,
-      window: null,
-    });
+    expect(holdingsRefreshIntervalMs(ny(2026, 10, 8, 8, 0))).toBe(60_000);
     expect(holdingsRefreshIntervalMs(ny(2026, 10, 8, 17, 0))).toBe(60_000);
   });
 

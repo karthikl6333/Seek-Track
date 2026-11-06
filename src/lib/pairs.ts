@@ -39,3 +39,30 @@ export function impliedUnderlyingPct(etfPct: number, factor: number): number | n
 export function impliedEtfPct(underlyingPct: number, factor: number): number {
   return underlyingPct * factor;
 }
+
+/**
+ * Expand open-position symbols with mapped underlyings from settings pairs
+ * (e.g. AVL → AVGO). Holding an underlying does not pull leveraged ETFs.
+ */
+export function withMappedUnderlyings(
+  symbols: string[],
+  pairs: Array<Pick<PairDef, 'etf' | 'underlying'>>,
+): string[] {
+  const out = new Set<string>();
+  for (const raw of symbols) {
+    const sym = raw.toUpperCase().trim();
+    if (!sym || sym === 'TEST') continue;
+    out.add(sym);
+  }
+  if (out.size === 0 || pairs.length === 0) return [...out];
+
+  const held = [...out];
+  for (const sym of held) {
+    for (const p of pairs) {
+      const etf = p.etf.toUpperCase().trim();
+      const und = p.underlying.toUpperCase().trim();
+      if (etf && und && sym === etf) out.add(und);
+    }
+  }
+  return [...out];
+}

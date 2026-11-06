@@ -182,15 +182,6 @@ export function Calculator({
           />
         </div>
         <div className="field">
-          <label>Fees</label>
-          <input
-            type="number"
-            step="0.01"
-            value={calc.fees}
-            onChange={(e) => set({ fees: Number(e.target.value) })}
-          />
-        </div>
-        <div className="field">
           <label>
             Target Price
             {live !== undefined && (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computePositions } from './lots';
+import { calcWhatIf, computePositions } from './lots';
 import type { Trade } from '../types/index';
 
 describe('computePositions FIFO lot matching', () => {
@@ -241,5 +241,22 @@ describe('computePositions FIFO lot matching', () => {
       expect(p.quantity).toBe(10);
       expect(p.avgCost).toBe(40);
     });
+  });
+});
+
+
+describe('calcWhatIf', () => {
+  it('computes long P&L with fees treated as 0 when omitted', () => {
+    const r = calcWhatIf({ quantity: 100, entryPrice: 10, targetPrice: 12 });
+    expect(r.costBasis).toBe(1000);
+    expect(r.pnl).toBe(200);
+    expect(r.pnlPct).toBeCloseTo(20, 6);
+  });
+
+  it('computes short P&L with explicit fees: 0', () => {
+    const r = calcWhatIf({ quantity: -50, entryPrice: 20, fees: 0, targetPrice: 18 });
+    expect(r.costBasis).toBe(1000);
+    expect(r.pnl).toBe(100);
+    expect(r.pnlPct).toBeCloseTo(10, 6);
   });
 });

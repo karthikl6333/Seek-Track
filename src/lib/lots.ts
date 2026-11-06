@@ -297,17 +297,18 @@ function closeLots(
 export function calcWhatIf(input: {
   quantity: number;
   entryPrice: number;
-  fees: number;
+  fees?: number;
   targetPrice: number;
 }): { pnl: number; pnlPct: number; costBasis: number } {
   const qty = input.quantity;
-  const costBasis = Math.abs(qty) * input.entryPrice + Math.abs(input.fees);
+  const fees = Math.abs(input.fees ?? 0);
+  const costBasis = Math.abs(qty) * input.entryPrice + fees;
   let pnl: number;
   if (qty >= 0) {
-    pnl = qty * input.targetPrice - qty * input.entryPrice - Math.abs(input.fees);
+    pnl = qty * input.targetPrice - qty * input.entryPrice - fees;
   } else {
     const abs = Math.abs(qty);
-    pnl = abs * input.entryPrice - abs * input.targetPrice - Math.abs(input.fees);
+    pnl = abs * input.entryPrice - abs * input.targetPrice - fees;
   }
   const pnlPct = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
   return { pnl, pnlPct, costBasis };

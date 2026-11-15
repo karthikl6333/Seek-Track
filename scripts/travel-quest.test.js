@@ -241,8 +241,10 @@ describe('Travel Quest is a public static page', () => {
   it('matches the trips noindex rule for /games and does not move the auth gate', () => {
     const headers = readFileSync(join(process.cwd(), 'public', '_headers'), 'utf8');
     expect(headers).toMatch(/\/games\/\*\s+X-Robots-Tag:\s*noindex/);
+    expect(headers).toMatch(/\/trips\/\*\s+X-Robots-Tag:\s*noindex/);
     const worker = readFileSync(join(process.cwd(), 'scripts', 'prepare-cf-pages.js'), 'utf8');
     expect(worker).toContain("url.pathname.startsWith('/games/')");
+    expect(worker).toContain("url.pathname.startsWith('/trips/')");
     const apiAt = worker.indexOf("url.pathname.startsWith('/api/')");
     const privateAt = worker.indexOf('isPrivatePath(url.pathname)');
     const assetsAt = worker.indexOf('env.ASSETS.fetch(request)');
@@ -255,7 +257,33 @@ describe('Travel Quest is a public static page', () => {
     const sidebar = readFileSync(join(process.cwd(), 'src', 'app', 'Sidebar.tsx'), 'utf8');
     expect(sidebar).toContain('href="/games/travel-quest/"');
     expect(sidebar).toContain('>Games<');
+    expect(sidebar).toContain('href="/trips/"');
+    expect(sidebar).toContain('>Trips<');
     const nav = readFileSync(join(process.cwd(), 'src', 'app', 'nav.ts'), 'utf8');
     expect(nav).not.toContain('travel-quest');
+  });
+});
+
+describe('public trips pages', () => {
+  it('lists the three trips with relative links and noindex', () => {
+    const html = readFileSync(join(process.cwd(), 'public', 'trips', 'index.html'), 'utf8');
+    expect(html).toContain('noindex');
+    expect(html).not.toMatch(/<script/i);
+    expect(html).toContain('href="./hk-macau-2027/"');
+    expect(html).toContain('href="./norway-finland-2027/"');
+    expect(html).toContain('href="./seychelles-2027/"');
+    expect(html).toContain('Hong Kong &amp; Macau family trip, 9–17 Jan 2027');
+    expect(html).toContain("Ashok &amp; his wife's Arctic honeymoon: Norway + Finnish Lapland, 23–28 Feb 2027");
+    expect(html).toContain("Ashok &amp; his wife's Seychelles honeymoon, 23–28 Feb 2027");
+    expect(html).toContain('./norway-finland-2027/images/cover.jpg');
+    expect(html).toContain('./seychelles-2027/images/cover.jpg');
+  });
+
+  it('publishes the Hong Kong brochure under 25 MiB, with noindex and no external scripts', () => {
+    const file = join(process.cwd(), 'public', 'trips', 'hk-macau-2027', 'index.html');
+    const page = readFileSync(file, 'utf8');
+    expect(statSync(file).size).toBeLessThan(25 * 1024 * 1024);
+    expect(page).toContain('name="robots" content="noindex, nofollow"');
+    expect(page).not.toMatch(/<script[^>]+src=/i);
   });
 });

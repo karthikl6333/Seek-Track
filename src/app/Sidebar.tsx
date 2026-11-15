@@ -26,7 +26,10 @@ export function Sidebar({ view, onSelect }: { view: ViewId; onSelect: (id: ViewI
           {i < 9 && <kbd className="nav-key" aria-hidden="true">{i + 1}</kbd>}
         </button>
       ))}
-      {/* Public page, not a hash view: /games is a static file the worker serves before auth. */}
+      {/* Public pages, not hash views: the worker serves these static files before auth. */}
+      <a className="nav-btn" href="/trips/">
+        <span className="nav-label">Trips</span>
+      </a>
       <a className="nav-btn" href="/games/travel-quest/">
         <span className="nav-label">Games</span>
       </a>

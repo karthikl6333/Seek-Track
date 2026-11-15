@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Trips — Seek&amp;Track</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2430;
+      --cream: rgba(255, 250, 242, 0.94);
+      --teal: #0c7c74;
+      --line: rgba(28, 36, 48, 0.12);
+      font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 18%, #fff 0 42px, transparent 43px),
+        radial-gradient(circle at 86% 12%, #ffe08a 0 36px, transparent 37px),
+        linear-gradient(#8fd4ff, #1f7e9a);
+    }
+    main { max-width: 880px; margin: 0 auto; padding: 28px 16px 48px; }
+    header.hero, article {
+      background: var(--cream);
+      border-radius: 22px;
+      box-shadow: 0 10px 30px rgba(18, 50, 58, 0.16);
+    }
+    header.hero { padding: 22px 24px 18px; margin-bottom: 16px; }
+    .eyebrow { margin: 0; letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; font-weight: 700; color: var(--teal); }
+    h1 { margin: 4px 0 8px; font-size: 40px; line-height: 1.05; }
+    header p { margin: 0; max-width: 46ch; }
+    .cards { display: grid; gap: 14px; }
+    a.card {
+      display: grid;
+      grid-template-columns: 148px 1fr;
+      gap: 0;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+      background: var(--cream);
+      border-radius: 22px;
+      box-shadow: 0 10px 30px rgba(18, 50, 58, 0.16);
+    }
+    a.card:hover { outline: 3px solid #ffe08a; }
+    a.card:focus-visible { outline: 3px solid #ffe08a; outline-offset: 3px; }
+    .cover { min-height: 140px; background: #12323a center/cover no-repeat; }
+    .cover.hk {
+      background:
+        linear-gradient(160deg, rgba(28, 36, 48, 0.15), rgba(28, 36, 48, 0.05)),
+        linear-gradient(135deg, #ef5b3a, #e3a008 45%, #0c7c74);
+    }
+    .copy { padding: 16px 18px 18px; }
+    .copy h2 { margin: 0 0 8px; font-size: 22px; line-height: 1.25; }
+    .open { display: inline-block; margin-top: 12px; color: var(--teal); font-weight: 700; }
+    .back { display: inline-block; margin-top: 18px; color: #fff; font-weight: 700; }
+    @media (max-width: 640px) {
+      h1 { font-size: 32px; }
+      a.card { grid-template-columns: 1fr; }
+      .cover { min-height: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <p class="eyebrow">Seek&amp;Track</p>
+      <h1>Trips</h1>
+      <p>Planning pages you can open without signing in. They are not listed in search engines.</p>
+    </header>
+    <div class="cards">
+      <a class="card" href="./hk-macau-2027/">
+        <div class="cover hk" role="img" aria-label="Coral, gold, and teal"></div>
+        <div class="copy">
+          <h2>Hong Kong &amp; Macau family trip, 9–17 Jan 2027</h2>
+          <span class="open">Open the page</span>
+        </div>
+      </a>
+      <a class="card" href="./norway-finland-2027/">
+        <div class="cover" style="background-image:url('./norway-finland-2027/images/cover.jpg')" role="img" aria-label="Northern lights over the mountains"></div>
+        <div class="copy">
+          <h2>Ashok &amp; his wife's Arctic honeymoon: Norway + Finnish Lapland, 23–28 Feb 2027</h2>
+          <span class="open">Open the page</span>
+        </div>
+      </a>
+      <a class="card" href="./seychelles-2027/">
+        <div class="cover" style="background-image:url('./seychelles-2027/images/cover.jpg')" role="img" aria-label="A beach on Praslin"></div>
+        <div class="copy">
+          <h2>Ashok &amp; his wife's Seychelles honeymoon, 23–28 Feb 2027</h2>
+          <span class="open">Open the page</span>
+        </div>
+      </a>
+    </div>
+    <a class="back" href="/">Back to Seek&amp;Track</a>
+  </main>
+</body>
+</html>

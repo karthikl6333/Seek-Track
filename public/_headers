@@ -1,5 +1,8 @@
-# Public trip pages should not be indexed. Note: Pages advanced mode
+# Public trip pages and games should not be indexed. Note: Pages advanced mode
 # (_worker.js) may not apply this file to assets served via env.ASSETS;
-# the worker in scripts/prepare-cf-pages.js also sets this header for /trips/.
+# the worker in scripts/prepare-cf-pages.js also sets this header for /trips/ and /games/.
 /trips/*
+  X-Robots-Tag: noindex
+
+/games/*
   X-Robots-Tag: noindex

@@ -114,6 +114,9 @@
   padding: 10px 12px;
   color: var(--muted);
   min-height: 40px;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
   transition: background var(--ease), color var(--ease), border-color var(--ease);
 }
 

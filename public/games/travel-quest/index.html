@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#1f7e9a" />
+    <title>Travel Quest — Seek&amp;Track</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="css/game.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view" width="960" height="540" aria-hidden="true"></canvas>
+
+      <section id="screen-map" class="screen">
+        <div class="sheet">
+          <header class="hero">
+            <canvas id="portrait" width="180" height="220" role="img" aria-label="The explorer, in a sun hat, lavender glasses, and a backpack"></canvas>
+            <div class="hero-copy">
+              <p class="eyebrow">Seek&amp;Track</p>
+              <h1>Travel Quest</h1>
+              <p>Run through a country with the explorer, pocket the souvenirs, and earn a passport stamp.</p>
+            </div>
+          </header>
+          <div id="level-list" class="level-grid"></div>
+          <details id="help">
+            <summary>How to play</summary>
+            <ul>
+              <li><strong>Jump</strong> over holes, puddles, scooters, and water buffalo.</li>
+              <li><strong>Duck</strong> under shop signs and hanging lanterns.</li>
+              <li>Collect mango sticky rice, orchids, elephant tokens, banh mi, lanterns, and conical hats. Rare ones score more.</li>
+              <li>You have three hearts. A bump costs one. Hearts left at the gate add bonus points.</li>
+              <li>Finishing earns one star. A careful, high score earns two or three.</li>
+            </ul>
+            <p class="keys">Keyboard: Space or up to jump, down to duck, P to pause, M to mute, R to restart. On the map, press 1 or 2 to start an open country. Vietnam unlocks after Thailand is stamped.</p>
+          </details>
+          <div class="row-actions">
+            <button type="button" id="map-mute" aria-pressed="false">Sound</button>
+            <a class="text-btn" href="/">Back to Seek&amp;Track</a>
+          </div>
+        </div>
+      </section>
+
+      <div id="hud" hidden>
+        <div class="hud-top">
+          <div class="hud-score">
+            <span class="hud-label">Score</span>
+            <strong id="score">0</strong>
+          </div>
+          <div id="hearts" class="hearts" aria-label="Hearts"></div>
+          <div class="hud-actions">
+            <button type="button" id="btn-pause">Pause</button>
+            <button type="button" id="btn-mute" aria-pressed="false">Sound</button>
+            <button type="button" id="btn-restart">Restart</button>
+          </div>
+        </div>
+        <div class="hud-meta">
+          <span id="biome"></span>
+          <span id="practice" hidden>Practice — not saved</span>
+        </div>
+        <div id="track" class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Trip progress">
+          <div id="progress"></div>
+        </div>
+        <p id="hint" class="hint" hidden>Jump the low obstacles. Duck under anything overhead.</p>
+        <div id="fact" class="fact" hidden>
+          <p class="fact-kicker">Checkpoint</p>
+          <h2 id="fact-title"></h2>
+          <p id="fact-text"></p>
+        </div>
+        <div class="touch">
+          <button type="button" id="btn-duck" class="touch-btn">Duck</button>
+          <button type="button" id="btn-jump" class="touch-btn touch-jump">Jump</button>
+        </div>
+      </div>
+
+      <section id="screen-pause" class="screen overlay" hidden>
+        <div class="panel">
+          <h2>Paused</h2>
+          <p>The road will wait.</p>
+          <div class="stack">
+            <button type="button" id="pause-resume">Resume</button>
+            <button type="button" id="pause-restart">Restart</button>
+            <button type="button" id="pause-map">World map</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-over" class="screen overlay" hidden>
+        <div class="panel">
+          <h2>Trip interrupted</h2>
+          <p id="over-text"></p>
+          <p id="over-score" class="score-line"></p>
+          <div class="stack">
+            <button type="button" id="over-retry">Try again</button>
+            <button type="button" id="over-map">World map</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-stamp" class="screen overlay" hidden>
+        <div class="panel">
+          <div class="stamp" id="stamp">
+            <span>Passport</span>
+            <strong id="stamp-country"></strong>
+            <span id="stamp-stars"></span>
+          </div>
+          <h2>Stamp earned</h2>
+          <p id="stamp-detail"></p>
+          <p id="stamp-best" class="score-line"></p>
+          <div class="stack">
+            <button type="button" id="stamp-again">Run it again</button>
+            <button type="button" id="stamp-next" hidden>Next country</button>
+            <button type="button" id="stamp-map">World map</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="fatal" class="screen overlay" hidden>
+        <div class="panel">
+          <h2>Travel Quest needs a fix</h2>
+          <pre id="fatal-text"></pre>
+        </div>
+      </section>
+
+      <div id="live" class="sr" aria-live="polite"></div>
+    </div>
+    <noscript><p>Travel Quest needs JavaScript. Turn it on, then reload this page.</p></noscript>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

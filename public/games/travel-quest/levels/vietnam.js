@@ -1,0 +1,80 @@
+/**
+ * Vietnam — unlocks after Thailand is stamped. Register in js/levels.js.
+ */
+export default {
+  id: 'vietnam',
+  title: 'Vietnam',
+  blurb: 'Hoi An lanterns, a boat on Ha Long Bay, then mountain rice terraces.',
+  order: 2,
+  requires: 'thailand',
+  durationSec: 78,
+  heartBonus: 50,
+  accent: '#e3a008',
+  biomes: [
+    {
+      id: 'hoian',
+      name: 'Hoi An lanterns',
+      share: 0.34,
+      sky: ['#1b2748', '#3a4f86'],
+      ground: '#6b4636',
+      groundTop: '#a87558',
+      hill: '#24325c',
+      far: 'shophouses',
+      mid: 'lanterns',
+      night: true,
+    },
+    {
+      id: 'halong',
+      name: 'Ha Long Bay',
+      share: 0.33,
+      sky: ['#e4f7f2', '#7eb8c9'],
+      ground: '#8d6844',
+      groundTop: '#c49664',
+      hill: '#6f8f86',
+      far: 'karsts',
+      mid: 'junks',
+      water: true,
+    },
+    {
+      id: 'terraces',
+      name: 'Rice terraces',
+      share: 0.33,
+      sky: ['#e4f5c4', '#7fbf6a'],
+      ground: '#5c8f3e',
+      groundTop: '#b7d96a',
+      hill: '#3f7a32',
+      far: 'terraces',
+      mid: 'terraces',
+    },
+  ],
+  items: [
+    { id: 'banhmi', name: 'Banh mi', points: 10, weight: 5, glyph: 'banhmi' },
+    { id: 'lantern', name: 'Lantern', points: 20, weight: 3, glyph: 'lantern' },
+    { id: 'hat', name: 'Conical hat', points: 40, weight: 1, glyph: 'hat' },
+  ],
+  hazards: [
+    { id: 'puddle', name: 'Puddle', lane: 'low', glyph: 'puddle' },
+    { id: 'buffalo', name: 'Water buffalo', lane: 'mid', glyph: 'buffalo' },
+    { id: 'hanglantern', name: 'Hanging lantern', lane: 'high', glyph: 'hanglantern' },
+  ],
+  facts: [
+    {
+      id: 'lantern-festival',
+      at: 0.16,
+      title: 'Hoi An lantern festival',
+      text: 'On the 14th night of each lunar month, Hoi An turns down its electric lights. Paper lanterns glow along the river and the old streets.',
+    },
+    {
+      id: 'ha-long',
+      at: 0.5,
+      title: 'Ha Long Bay',
+      text: 'Ha Long Bay is a UNESCO World Heritage Site. Hundreds of limestone islands rise from the water. The name means “descending dragon.”',
+    },
+    {
+      id: 'terraces',
+      at: 0.78,
+      title: 'Rice terraces',
+      text: 'Around Sapa, families carved rice fields into the mountains like giant steps. The terraces turn green in summer and gold at harvest.',
+    },
+  ],
+};

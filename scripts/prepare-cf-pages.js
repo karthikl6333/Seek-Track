@@ -181,8 +181,11 @@ export default {
         // If asset found (200), return it; otherwise fall through to Hono SPA handler
         if (assetResponse.status < 400) {
           // Pages advanced mode may not apply public/_headers to env.ASSETS
-          // responses, so set noindex here for public trip pages.
-          if (url.pathname === '/trips' || url.pathname.startsWith('/trips/')) {
+          // responses, so set noindex here for public trip pages and games.
+          if (
+            url.pathname === '/trips' || url.pathname.startsWith('/trips/') ||
+            url.pathname === '/games' || url.pathname.startsWith('/games/')
+          ) {
             const headers = new Headers(assetResponse.headers);
             headers.set('X-Robots-Tag', 'noindex');
             return new Response(assetResponse.body, {

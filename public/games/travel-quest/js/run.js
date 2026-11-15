@@ -104,6 +104,28 @@ export function addCheckpoints(events, duration) {
   events.sort((a, b) => a.t - b.t);
 }
 
+/**
+ * A saved flag can resume only when this course still has that flag.
+ * An old country checkpoint, a bad seed, or a time from a rebuilt road returns null
+ * so the run starts at the beginning instead of crashing.
+ */
+export function resumePoint(events, duration, checkpoint) {
+  if (!checkpoint || typeof checkpoint !== 'object') return null;
+  const time = Number(checkpoint.time);
+  const seed = Number(checkpoint.seed);
+  const span = Number(duration);
+  if (!Number.isFinite(time) || time < 1 || !Number.isFinite(span) || time > span - 0.5) return null;
+  if (!Number.isFinite(seed) || seed < 1 || seed > 0x7fffffff) return null;
+  const near = events.some((event) => event.type === 'checkpoint' && Math.abs(event.t - time) <= 0.25);
+  if (!near) return null;
+  const score = Number(checkpoint.score);
+  return {
+    time,
+    seed: Math.floor(seed),
+    score: Number.isFinite(score) && score > 0 ? Math.min(999999, Math.floor(score)) : 0,
+  };
+}
+
 /** Resume just after a flag: everything already passed stays collected or gone. */
 export function applyCheckpoint(events, time) {
   for (const event of events) {

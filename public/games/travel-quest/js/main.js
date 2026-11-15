@@ -80,6 +80,17 @@ function showFatal(message) {
   ui.hud.hidden = true;
 }
 
+function formatCount(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '0';
+  const whole = Math.floor(value);
+  try {
+    return whole.toLocaleString();
+  } catch {
+    return String(whole);
+  }
+}
+
 function boot() {
   let toastTimer = 0;
   let introTimer = 0;
@@ -137,14 +148,14 @@ function boot() {
         ui.stampHeading.textContent = passport ? 'Passport stamped' : 'City cleared';
         ui.stampCountry.textContent = passport ? result.level.countryTitle : result.level.title;
         ui.stampStars.textContent = starGlyphs(result.stars);
-        const souvenir = `${result.score.toLocaleString()} from souvenirs`;
-        const hearts = `${result.bonus.toLocaleString()} heart bonus`;
+        const souvenir = `${formatCount(result.score)} from souvenirs`;
+        const hearts = `${formatCount(result.bonus)} heart bonus`;
         ui.stampDetail.textContent = result.practice
           ? `Practice run. ${souvenir} + ${hearts}. Not saved.`
-          : `${souvenir} + ${hearts} = ${result.total.toLocaleString()}.`;
+          : `${souvenir} + ${hearts} = ${formatCount(result.total)}.`;
         const best = save.levels[result.level.id];
         ui.stampBest.textContent = best
-          ? `Best score ${best.best.toLocaleString()} · ${starGlyphs(best.stars)}`
+          ? `Best score ${formatCount(best.best)} · ${starGlyphs(best.stars)}`
           : '';
         const upcoming = nextLevel(result.level.id);
         const open = Boolean(upcoming && isUnlocked(upcoming, save));
@@ -175,7 +186,7 @@ function boot() {
           : `The ${result.hazardName.toLowerCase()} got in the way. Dust off and try the road again.`;
         ui.overScore.textContent = result.practice
           ? 'Practice run — score not saved.'
-          : `Score ${result.score.toLocaleString()}.`;
+          : `Score ${formatCount(result.score)}.`;
         $('over-retry').textContent = cp ? 'From checkpoint' : 'Try again';
         $('over-begin').hidden = !cp;
         announce(`Trip interrupted by a ${result.hazardName}.`);
@@ -205,7 +216,10 @@ function boot() {
         }
       },
       setScore(n) {
-        ui.score.textContent = n.toLocaleString();
+        ui.score.textContent = formatCount(n);
+      },
+      note(text) {
+        announce(text);
       },
       setHearts(n) {
         ui.hearts.replaceChildren();
@@ -368,10 +382,18 @@ function boot() {
 
   function restart() {
     if (!current) return;
-    audio.click();
+    try {
+      audio.click();
+    } catch {
+      /* the click is optional */
+    }
     const cp = checkpointOf(save, current.id);
-    if (cp) play(current, { seed: cp.seed, checkpoint: cp });
-    else play(current);
+    try {
+      if (cp) play(current, { seed: cp.seed, checkpoint: cp });
+      else play(current);
+    } catch {
+      play(current);
+    }
   }
 
   function restartFresh() {

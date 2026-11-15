@@ -44,21 +44,56 @@ export function createAudio() {
     }
   }
 
+  // WebKit throws SyntaxError ("The string did not match the expected pattern.")
+  // when an exponential ramp touches zero or is not strictly after the last event.
+  function rampTo(param, value, end) {
+    const safe = Math.max(0.0001, Number(value) || 0.0001);
+    const at = Number(end);
+    try {
+      param.exponentialRampToValueAtTime(safe, at);
+    } catch {
+      param.linearRampToValueAtTime(safe, at);
+    }
+  }
+
   function beep(freq, dur, type, gain, when, slide) {
-    const ac = context();
-    if (!ac || muted) return;
-    const t = when ?? ac.currentTime;
-    const osc = ac.createOscillator();
-    const amp = ac.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(Math.max(40, freq), t);
-    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
-    amp.gain.setValueAtTime(gain, t);
-    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(amp);
-    amp.connect(master);
-    osc.start(t);
-    osc.stop(t + dur + 0.03);
+    try {
+      const ac = context();
+      if (!ac || muted) return null;
+      const now = ac.currentTime;
+      const asked = Number(when);
+      const t = Math.max(now + 0.001, Number.isFinite(asked) ? asked : now + 0.001);
+      const length = Math.max(0.02, Number(dur) || 0.05);
+      const osc = ac.createOscillator();
+      const amp = ac.createGain();
+      const wave = type === 'square' || type === 'sawtooth' || type === 'triangle' ? type : 'sine';
+      osc.type = wave;
+      const startFreq = Math.max(40, Number(freq) || 40);
+      osc.frequency.setValueAtTime(startFreq, t);
+      if (slide) {
+        const endFreq = Math.max(40, startFreq + Number(slide));
+        if (endFreq !== startFreq) rampTo(osc.frequency, endFreq, t + length);
+      }
+      const startGain = Math.max(0.0001, Number(gain) || 0.0001);
+      amp.gain.setValueAtTime(startGain, t);
+      rampTo(amp.gain, 0.0001, t + length);
+      osc.connect(amp);
+      amp.connect(master);
+      osc.start(t);
+      osc.stop(t + length + 0.03);
+      return null;
+    } catch (err) {
+      return err;
+    }
+  }
+
+  function chime(notes, step, dur, type, gain) {
+    let failed = null;
+    notes.forEach((freq, i) => {
+      const when = ctx ? ctx.currentTime + i * step : undefined;
+      failed = beep(freq, dur, type, gain, when) || failed;
+    });
+    if (failed) throw failed;
   }
 
   return {
@@ -87,16 +122,14 @@ export function createAudio() {
       beep(960, 0.12, 'sine', 0.028, when);
     },
     stamp() {
-      [523, 659, 784, 1046].forEach((freq, i) => {
-        const when = ctx ? ctx.currentTime + i * 0.09 : undefined;
-        beep(freq, 0.16, 'triangle', 0.05, when);
-      });
+      try {
+        chime([523, 659, 784, 1046], 0.09, 0.16, 'triangle', 0.05);
+      } catch {
+        /* a missed fanfare still lets the stamp screen show */
+      }
     },
     checkpoint() {
-      [784, 988, 1175].forEach((freq, i) => {
-        const when = ctx ? ctx.currentTime + i * 0.07 : undefined;
-        beep(freq, 0.16, 'sine', 0.055, when);
-      });
+      chime([784, 988, 1175], 0.07, 0.16, 'sine', 0.055);
     },
     click() {
       beep(440, 0.04, 'square', 0.02);

@@ -180,6 +180,17 @@ export default {
         const assetResponse = await env.ASSETS.fetch(request);
         // If asset found (200), return it; otherwise fall through to Hono SPA handler
         if (assetResponse.status < 400) {
+          // Pages advanced mode may not apply public/_headers to env.ASSETS
+          // responses, so set noindex here for public trip pages.
+          if (url.pathname === '/trips' || url.pathname.startsWith('/trips/')) {
+            const headers = new Headers(assetResponse.headers);
+            headers.set('X-Robots-Tag', 'noindex');
+            return new Response(assetResponse.body, {
+              status: assetResponse.status,
+              statusText: assetResponse.statusText,
+              headers,
+            });
+          }
           return assetResponse;
         }
       }

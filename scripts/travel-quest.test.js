@@ -26,7 +26,7 @@ import {
   layoutFor,
   playerHitBox,
 } from '../public/games/travel-quest/js/physics.js';
-import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32, pickWeighted } from '../public/games/travel-quest/js/run.js';
+import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32, pickWeighted, resumePoint } from '../public/games/travel-quest/js/run.js';
 import { checkpointOf, withCheckpoint } from '../public/games/travel-quest/js/progress.js';
 import { validateCountryList, validateLevel, validateLevelList } from '../public/games/travel-quest/js/schema.js';
 import template from '../public/games/travel-quest/levels/template.js';
@@ -217,6 +217,33 @@ describe('Travel Quest runs', () => {
     }
   });
 
+  it('respawns every city from each flag and drops a flag the course no longer has', () => {
+    for (const level of LEVELS) {
+      for (const seed of [1, 7, 99]) {
+        const run = buildRun(level, mulberry32(seed));
+        const flags = run.events.filter((event) => event.type === 'checkpoint');
+        expect(flags.length).toBeGreaterThanOrEqual(2);
+        for (const flag of flags) {
+          const again = buildRun(level, mulberry32(seed));
+          const point = resumePoint(again.events, level.durationSec, { time: flag.t, score: 40, seed });
+          expect(point, `${level.id} seed ${seed} @ ${flag.t}`).toEqual({ time: flag.t, score: 40, seed });
+          applyCheckpoint(again.events, point.time);
+          expect(again.events.find((event) => event.type === 'finish').dead).toBeFalsy();
+          expect(
+            again.events.filter((event) => event.type === 'checkpoint' && event.t <= flag.t + 0.02).every((event) => event.fired),
+          ).toBe(true);
+          const passed = again.events.filter((event) => event.t < flag.t - 0.05 && event.type !== 'finish');
+          expect(passed.every((event) => event.dead)).toBe(true);
+        }
+        expect(resumePoint(run.events, level.durationSec, { time: 1.5, score: 1, seed })).toBeNull();
+        expect(resumePoint(run.events, level.durationSec, { time: level.durationSec, score: 1, seed })).toBeNull();
+        expect(resumePoint(run.events, level.durationSec, { time: flags[0].t, score: 1, seed: 0 })).toBeNull();
+        expect(resumePoint(run.events, level.durationSec, { time: Number.NaN, score: 1, seed })).toBeNull();
+        expect(resumePoint(run.events, level.durationSec, null)).toBeNull();
+      }
+    }
+  });
+
   it('overlaps boxes only when they touch', () => {
     expect(boxesOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 9, y: 9, w: 4, h: 4 })).toBe(true);
     expect(boxesOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 10, y: 0, w: 4, h: 4 })).toBe(false);
@@ -259,6 +286,31 @@ describe('Travel Quest save', () => {
       levels: { ...stamped.levels, bangkok: { best: 10, stars: 1, cleared: true } },
     });
     expect(already.levels['phi-phi']).toBeUndefined();
+    const countryFlag = normalizeSave({
+      levels: {
+        thailand: { best: 0, stars: 0, cleared: false, checkpoint: { time: 40, score: 12, seed: 3 } },
+        vietnam: { best: 90, stars: 2, cleared: true, checkpoint: { time: 30, score: 20, seed: 4 } },
+      },
+    });
+    const dropped = migrateLegacy(countryFlag);
+    expect(dropped.levels.thailand.checkpoint).toBeUndefined();
+    expect(dropped.levels.vietnam.checkpoint).toBeUndefined();
+    expect(dropped.levels.bangkok).toBeUndefined();
+    expect(dropped.levels.hanoi.cleared).toBe(true);
+    expect(dropped.levels.hanoi.checkpoint).toBeUndefined();
+    const keptCity = normalizeSave({
+      levels: {
+        'phi-phi': { best: 10, stars: 1, cleared: false, checkpoint: { time: 23.1, score: 15, seed: 7 } },
+        bangkok: { best: 1, stars: 1, cleared: true },
+      },
+    });
+    expect(keptCity.levels['phi-phi'].checkpoint).toEqual({ time: 23.1, score: 15, seed: 7 });
+    expect(normalizeSave({ levels: { 'phi-phi': { checkpoint: { time: 0, score: 5, seed: 7 } } } }).levels['phi-phi'].checkpoint).toBeUndefined();
+    expect(normalizeSave({ levels: { 'phi-phi': { checkpoint: { time: 23, score: 5, seed: 0 } } } }).levels['phi-phi'].checkpoint).toBeUndefined();
+    let scored = withCheckpoint(emptySave(), 'phi-phi', { time: 23.1, score: 15, seed: 7 });
+    scored = recordScore(scored, 'phi-phi', 40);
+    expect(checkpointOf(scored, 'phi-phi')).toEqual({ time: 23.1, score: 15, seed: 7 });
+    expect(checkpointOf(withCheckpoint(scored, 'phi-phi', null), 'phi-phi')).toBeNull();
   });
 
   it('keeps adult hit boxes the same width and only a little taller', () => {

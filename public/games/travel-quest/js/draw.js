@@ -489,7 +489,11 @@ export function drawShrine(ctx, x, groundY, h, accent) {
 const spriteCache = {};
 
 function spriteUrl(id, pose) {
-  return new URL(`../assets/${id}-${pose}.png`, import.meta.url).href;
+  try {
+    return new URL(`../assets/${id}-${pose}.png`, import.meta.url).href;
+  } catch {
+    return '';
+  }
 }
 
 function ensureSprites(id) {

@@ -163,14 +163,19 @@ export function withCharacter(save, id) {
 /**
  * Old saves stored a country id. If that country is stamped and none of its
  * cities are recorded yet, every city in it is stamped. A best score with no
- * stamp is copied onto the first city only. A save that already has a city is left alone.
+ * stamp is copied onto the first city only. A country checkpoint is dropped:
+ * that course no longer exists, so it must not resume a city.
  */
 export function migrateLegacy(save, map = LEGACY_CITIES) {
   const levels = { ...save.levels };
   let changed = false;
   for (const [countryId, cityIds] of Object.entries(map || {})) {
-    if (!Array.isArray(cityIds) || cityIds.some((id) => levels[id])) continue;
     const row = levels[countryId];
+    if (row && row.checkpoint) {
+      levels[countryId] = { best: row.best, stars: row.stars, cleared: Boolean(row.cleared) };
+      changed = true;
+    }
+    if (!Array.isArray(cityIds) || cityIds.some((id) => levels[id])) continue;
     if (!row) continue;
     if (row.cleared) {
       cityIds.forEach((id, index) => {

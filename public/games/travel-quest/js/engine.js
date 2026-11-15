@@ -17,7 +17,7 @@ import {
   shortHopSpeed,
   takeoffSpeed,
 } from './physics.js';
-import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32 } from './run.js';
+import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32, resumePoint } from './run.js';
 import * as draw from './draw.js';
 
 const HEARTS = 3;
@@ -86,6 +86,37 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   let wasAir = false;
   const particles = [];
   const debug = new URLSearchParams(window.location.search).get('debug') === '1';
+  let noted = '';
+
+  function recoverable(err) {
+    const name = err && err.name ? err.name : '';
+    const message = err && err.message ? String(err.message) : '';
+    if (/expected pattern|not a valid selector|Invalid URL|not in the allowed range/i.test(message)) return true;
+    return (
+      name === 'SyntaxError' ||
+      name === 'InvalidStateError' ||
+      name === 'IndexSizeError' ||
+      name === 'NotSupportedError' ||
+      name === 'DataError' ||
+      name === 'EncodingError'
+    );
+  }
+
+  function remember(err) {
+    const message = err && err.message ? String(err.message) : 'Something went wrong.';
+    if (message === noted || !ui.note) return;
+    noted = message;
+    ui.note(message);
+  }
+
+  function guard(fn) {
+    try {
+      fn();
+    } catch (err) {
+      if (!recoverable(err)) throw err;
+      remember(err);
+    }
+  }
 
   function layout() {
     const w = Math.max(1, canvas.clientWidth);
@@ -338,9 +369,9 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       if (event.type === 'checkpoint') {
         if (!event.fired && time >= event.t) {
           event.fired = true;
-          audio.checkpoint();
-          ui.toast('Checkpoint!');
-          if (!practice) ui.saveCheckpoint({ time: event.t, score, seed: runSeed });
+          if (!practice) guard(() => ui.saveCheckpoint({ time: event.t, score, seed: runSeed }));
+          guard(() => ui.toast('Checkpoint!'));
+          guard(() => audio.checkpoint());
         }
         continue;
       }
@@ -579,20 +610,28 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
 
       if (mode !== 'over' && (mode === 'map' || level)) {
         const theme = mode === 'map' || !level ? 'map' : level.music || 'map';
-        audio.tickMusic(theme);
+        guard(() => audio.tickMusic(theme));
       }
       render();
     } catch (err) {
-      cancelAnimationFrame(raf);
-      ui.fatal(err && err.message ? err.message : 'Something went wrong.');
-      return;
+      if (recoverable(err)) {
+        remember(err);
+      } else {
+        cancelAnimationFrame(raf);
+        ui.fatal(err && err.message ? err.message : 'Something went wrong.');
+        return;
+      }
     }
     raf = requestAnimationFrame(frame);
   }
 
   function start(next, opts = {}) {
     level = next;
-    const seed = opts.seed || Math.floor(Math.random() * 0x7fffffff) || 1;
+    const asked = Number(opts.seed);
+    const seed =
+      Number.isFinite(asked) && asked >= 1 && asked <= 0x7fffffff
+        ? Math.floor(asked)
+        : Math.floor(Math.random() * 0x7fffffff) || 1;
     runSeed = seed;
     run = buildRun(level, mulberry32(seed));
     ceiling = scoreCeiling(run.events, level.heartBonus, HEARTS);
@@ -617,12 +656,16 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     introBiome = '';
     wasAir = false;
     particles.length = 0;
-    const resumeAt = opts.checkpoint ? Number(opts.checkpoint.time) : Number(opts.at) || 0;
-    const at = Math.max(0, Math.min(level.durationSec - 0.5, resumeAt));
+    const saved = resumePoint(run.events, level.durationSec, opts.checkpoint);
+    const requested = Number(opts.at);
+    const resumeAt = saved ? saved.time : Number.isFinite(requested) ? requested : 0;
+    const span = Number(level.durationSec);
+    const limit = Number.isFinite(span) ? Math.max(0, span - 0.5) : 0;
+    const at = Math.max(0, Math.min(limit, resumeAt));
     time = at;
     practice = Boolean(opts.practice);
-    if (opts.checkpoint) {
-      score = Math.max(0, opts.checkpoint.score | 0);
+    if (saved) {
+      score = saved.score;
       applyCheckpoint(run.events, at);
     } else if (at > 0) {
       practice = true;
@@ -631,15 +674,17 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     hintOn = at === 0;
     mode = 'play';
     resetClock = true;
-    ui.prepareRun({ accent: level.accent, practice });
-    ui.setScore(score);
-    ui.setMarks(run.events.filter((event) => event.type === 'checkpoint').map((event) => event.t / level.durationSec));
-    ui.setHearts(HEARTS);
-    ui.setFact(null);
-    ui.setBiome(biomeAt(level, time).showing.name);
-    ui.setProgress(time / level.durationSec);
-    ui.setHint(hintOn);
-    if (ui.setCombo) ui.setCombo(0);
+    noted = '';
+    const marks = run.events.filter((event) => event.type === 'checkpoint').map((event) => event.t / level.durationSec);
+    guard(() => ui.prepareRun({ accent: level.accent, practice }));
+    guard(() => ui.setScore(score));
+    guard(() => ui.setMarks(marks));
+    guard(() => ui.setHearts(HEARTS));
+    guard(() => ui.setFact(null));
+    guard(() => ui.setBiome(biomeAt(level, Math.min(time, level.durationSec)).showing.name));
+    guard(() => ui.setProgress(level.durationSec ? time / level.durationSec : 0));
+    guard(() => ui.setHint(hintOn));
+    if (ui.setCombo) guard(() => ui.setCombo(0));
   }
 
   function showMap() {

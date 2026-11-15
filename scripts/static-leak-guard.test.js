@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CANARIES, GATE_MARKER, escapedForms, PRIVATE_DIR, buildNeedles, privateAssetName, readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
+import { APPROVED_PUBLIC_PAGE, CANARIES, GATE_MARKER, escapedForms, PRIVATE_DIR, buildNeedles, privateAssetName, readContent, scanStaticOutput, workerEmbedsContent } from './static-leak-guard.js';
 
 const contentDir = join(process.cwd(), 'content', 'ideas');
 const content = readContent(contentDir);
@@ -124,6 +124,16 @@ describe('private image prefix (brochure images)', () => {
       withGate(d);
       expect(scanStaticOutput(d, content).join('\n'), rel).toMatch(/unexpected file in the private prefix/);
     }
+  });
+
+  it('allows the published Hong Kong brochure and still flags that text everywhere else', () => {
+    const d = tmp();
+    put(d, APPROVED_PUBLIC_PAGE, 'Published trip. CX 601. Grand Stanford. Karthik, his wife.');
+    expect(scanStaticOutput(d, content).join('\n')).not.toMatch(/CX 601|Grand Stanford|Karthik/);
+    put(d, 'assets/leaked.js', 'CX 601');
+    expect(scanStaticOutput(d, content).join('\n')).toContain('CX 601');
+    put(d, APPROVED_PUBLIC_PAGE, 'Boosted Breeding slipped into the public brochure');
+    expect(scanStaticOutput(d, content).join('\n')).toContain('Boosted Breeding');
   });
 
   it('page text and the brochure title are caught in ANY static file, including inside the private prefix', () => {

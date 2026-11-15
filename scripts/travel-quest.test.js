@@ -14,7 +14,15 @@ import {
   starsFor,
   writeSave,
 } from '../public/games/travel-quest/js/progress.js';
-import { biomeAt, boxesOverlap, buildRun, mulberry32, pickWeighted } from '../public/games/travel-quest/js/run.js';
+import {
+  apexDelay,
+  duckClearsHazard,
+  fullAirtime,
+  jumpClearsHazard,
+  layoutFor,
+} from '../public/games/travel-quest/js/physics.js';
+import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32, pickWeighted } from '../public/games/travel-quest/js/run.js';
+import { checkpointOf, withCheckpoint } from '../public/games/travel-quest/js/progress.js';
 import { validateLevel, validateLevelList } from '../public/games/travel-quest/js/schema.js';
 import template from '../public/games/travel-quest/levels/template.js';
 
@@ -85,7 +93,7 @@ describe('Travel Quest runs', () => {
         expect(hazards[0].t).toBeGreaterThanOrEqual(4);
         expect(hazards[hazards.length - 1].t).toBeLessThan(run.duration - 3);
         for (let i = 1; i < hazards.length; i += 1) {
-          expect(hazards[i].t - hazards[i - 1].t).toBeGreaterThanOrEqual(1.5);
+          expect(hazards[i].t - hazards[i - 1].t).toBeGreaterThanOrEqual(1.8);
         }
         const facts = run.events.filter((event) => event.type === 'fact');
         expect(facts).toHaveLength(level.facts.length);
@@ -121,6 +129,63 @@ describe('Travel Quest runs', () => {
     const edge = biomeAt(level, boundary);
     expect(edge.blend).toBeGreaterThan(0);
     expect(edge.blend).toBeLessThanOrEqual(1);
+  });
+
+  it('clears every ground hurdle with a tap or a held jump', () => {
+    const views = [
+      [390, 700],
+      [1280, 800],
+      [1920, 1080],
+    ];
+    for (const level of LEVELS) {
+      for (const seed of [1, 2, 99, 12345]) {
+        const run = buildRun(level, mulberry32(seed));
+        const hazards = run.events.filter((event) => event.type === 'hazard');
+        expect(hazards.length).toBeGreaterThan(5);
+        for (const [w, h] of views) {
+          const layout = layoutFor(w, h);
+          expect(hazards[1].t - hazards[0].t).toBeGreaterThan(fullAirtime(h, layout.ph) + 0.2);
+          for (const hazard of hazards) {
+            if (hazard.spec.lane === 'high') {
+              expect(duckClearsHazard(layout, 'high')).toBe(true);
+              continue;
+            }
+            for (const hold of [false, true]) {
+              const lead = apexDelay(h, layout.ph, hold);
+              for (const offset of [-0.1, 0, 0.08]) {
+                expect(
+                  jumpClearsHazard(layout, hazard.spec.lane, { hold, lead: lead + offset }),
+                  `${level.id} seed ${seed} ${hazard.spec.lane} hold ${hold} offset ${offset}`,
+                ).toBe(true);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('restores a run from the last checkpoint', () => {
+    for (const level of LEVELS) {
+      const run = buildRun(level, mulberry32(7));
+      const flags = run.events.filter((event) => event.type === 'checkpoint');
+      expect(flags.length).toBeGreaterThanOrEqual(2);
+      expect(flags.length).toBeLessThanOrEqual(3);
+      const flag = flags[0];
+      const before = run.events.filter((event) => event.type === 'item' && event.t < flag.t - 0.05);
+      const after = run.events.filter((event) => event.type === 'item' && event.t > flag.t + 0.2);
+      expect(before.length).toBeGreaterThan(0);
+      expect(after.length).toBeGreaterThan(0);
+      applyCheckpoint(run.events, flag.t);
+      expect(before.every((event) => event.dead)).toBe(true);
+      expect(after.every((event) => event.dead)).toBe(false);
+      const save = withCheckpoint(emptySave(), level.id, { time: flag.t, score: 80, seed: 7 });
+      expect(checkpointOf(save, level.id)).toEqual({ time: flag.t, score: 80, seed: 7 });
+      const again = buildRun(level, mulberry32(checkpointOf(save, level.id).seed));
+      applyCheckpoint(again.events, checkpointOf(save, level.id).time);
+      expect(again.events.filter((event) => event.type === 'item' && event.t < flag.t - 0.05).every((event) => event.dead)).toBe(true);
+      expect(again.events.find((event) => event.type === 'finish').dead).toBeFalsy();
+    }
   });
 
   it('overlaps boxes only when they touch', () => {

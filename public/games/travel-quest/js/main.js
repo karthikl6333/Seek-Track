@@ -7,11 +7,13 @@ import { drawTraveller } from './draw.js';
 import { createGame } from './engine.js';
 import { LEVELS, levelById, nextLevel } from './levels.js';
 import {
+  checkpointOf,
   isUnlocked,
   loadSave,
   recordFinish,
   recordScore,
   starGlyphs,
+  withCheckpoint,
   withHelpSeen,
   withMute,
   writeSave,
@@ -34,6 +36,8 @@ const ui = {
   practice: $('practice'),
   track: $('track'),
   progress: $('progress'),
+  marks: $('marks'),
+  toast: $('toast'),
   hint: $('hint'),
   fact: $('fact'),
   factTitle: $('fact-title'),
@@ -65,6 +69,7 @@ function showFatal(message) {
 }
 
 function boot() {
+  let toastTimer = 0;
   const audio = createAudio();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let save = loadSave();
@@ -136,13 +141,41 @@ function boot() {
           save = recordScore(save, result.level.id, result.score);
           writeSave(save);
         }
+        const cp = !result.practice && current ? checkpointOf(save, current.id) : null;
         ui.over.hidden = false;
-        ui.overText.textContent = `The ${result.hazardName.toLowerCase()} got in the way. Dust off and try the road again.`;
+        ui.overText.textContent = cp
+          ? `The ${result.hazardName.toLowerCase()} got in the way. The last flag still has your score and souvenirs.`
+          : `The ${result.hazardName.toLowerCase()} got in the way. Dust off and try the road again.`;
         ui.overScore.textContent = result.practice
           ? 'Practice run — score not saved.'
           : `Score ${result.score.toLocaleString()}.`;
+        $('over-retry').textContent = cp ? 'From checkpoint' : 'Try again';
+        $('over-begin').hidden = !cp;
         announce(`Trip interrupted by a ${result.hazardName}.`);
         $('over-retry').focus();
+      },
+      toast(text) {
+        ui.toast.hidden = false;
+        ui.toast.textContent = text;
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => {
+          ui.toast.hidden = true;
+        }, 1600);
+      },
+      saveCheckpoint(cp) {
+        if (!current) return;
+        save = withCheckpoint(save, current.id, cp);
+        writeSave(save);
+      },
+      setMarks(fractions) {
+        ui.marks.replaceChildren();
+        for (const frac of fractions) {
+          const mark = document.createElement('i');
+          mark.className = 'cp-mark';
+          mark.style.left = `${frac * 100}%`;
+          mark.dataset.at = String(frac);
+          ui.marks.append(mark);
+        }
       },
       setScore(n) {
         ui.score.textContent = n.toLocaleString();
@@ -164,6 +197,9 @@ function boot() {
         const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
         ui.progress.style.width = `${pct}%`;
         ui.track.setAttribute('aria-valuenow', String(pct));
+        for (const mark of ui.marks.children) {
+          mark.classList.toggle('reached', fraction + 0.004 >= Number(mark.dataset.at));
+        }
       },
       setHint(show) {
         ui.hint.hidden = !show;
@@ -260,6 +296,16 @@ function boot() {
   function restart() {
     if (!current) return;
     audio.click();
+    const cp = checkpointOf(save, current.id);
+    if (cp) play(current, { seed: cp.seed, checkpoint: cp });
+    else play(current);
+  }
+
+  function restartFresh() {
+    if (!current) return;
+    audio.click();
+    save = withCheckpoint(save, current.id, null);
+    writeSave(save);
     play(current);
   }
 
@@ -269,11 +315,12 @@ function boot() {
     audio.unlock();
     if (game.mode() === 'play') game.pause();
   });
-  $('btn-restart').addEventListener('click', restart);
+  $('btn-restart').addEventListener('click', restartFresh);
   $('pause-resume').addEventListener('click', () => game.resume());
-  $('pause-restart').addEventListener('click', restart);
+  $('pause-restart').addEventListener('click', restartFresh);
   $('pause-map').addEventListener('click', () => game.showMap());
   $('over-retry').addEventListener('click', restart);
+  $('over-begin').addEventListener('click', restartFresh);
   $('over-map').addEventListener('click', () => game.showMap());
   $('stamp-again').addEventListener('click', restart);
   $('stamp-map').addEventListener('click', () => game.showMap());
@@ -293,19 +340,29 @@ function boot() {
   const jump = $('btn-jump');
   const duck = $('btn-duck');
   let jumpLock = 0;
-  function queueJump() {
+  function queueJump(fromClick) {
     const now = performance.now();
     if (now - jumpLock < 40) return;
     jumpLock = now;
     game.input.jumpQueued = true;
-    game.input.jumpHeld = true;
+    if (!fromClick) game.input.jumpHeld = true;
     audio.unlock();
   }
   jump.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    queueJump();
+    queueJump(false);
+  });
+  jump.addEventListener('click', (event) => {
+    event.preventDefault();
+    queueJump(true);
   });
   jump.addEventListener('pointerup', () => {
+    game.input.jumpHeld = false;
+  });
+  window.addEventListener('pointerup', () => {
+    game.input.jumpHeld = false;
+  });
+  window.addEventListener('pointercancel', () => {
     game.input.jumpHeld = false;
   });
   jump.addEventListener('pointercancel', () => {

@@ -3,16 +3,21 @@
  * A level file describes the trip. This file only moves, collides, and paints.
  */
 import { scoreCeiling, starsFor } from './progress.js';
-import { biomeAt, boxesOverlap, buildRun, mulberry32 } from './run.js';
+import {
+  COYOTE,
+  IFRAME,
+  JUMP_BUFFER,
+  gravityOf,
+  hazardArtBox,
+  hazardHitBox,
+  playerHitBox,
+  shortHopSpeed,
+  takeoffSpeed,
+} from './physics.js';
+import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32 } from './run.js';
 import * as draw from './draw.js';
 
 const HEARTS = 3;
-
-function deflate(box, margin) {
-  const dx = box.w * margin;
-  const dy = box.h * margin;
-  return { x: box.x + dx, y: box.y + dy, w: box.w - dx * 2, h: box.h - dy * 2 };
-}
 
 function inflate(box, margin) {
   const dx = box.w * margin;
@@ -50,6 +55,7 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   let last = 0;
   let resetClock = false;
   let practice = false;
+  let runSeed = 1;
   let doomed = false;
   let doomTimer = 0;
   let lastHazardName = '';
@@ -86,30 +92,11 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   }
 
   function playerBox(L) {
-    const footY = L.groundY - foot;
-    const height = duckingNow() ? L.ph * 0.46 : L.ph * 0.92;
-    const width = L.ph * 0.36;
-    return deflate(
-      { x: L.playerX - width / 2, y: footY - height, w: width, h: height },
-      0.06,
-    );
-  }
-
-  function hazardBox(L, lane, centerX) {
-    const table = {
-      low: { w: 0.58, h: 0.2, lift: 0 },
-      mid: { w: 0.66, h: 0.42, lift: 0 },
-      high: { w: 0.46, h: 0.36, lift: 0.62 },
-    };
-    const spec = table[lane] || table.mid;
-    const w = spec.w * L.ph;
-    const h = spec.h * L.ph;
-    const y = L.groundY - (spec.lift * L.ph + h);
-    return deflate({ x: centerX - w / 2, y, w, h }, 0.04);
+    return playerHitBox(L, foot, duckingNow());
   }
 
   function itemCenterY(L, lane) {
-    const lift = lane === 'air' ? L.ph * 1.32 : L.ph * 0.4;
+    const lift = lane === 'air' ? L.ph * 1.05 : L.ph * 0.42;
     return L.groundY - lift;
   }
 
@@ -192,22 +179,22 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   function step(dt) {
     const L = layout();
     if (L.w < 2 || L.h < 2) return;
-    const gravity = L.h * 2.05;
-    const rise = L.ph * 0.82;
-    const jumpV = Math.sqrt(2 * gravity * rise);
+    const gravity = gravityOf(L.h);
+    const jumpV = takeoffSpeed(L.h, L.ph);
+    const shortV = shortHopSpeed(L.h, L.ph);
 
     const onGround = foot <= 0.5 && vy <= 0;
     if (onGround) {
       foot = 0;
       vy = 0;
-      coyote = 0.12;
+      coyote = COYOTE;
       jumpCut = false;
     } else {
       coyote -= dt;
     }
 
     if (input.jumpQueued) {
-      jumpBuf = 0.14;
+      jumpBuf = JUMP_BUFFER;
       input.jumpQueued = false;
     } else {
       jumpBuf -= dt;
@@ -219,10 +206,11 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       foot = Math.max(foot, 1);
       coyote = 0;
       jumpBuf = 0;
+      jumpCut = false;
       audio.jump();
     }
-    if (!input.jumpHeld && vy > 0 && !jumpCut) {
-      vy *= 0.68;
+    if (!input.jumpHeld && vy > shortV && !jumpCut) {
+      vy = shortV;
       jumpCut = true;
     }
 
@@ -266,6 +254,15 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
         }
         continue;
       }
+      if (event.type === 'checkpoint') {
+        if (!event.fired && time >= event.t) {
+          event.fired = true;
+          audio.checkpoint();
+          ui.toast('Checkpoint!');
+          if (!practice) ui.saveCheckpoint({ time: event.t, score, seed: runSeed });
+        }
+        continue;
+      }
       if (event.dead) continue;
       if (x < -L.ph * 2 || x > L.w + L.ph * 2) continue;
       if (event.type === 'item') {
@@ -277,10 +274,10 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
           ui.setScore(score);
         }
       } else if (event.type === 'hazard' && !doomed && iframe <= 0) {
-        if (boxesOverlap(body, hazardBox(L, event.spec.lane, x))) {
+        if (boxesOverlap(body, hazardHitBox(L, event.spec.lane, x))) {
           event.dead = true;
           hearts -= 1;
-          iframe = 1.35;
+          iframe = IFRAME;
           shake = reducedMotion ? 0 : 0.22;
           lastHazardName = event.spec.name;
           audio.hurt();
@@ -349,15 +346,16 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       if (x < -140 || x > L.w + 140) continue;
       if (event.type === 'finish') draw.drawGate(ctx, x, L.groundY, L.ph, level.accent);
       else if (event.type === 'fact') draw.drawShrine(ctx, x, L.groundY, L.ph, level.accent);
+      else if (event.type === 'checkpoint') draw.drawCheckpoint(ctx, x, L.groundY, L.ph);
       else if (event.type === 'hazard' && !event.dead) {
-        draw.drawHazard(ctx, event.spec.glyph, hazardBox(L, event.spec.lane, x), anim, L.groundY);
+        draw.drawHazard(ctx, event.spec.glyph, hazardArtBox(L, event.spec.lane, x), anim, L.groundY);
       } else if (event.type === 'item' && !event.dead) {
         draw.drawItem(ctx, event.spec.glyph, x, itemCenterY(L, event.lane), L.ph * 0.42, anim);
       }
     }
 
     const pose = foot > 3 ? 'jump' : duckingNow() ? 'duck' : 'run';
-    const alpha = iframe > 0 && Math.floor(iframe * 14) % 2 === 0 ? 0.35 : 1;
+    const alpha = iframe > 0 && Math.floor(anim * 12) % 2 === 0 ? 0.28 : 1;
     draw.drawTraveller(ctx, L.playerX, L.groundY - foot, L.ph, pose, anim, alpha);
 
     if (debug) {
@@ -369,7 +367,7 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       for (const event of run.events) {
         if (event.dead || (event.type !== 'hazard' && event.type !== 'item')) continue;
         const x = L.playerX + (event.t - time) * L.speed;
-        const box = event.type === 'hazard' ? hazardBox(L, event.spec.lane, x) : itemBox(L, event.lane, x);
+        const box = event.type === 'hazard' ? hazardHitBox(L, event.spec.lane, x) : itemBox(L, event.lane, x);
         ctx.strokeRect(box.x, box.y, box.w, box.h);
       }
       ctx.restore();
@@ -434,8 +432,8 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       }
 
       if (mode !== 'over' && (mode === 'map' || level)) {
-        const night = level && mode !== 'map' ? biomeAt(level, time).showing.night : false;
-        audio.tickMusic(night ? 'night' : 'day');
+        const theme = mode === 'map' || !level ? 'map' : level.id === 'vietnam' ? 'vietnam' : 'thailand';
+        audio.tickMusic(theme);
       }
       render();
     } catch (err) {
@@ -449,6 +447,7 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   function start(next, opts = {}) {
     level = next;
     const seed = opts.seed || Math.floor(Math.random() * 0x7fffffff) || 1;
+    runSeed = seed;
     run = buildRun(level, mulberry32(seed));
     ceiling = scoreCeiling(run.events, level.heartBonus, HEARTS);
     score = 0;
@@ -465,23 +464,23 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     lastHazardName = '';
     bannerUntil = 0;
     particles.length = 0;
-    practice = Boolean(opts.practice);
-    const at = Math.max(0, Math.min(level.durationSec - 0.5, Number(opts.at) || 0));
+    const resumeAt = opts.checkpoint ? Number(opts.checkpoint.time) : Number(opts.at) || 0;
+    const at = Math.max(0, Math.min(level.durationSec - 0.5, resumeAt));
     time = at;
-    if (at > 0) {
+    practice = Boolean(opts.practice);
+    if (opts.checkpoint) {
+      score = Math.max(0, opts.checkpoint.score | 0);
+      applyCheckpoint(run.events, at);
+    } else if (at > 0) {
       practice = true;
-      for (const event of run.events) {
-        if (event.t < at - 0.05 && event.type !== 'finish') {
-          event.dead = true;
-          event.fired = true;
-        }
-      }
+      applyCheckpoint(run.events, at);
     }
     hintOn = at === 0;
     mode = 'play';
     resetClock = true;
     ui.prepareRun({ accent: level.accent, practice });
-    ui.setScore(0);
+    ui.setScore(score);
+    ui.setMarks(run.events.filter((event) => event.type === 'checkpoint').map((event) => event.t / level.durationSec));
     ui.setHearts(HEARTS);
     ui.setFact(null);
     ui.setBiome(biomeAt(level, time).showing.name);

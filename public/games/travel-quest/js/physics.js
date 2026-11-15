@@ -62,10 +62,14 @@ export function hazardHitBox(L, lane, centerX) {
   return { x: art.x + dx, y: art.y + dy, w: art.w - dx * 2, h: art.h - dy * 2 };
 }
 
-/** Torso only: narrower than the sprite, and the shoes may overlap the art. */
-export function playerHitBox(L, foot, ducking) {
+/**
+ * Torso only: narrower than the sprite, and the shoes may overlap the art.
+ * `hitScale` makes a taller traveller a little taller. Width stays the same.
+ */
+export function playerHitBox(L, foot, ducking, hitScale = 1) {
+  const scale = hitScale || 1;
   const footY = L.groundY - foot;
-  const height = (ducking ? 0.36 : 0.58) * L.ph;
+  const height = (ducking ? 0.36 : 0.58) * L.ph * scale;
   const width = 0.22 * L.ph;
   const inset = 0.07 * L.ph;
   return { x: L.playerX - width / 2, y: footY - height - inset, w: width, h: height };
@@ -84,7 +88,7 @@ export function layoutFor(w, h) {
  * the jump button goes down. A tap releases 30ms later. Returns true when the
  * body never touches the hurdle's hit box.
  */
-export function jumpClearsHazard(L, lane, { hold = false, lead }) {
+export function jumpClearsHazard(L, lane, { hold = false, lead, hitScale = 1 }) {
   const dt = 1 / 120;
   const g = gravityOf(L.h);
   const full = takeoffSpeed(L.h, L.ph);
@@ -138,19 +142,19 @@ export function jumpClearsHazard(L, lane, { hold = false, lead }) {
       }
     }
     const centerX = L.playerX + -t * L.speed;
-    if (boxesOverlap(playerHitBox(L, foot, false), hazardHitBox(L, lane, centerX))) return false;
+    if (boxesOverlap(playerHitBox(L, foot, false, hitScale), hazardHitBox(L, lane, centerX))) return false;
     t += dt;
   }
   return jumped;
 }
 
 /** Ducking puts the hit box under a high sign for the whole time it passes. */
-export function duckClearsHazard(L, lane) {
+export function duckClearsHazard(L, lane, hitScale = 1) {
   const dt = 1 / 120;
   let t = -0.35;
   while (t < 0.35) {
     const centerX = L.playerX + -t * L.speed;
-    if (boxesOverlap(playerHitBox(L, 0, true), hazardHitBox(L, lane, centerX))) return false;
+    if (boxesOverlap(playerHitBox(L, 0, true, hitScale), hazardHitBox(L, lane, centerX))) return false;
     t += dt;
   }
   return true;

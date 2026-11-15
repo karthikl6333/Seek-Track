@@ -70,8 +70,34 @@ button:disabled {
   touch-action: pan-y;
 }
 
-.screen[hidden], #hud[hidden], .fact[hidden], .hint[hidden], #practice[hidden] {
+.screen[hidden], #hud[hidden], .fact[hidden], .hint[hidden], #practice[hidden], .combo[hidden], .intro[hidden], .toast[hidden], .confetti[hidden] {
   display: none !important;
+}
+
+#screen-cast {
+  background: linear-gradient(#d7f3fb, #1f7e9a);
+  display: grid;
+  align-items: center;
+}
+
+#screen-map {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: transparent;
+  pointer-events: none;
+}
+
+#screen-map .map-stage {
+  flex: 0 0 32vh;
+  min-height: 120px;
+}
+
+#screen-map .sheet {
+  pointer-events: auto;
+  max-height: 64vh;
+  overflow: auto;
+  padding-bottom: 8px;
 }
 
 .sheet {
@@ -176,10 +202,98 @@ details ul { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction
 }
 
 .hud-label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #5c6b78; }
+.hud-score { display: flex; align-items: center; gap: 8px; }
 .hud-score strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+#hud-face { width: 48px; height: 56px; display: block; }
 
-.hearts { font-size: 22px; letter-spacing: 2px; color: #c5cdd4; }
-.heart.on { color: var(--coral); }
+.hearts { display: flex; gap: 8px; align-items: center; min-height: 22px; }
+.heart-ico {
+  width: 12px;
+  height: 12px;
+  background: #c5cdd4;
+  transform: rotate(45deg);
+  position: relative;
+  display: inline-block;
+}
+.heart-ico::before,
+.heart-ico::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: inherit;
+  border-radius: 50%;
+}
+.heart-ico::before { left: -6px; top: 0; }
+.heart-ico::after { top: -6px; left: 0; }
+.heart-ico.on { background: var(--coral); }
+
+.combo {
+  margin: 8px 16px 0;
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #1c2430;
+  color: #ffe08a;
+  font-weight: 800;
+}
+
+.intro {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  padding: 14px 22px;
+  text-align: center;
+  background: var(--cream);
+  border-radius: 18px;
+  box-shadow: 0 12px 32px rgba(16, 32, 40, 0.22);
+  pointer-events: none;
+}
+.intro p { letter-spacing: 0.14em; text-transform: uppercase; font-size: 12px; font-weight: 700; color: var(--teal-dark); }
+.intro strong { display: block; font-size: 28px; margin-top: 4px; }
+
+.country-card { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.country-card h2 { font-size: 24px; }
+.city-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.city-row button { min-height: 40px; }
+
+.cast-sheet { max-width: 920px; }
+.cast-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.cast-card {
+  background: var(--cream);
+  color: var(--ink);
+  border-radius: 20px;
+  padding: 8px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  min-height: 0;
+}
+.cast-card canvas { width: 100%; height: 190px; display: block; }
+.cast-card strong { font-size: 22px; }
+.cast-card span { font-size: 14px; color: #3d4d5c; }
+.cast-card.picked { box-shadow: 0 0 0 4px var(--teal); }
+
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.confetti i {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  animation: fall 1.1s linear forwards;
+}
+@keyframes fall {
+  to { transform: translateY(420px) rotate(180deg); opacity: 0.2; }
+}
 
 .hud-actions { display: flex; gap: 6px; }
 .hud-actions button {
@@ -197,6 +311,12 @@ details ul { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction
   color: #fff;
   font-weight: 700;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+#practice {
+  background: rgba(28, 36, 48, 0.55);
+  padding: 2px 10px;
+  border-radius: 999px;
 }
 
 .track {
@@ -348,6 +468,13 @@ details ul { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction
 @media (max-width: 560px) {
   .hero { flex-direction: column; text-align: center; padding: 8px 14px 14px; }
   .hero-copy p:last-child { margin-inline: auto; }
+  .cast-grid { grid-template-columns: 1fr; }
+  .cast-card canvas { height: 140px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti i { animation: none; }
+  .stamp { animation: none; }
 }
 
 @media (max-width: 420px) {

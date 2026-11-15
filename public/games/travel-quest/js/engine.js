@@ -2,6 +2,9 @@
  * Side-scrolling run. The traveller stays put; the country scrolls to them.
  * A level file describes the trip. This file only moves, collides, and paints.
  */
+import { characterById } from './cast.js';
+import { bumpCombo, magnetPull, squashStretch } from './feel.js';
+import { pixelRatio } from './layers.js';
 import { scoreCeiling, starsFor } from './progress.js';
 import {
   COYOTE,
@@ -23,6 +26,16 @@ function inflate(box, margin) {
   const dx = box.w * margin;
   const dy = box.h * margin;
   return { x: box.x - dx, y: box.y - dy, w: box.w + dx * 2, h: box.h + dy * 2 };
+}
+
+function biomeWindow(level, biomeId) {
+  let cursor = 0;
+  for (const biome of level.biomes) {
+    const end = cursor + biome.share * level.durationSec;
+    if (biome.id === biomeId) return { start: cursor, end };
+    cursor = end;
+  }
+  return { start: 0, end: level.durationSec };
 }
 
 export function createGame({ canvas, audio, ui, reducedMotion }) {
@@ -62,6 +75,15 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
   let bannerUntil = 0;
   let hintOn = false;
   let dpr = 1;
+  let castId = 'explorer';
+  let pins = [];
+  let combo = 0;
+  let lastCollect = -99;
+  let landPulse = 0;
+  let dustClock = 0;
+  let rush = 0;
+  let introBiome = '';
+  let wasAir = false;
   const particles = [];
   const debug = new URLSearchParams(window.location.search).get('debug') === '1';
 
@@ -71,12 +93,17 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     const ph = Math.max(58, Math.min(108, h * 0.155));
     const groundY = Math.min(h * 0.72, h - 108);
     const playerX = Math.max(84, Math.min(w * 0.24, w * 0.4));
-    const speed = Math.max(160, w * 0.34);
+    const heat = level ? Math.max(0, Math.min(1, Number(level.heat) || 0)) : 0;
+    const speed = Math.max(160, w * 0.34) * (1 + heat * 0.12);
     return { w, h, ph, groundY, playerX, speed };
   }
 
   function resize() {
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    const next = pixelRatio();
+    if (next !== dpr) {
+      dpr = next;
+      draw.clearArtCache();
+    }
     const w = Math.max(1, canvas.clientWidth);
     const h = Math.max(1, canvas.clientHeight);
     const bw = Math.round(w * dpr);
@@ -91,8 +118,12 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     return (input.duckHeld || input.duckKey) && foot < 4 && vy <= 0;
   }
 
+  function hitScale() {
+    return characterById(castId).hit;
+  }
+
   function playerBox(L) {
-    return playerHitBox(L, foot, duckingNow());
+    return playerHitBox(L, foot, duckingNow(), hitScale());
   }
 
   function itemCenterY(L, lane) {
@@ -100,31 +131,41 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     return L.groundY - lift;
   }
 
-  function itemBox(L, lane, centerX) {
-    const s = L.ph * 0.32;
-    const y = itemCenterY(L, lane) - s / 2;
-    return inflate({ x: centerX - s / 2, y, w: s, h: s }, 0.22);
+  function itemPoint(L, lane, x) {
+    const rawY = itemCenterY(L, lane);
+    const chestY = L.groundY - foot - L.ph * 0.4;
+    const pull = magnetPull(L.playerX - x, chestY - rawY, L.ph * 1.2);
+    return { x: x + pull.x, y: rawY + pull.y, pop: pull.pop };
   }
 
-  function burst(x, y, color, text) {
+  function itemBox(L, lane, centerX, centerY) {
+    const s = L.ph * 0.32;
+    return inflate({ x: centerX - s / 2, y: centerY - s / 2, w: s, h: s }, 0.22);
+  }
+
+  function burst(x, y, color, text, kind) {
     if (text) {
-      particles.push({ x, y, vx: 18, vy: -42, life: 0.7, max: 0.7, color, text, grav: 0 });
+      particles.push({ x, y, vx: 18, vy: -42, life: 0.7, max: 0.7, color, text, grav: 0, kind: 'text' });
     }
-    if (reducedMotion || text) return;
-    for (let i = 0; i < 6; i += 1) {
+    if (reducedMotion) return;
+    const count = kind === 'hit' ? 10 : 6;
+    for (let i = 0; i < count; i += 1) {
       particles.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 160,
-        vy: -30 - Math.random() * 110,
-        life: 0.4,
-        max: 0.4,
+        vx: (Math.random() - 0.5) * 180,
+        vy: -40 - Math.random() * 120,
+        life: 0.45,
+        max: 0.45,
         color,
         text: '',
-        grav: 360,
+        grav: 280,
+        kind: kind === 'dust' ? 'dust' : 'spark',
+        rot: Math.random() * 6,
+        r: 3 + Math.random() * 4,
       });
     }
-    if (particles.length > 48) particles.splice(0, particles.length - 48);
+    if (particles.length > 64) particles.splice(0, particles.length - 64);
   }
 
   function showFact(fact) {
@@ -142,8 +183,17 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       ui.setFact(null);
     }
     if (level) {
-      const name = biomeAt(level, time).showing.name;
-      ui.setBiome(name);
+      const span = biomeAt(level, Math.min(time, level.durationSec));
+      ui.setBiome(span.showing.name);
+      if (span.showing.name !== introBiome) {
+        const first = introBiome === '';
+        introBiome = span.showing.name;
+        if (ui.showIntro && first && time < 0.5) {
+          ui.showIntro({ kicker: level.countryTitle || '', title: level.title });
+        } else if (ui.showIntro && !first) {
+          ui.showIntro({ kicker: 'Now entering', title: span.showing.name });
+        }
+      }
     }
     return L;
   }
@@ -225,8 +275,37 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       }
     }
 
+    if (wasAir && foot === 0) {
+      landPulse = 0.16;
+      burst(L.playerX, L.groundY, '#c4a574', '', 'dust');
+    }
+    wasAir = foot > 2;
+    if (landPulse > 0) landPulse -= dt;
+
     if (iframe > 0) iframe -= dt;
     if (shake > 0) shake -= dt;
+    rush = Math.min(1, rush + dt * 0.12);
+
+    const running = foot < 2 && !duckingNow();
+    if (running && !reducedMotion) {
+      dustClock += dt;
+      if (dustClock > 0.13) {
+        dustClock = 0;
+        particles.push({
+          x: L.playerX - 10,
+          y: L.groundY,
+          vx: -40,
+          vy: -12,
+          life: 0.35,
+          max: 0.35,
+          color: 'rgba(120, 92, 58, 0.45)',
+          text: '',
+          grav: 40,
+          kind: 'dust',
+          r: 4,
+        });
+      }
+    }
 
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const p = particles[i];
@@ -236,10 +315,12 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       p.vy += p.grav * dt;
       if (p.life <= 0) particles.splice(i, 1);
     }
+    if (particles.length > 64) particles.splice(0, particles.length - 64);
 
     const body = playerBox(L);
     for (const event of run.events) {
       const x = L.playerX + (event.t - time) * L.speed;
+      if (event.fade > 0) event.fade -= dt;
       if (event.type === 'finish') {
         if (!doomed && !event.fired && time >= event.t) {
           event.fired = true;
@@ -266,22 +347,32 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       if (event.dead) continue;
       if (x < -L.ph * 2 || x > L.w + L.ph * 2) continue;
       if (event.type === 'item') {
-        if (boxesOverlap(body, itemBox(L, event.lane, x))) {
+        const point = itemPoint(L, event.lane, x);
+        if (boxesOverlap(body, itemBox(L, event.lane, point.x, point.y))) {
           event.dead = true;
+          combo = bumpCombo(combo, time - lastCollect);
+          lastCollect = time;
           score += event.spec.points;
           audio.collect();
-          burst(x, itemCenterY(L, event.lane), level.accent, `+${event.spec.points}`);
+          const label = combo >= 2 ? `+${event.spec.points}  ×${combo}` : `+${event.spec.points}`;
+          burst(point.x, point.y, level.accent, label, 'spark');
           ui.setScore(score);
+          if (ui.setCombo) ui.setCombo(combo);
         }
       } else if (event.type === 'hazard' && !doomed && iframe <= 0) {
         if (boxesOverlap(body, hazardHitBox(L, event.spec.lane, x))) {
           event.dead = true;
+          event.fade = 0.22;
           hearts -= 1;
           iframe = IFRAME;
-          shake = reducedMotion ? 0 : 0.22;
+          shake = reducedMotion ? 0 : 0.28;
+          rush *= 0.35;
+          combo = 0;
           lastHazardName = event.spec.name;
           audio.hurt();
+          burst(x, L.groundY - L.ph * 0.3, '#ef5b3a', '', 'hit');
           ui.setHearts(hearts);
+          if (ui.setCombo) ui.setCombo(0);
           ui.announce(`${event.spec.name}. ${hearts} ${hearts === 1 ? 'heart' : 'hearts'} left.`);
           if (hearts <= 0) {
             doomed = true;
@@ -297,6 +388,24 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     }
   }
 
+  function paintLandmarks(L, biome, water, alpha) {
+    const plans = draw.LANDMARK_PLAN[biome.id] || [];
+    if (!plans.length) return;
+    const window = biomeWindow(level, biome.id);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (const mark of plans) {
+      const span = window.end - window.start;
+      const t = window.start + mark.at * span;
+      const x = L.playerX + (t - time) * L.speed * (mark.parallax || 0.2);
+      const height = L.ph * (mark.scale || 2);
+      if (x < -height || x > L.w + height) continue;
+      const base = water ? L.groundY - L.ph * 0.42 : L.groundY;
+      draw.drawLandmark(ctx, mark.id, x, base, height, anim, water);
+    }
+    ctx.restore();
+  }
+
   function paintWorld(L) {
     const sample = Math.min(time, level.durationSec);
     const span = biomeAt(level, sample);
@@ -309,54 +418,76 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     const groundTop = draw.mixHex(span.current.groundTop, next && next.groundTop, t);
     const night = (t > 0.5 && next ? next.night : span.current.night) === true;
     const water = (t > 0.5 && next ? next.water : span.current.water) === true;
+    const showing = span.showing;
+    const life = showing.life || showing.id;
+    const kind = showing.kind || draw.groundKind(showing.id);
+    const lowSun = life === 'bangkok' || life === 'chiang' || life === 'desert' || life === 'market';
 
-    const mag = shake > 0 ? 5 * (shake / 0.22) : 0;
+    const mag = shake > 0 ? 8 * (shake / 0.28) : 0;
     const sx = mag ? (Math.random() - 0.5) * mag * 2 : 0;
     const sy = mag ? (Math.random() - 0.5) * mag * 2 : 0;
     ctx.save();
     ctx.translate(sx, sy);
-    draw.fillSky(ctx, L.w, L.h, skyTop, skyBottom);
+    draw.fillSkyRich(ctx, L.w, L.h, skyTop, skyBottom, draw.horizonFor(night, skyBottom));
     if (night) {
       draw.drawStars(ctx, L.w, L.h, anim);
       draw.drawMoon(ctx, L.w, L.h, skyTop);
     } else {
-      draw.drawSun(ctx, L.w, L.h);
-      draw.drawBirds(ctx, L.w, L.h, anim);
+      draw.drawSun(ctx, L.w, L.h, anim, lowSun);
     }
     draw.drawClouds(ctx, L.w, L.h, anim, night);
-    draw.drawHills(ctx, L.w, L.groundY, hill, anim);
-    if (water) draw.drawWater(ctx, L.w, L.groundY, anim);
+    draw.drawHaze(ctx, L.w, L.groundY - L.h * 0.08, hill, anim, L.speed, L.ph);
+    if (!night) draw.drawBirds(ctx, L.w, L.h, anim);
 
-    for (const prop of run.scenery) {
-      if (prop.layer !== 'far') continue;
-      const x = L.playerX + (prop.t - time) * L.speed * 0.28;
-      if (x < -180 || x > L.w + 180) continue;
-      draw.drawMotif(ctx, prop.motif, x, L.groundY - 4, L.ph * 1.7 * prop.scale, prop.variant, anim);
+    const farLift = water ? L.ph * 0.15 : 0;
+    const farBase = water ? L.groundY - L.ph * 0.2 : L.groundY;
+    draw.drawFarStrip(ctx, L.w, farBase, span.current.far, time, L.speed, L.ph, farLift);
+    if (t > 0 && next) {
+      ctx.save();
+      ctx.globalAlpha = t;
+      draw.drawFarStrip(ctx, L.w, farBase, next.far, time, L.speed, L.ph, farLift);
+      ctx.restore();
     }
-    draw.drawGround(ctx, L.w, L.h, L.groundY, ground, groundTop, time, L.speed);
+
+    paintLandmarks(L, span.current, Boolean(span.current.water), 1);
+    if (t > 0 && next) paintLandmarks(L, next, Boolean(next.water), t);
+    draw.drawAmbience(ctx, life, L.w, L.h, L.groundY, anim);
+    if (water) draw.drawWater(ctx, L.w, L.groundY, anim, L.ph * 0.8);
+
     for (const prop of run.scenery) {
       if (prop.layer !== 'mid') continue;
       const x = L.playerX + (prop.t - time) * L.speed * 0.62;
-      if (x < -160 || x > L.w + 160) continue;
-      draw.drawMotif(ctx, prop.motif, x, L.groundY, L.ph * 1.25 * prop.scale, prop.variant, anim);
+      if (x < -180 || x > L.w + 180) continue;
+      const y = prop.water ? L.groundY - L.ph * 0.12 : L.groundY;
+      draw.drawMotif(ctx, prop.motif, x, y, L.ph * 1.25 * prop.scale, prop.variant, anim);
     }
+
+    draw.drawGround(ctx, L.w, L.h, L.groundY, ground, groundTop, time, L.speed, kind, rush);
+    draw.drawCrowd(ctx, life, L.w, L.groundY, anim, L.speed);
 
     for (const event of run.events) {
       const x = L.playerX + (event.t - time) * L.speed;
-      if (x < -140 || x > L.w + 140) continue;
+      if (x < -160 || x > L.w + 160) continue;
       if (event.type === 'finish') draw.drawGate(ctx, x, L.groundY, L.ph, level.accent);
       else if (event.type === 'fact') draw.drawShrine(ctx, x, L.groundY, L.ph, level.accent);
       else if (event.type === 'checkpoint') draw.drawCheckpoint(ctx, x, L.groundY, L.ph);
-      else if (event.type === 'hazard' && !event.dead) {
+      else if (event.type === 'hazard' && (!event.dead || event.fade > 0)) {
+        ctx.save();
+        ctx.globalAlpha = event.dead ? Math.max(0, event.fade / 0.22) : 1;
         draw.drawHazard(ctx, event.spec.glyph, hazardArtBox(L, event.spec.lane, x), anim, L.groundY);
+        ctx.restore();
       } else if (event.type === 'item' && !event.dead) {
-        draw.drawItem(ctx, event.spec.glyph, x, itemCenterY(L, event.lane), L.ph * 0.42, anim);
+        const point = itemPoint(L, event.lane, x);
+        draw.drawItem(ctx, event.spec.glyph, point.x, point.y, L.ph * 0.42, anim, point.pop);
       }
     }
 
     const pose = foot > 3 ? 'jump' : duckingNow() ? 'duck' : 'run';
     const alpha = iframe > 0 && Math.floor(anim * 12) % 2 === 0 ? 0.28 : 1;
-    draw.drawTraveller(ctx, L.playerX, L.groundY - foot, L.ph, pose, anim, alpha);
+    const fx = squashStretch({ pose, vy, ph: L.ph, land: landPulse > 0 ? landPulse / 0.16 : 0 });
+    draw.drawTraveller(ctx, L.playerX, L.groundY - foot, L.ph, pose, anim, alpha, fx, castId);
+    draw.drawForeground(ctx, life, L.w, L.groundY, anim, L.speed, L.ph);
+    if (rush > 0.3) draw.drawMotion(ctx, L.w, L.groundY, rush, anim);
 
     if (debug) {
       ctx.save();
@@ -367,7 +498,10 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
       for (const event of run.events) {
         if (event.dead || (event.type !== 'hazard' && event.type !== 'item')) continue;
         const x = L.playerX + (event.t - time) * L.speed;
-        const box = event.type === 'hazard' ? hazardHitBox(L, event.spec.lane, x) : itemBox(L, event.lane, x);
+        const box =
+          event.type === 'hazard'
+            ? hazardHitBox(L, event.spec.lane, x)
+            : itemBox(L, event.lane, itemPoint(L, event.lane, x).x, itemPoint(L, event.lane, x).y);
         ctx.strokeRect(box.x, box.y, box.w, box.h);
       }
       ctx.restore();
@@ -376,14 +510,25 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     ctx.font = '700 16px Trebuchet MS, Segoe UI, sans-serif';
     ctx.textAlign = 'left';
     for (const p of particles) {
+      ctx.save();
       ctx.globalAlpha = Math.max(0, p.life / p.max);
       if (p.text) {
         ctx.fillStyle = '#1c2430';
+        ctx.strokeStyle = '#fffaf2';
+        ctx.lineWidth = 3;
+        ctx.strokeText(p.text, p.x, p.y);
         ctx.fillText(p.text, p.x, p.y);
+      } else if (p.kind === 'dust') {
+        draw.drawDust(ctx, p);
       } else {
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, 5, 5);
+        draw.drawSpark(ctx, p);
       }
+      ctx.restore();
+    }
+
+    if (iframe > 1.05) {
+      ctx.fillStyle = 'rgba(255, 90, 70, 0.16)';
+      ctx.fillRect(0, 0, L.w, L.h);
     }
     ctx.restore();
   }
@@ -393,7 +538,8 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     const L = layout();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (mode === 'map' || !level || !run) {
-      draw.drawMapScene(ctx, L.w, L.h, anim);
+      const clock = reducedMotion ? 0.4 : anim;
+      draw.drawMapScene(ctx, L.w, L.h, clock, pins, castId);
       return;
     }
     paintWorld(L);
@@ -427,12 +573,12 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
           if (mode !== 'play') break;
         }
         syncHud(layout());
-      } else if (mode === 'map') {
+      } else if (mode === 'map' && !reducedMotion) {
         anim += dt;
       }
 
       if (mode !== 'over' && (mode === 'map' || level)) {
-        const theme = mode === 'map' || !level ? 'map' : level.id === 'vietnam' ? 'vietnam' : 'thailand';
+        const theme = mode === 'map' || !level ? 'map' : level.music || 'map';
         audio.tickMusic(theme);
       }
       render();
@@ -463,6 +609,13 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     doomTimer = 0;
     lastHazardName = '';
     bannerUntil = 0;
+    combo = 0;
+    lastCollect = -99;
+    landPulse = 0;
+    dustClock = 0;
+    rush = 0;
+    introBiome = '';
+    wasAir = false;
     particles.length = 0;
     const resumeAt = opts.checkpoint ? Number(opts.checkpoint.time) : Number(opts.at) || 0;
     const at = Math.max(0, Math.min(level.durationSec - 0.5, resumeAt));
@@ -486,6 +639,7 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     ui.setBiome(biomeAt(level, time).showing.name);
     ui.setProgress(time / level.durationSec);
     ui.setHint(hintOn);
+    if (ui.setCombo) ui.setCombo(0);
   }
 
   function showMap() {
@@ -494,6 +648,13 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     run = null;
     resetClock = true;
     ui.showMap();
+  }
+
+  function holdMap() {
+    mode = 'map';
+    level = null;
+    run = null;
+    resetClock = true;
   }
 
   function pause() {
@@ -515,8 +676,16 @@ export function createGame({ canvas, audio, ui, reducedMotion }) {
     input,
     start,
     showMap,
+    holdMap,
     pause,
     resume,
+    setCharacter(id) {
+      castId = characterById(id).id;
+    },
+    setMapPins(next) {
+      pins = next || [];
+    },
+    character: () => castId,
     mode: () => mode,
     destroy() {
       cancelAnimationFrame(raf);

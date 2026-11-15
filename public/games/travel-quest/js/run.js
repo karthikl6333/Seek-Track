@@ -36,6 +36,7 @@ function round2(n) {
  */
 export function buildRun(level, rand) {
   const duration = level.durationSec;
+  const heat = Math.max(0, Math.min(1, Number(level.heat) || 0));
   const events = [];
   for (const fact of level.facts) {
     events.push({ t: round2(fact.at * duration), type: 'fact', fact, dead: false });
@@ -51,10 +52,10 @@ export function buildRun(level, rand) {
     while (t < stop && guard < 500) {
       guard += 1;
       const roll = rand();
-      if (roll < 0.26) {
+      if (roll < 0.26 + heat * 0.05) {
         const spec = level.hazards[Math.floor(rand() * level.hazards.length)];
         events.push({ t: round2(t), type: 'hazard', spec, biomeId: biome.id, dead: false });
-        t += 1.95 + rand() * 0.55;
+        t += 1.98 - heat * 0.1 + rand() * 0.5;
       } else if (roll < 0.9) {
         const spec = pickWeighted(level.items, rand);
         // Most souvenirs sit on the road. A few float, so a jump is a bonus rather than a tax.

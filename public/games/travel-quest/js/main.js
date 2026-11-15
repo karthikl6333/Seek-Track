@@ -3,27 +3,31 @@
  * The page is static: no network calls after it loads.
  */
 import { createAudio } from './audio.js';
+import { CAST, characterById } from './cast.js';
 import { drawTraveller } from './draw.js';
 import { createGame } from './engine.js';
-import { LEVELS, levelById, nextLevel } from './levels.js';
+import { COUNTRIES, LEVELS, MAP_PINS, countryById, levelById, nextLevel } from './levels.js';
 import {
   checkpointOf,
   isUnlocked,
   loadSave,
+  migrateLegacy,
   recordFinish,
   recordScore,
   starGlyphs,
+  withCharacter,
   withCheckpoint,
   withHelpSeen,
   withMute,
   writeSave,
 } from './progress.js';
-import { validateLevelList } from './schema.js';
+import { validateCountryList, validateLevelList } from './schema.js';
 
 const $ = (id) => document.getElementById(id);
 
 const ui = {
   map: $('screen-map'),
+  cast: $('screen-cast'),
   hud: $('hud'),
   pause: $('screen-pause'),
   over: $('screen-over'),
@@ -44,17 +48,24 @@ const ui = {
   factText: $('fact-text'),
   overText: $('over-text'),
   overScore: $('over-score'),
+  stampHeading: $('stamp-heading'),
   stampCountry: $('stamp-country'),
   stampStars: $('stamp-stars'),
   stampDetail: $('stamp-detail'),
   stampBest: $('stamp-best'),
   stampNext: $('stamp-next'),
+  combo: $('combo'),
+  intro: $('intro'),
+  introKicker: $('intro-kicker'),
+  introTitle: $('intro-title'),
+  confetti: $('confetti'),
   live: $('live'),
   fatalText: $('fatal-text'),
   help: $('help'),
+  portrait: $('portrait'),
 };
 
-const problems = validateLevelList(LEVELS);
+const problems = [...validateCountryList(COUNTRIES), ...validateLevelList(LEVELS)];
 if (problems.length) {
   showFatal(problems.join('\n'));
 } else {
@@ -65,14 +76,18 @@ function showFatal(message) {
   ui.fatal.hidden = false;
   ui.fatalText.textContent = message;
   ui.map.hidden = true;
+  ui.cast.hidden = true;
   ui.hud.hidden = true;
 }
 
 function boot() {
   let toastTimer = 0;
+  let introTimer = 0;
+  let pending = null;
   const audio = createAudio();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let save = loadSave();
+  let save = migrateLegacy(loadSave());
+  writeSave(save);
   let current = null;
 
   audio.setMuted(save.mute);
@@ -86,6 +101,7 @@ function boot() {
     ui: {
       prepareRun({ accent, practice }) {
         ui.map.hidden = true;
+        ui.cast.hidden = true;
         ui.pause.hidden = true;
         ui.over.hidden = true;
         ui.stamp.hidden = true;
@@ -101,20 +117,25 @@ function boot() {
         ui.pause.hidden = true;
         ui.over.hidden = true;
         ui.stamp.hidden = true;
+        ui.cast.hidden = true;
         ui.map.hidden = false;
         renderLevels();
+        syncWorld();
       },
       showPause() {
         ui.pause.hidden = false;
         $('pause-resume').focus();
       },
       showStamp(result) {
+        const passport = Boolean(result.level.lastInCountry);
         if (!result.practice) {
           save = recordFinish(save, result.level.id, result.total, result.stars);
+          if (passport) save = recordFinish(save, result.level.countryId, result.total, result.stars);
           writeSave(save);
         }
         ui.stamp.hidden = false;
-        ui.stampCountry.textContent = result.level.title;
+        ui.stampHeading.textContent = passport ? 'Passport stamped' : 'City cleared';
+        ui.stampCountry.textContent = passport ? result.level.countryTitle : result.level.title;
         ui.stampStars.textContent = starGlyphs(result.stars);
         const souvenir = `${result.score.toLocaleString()} from souvenirs`;
         const hearts = `${result.bonus.toLocaleString()} heart bonus`;
@@ -128,13 +149,19 @@ function boot() {
         const upcoming = nextLevel(result.level.id);
         const open = Boolean(upcoming && isUnlocked(upcoming, save));
         ui.stampNext.hidden = !open;
-        ui.stampNext.textContent = upcoming ? `Next: ${upcoming.title}` : 'Next country';
+        ui.stampNext.textContent = upcoming
+          ? `Next: ${upcoming.title}`
+          : 'Next city';
+        if (!reducedMotion) throwConfetti();
         announce(
           result.practice
             ? `Practice finished in ${result.level.title}.`
-            : `${result.level.title} stamped. ${result.stars} ${result.stars === 1 ? 'star' : 'stars'}.`,
+            : passport
+              ? `${result.level.countryTitle} stamped. ${result.stars} ${result.stars === 1 ? 'star' : 'stars'}.`
+              : `${result.level.title} cleared. ${result.stars} ${result.stars === 1 ? 'star' : 'stars'}.`,
         );
         $('stamp-again').focus();
+        syncWorld();
       },
       showOver(result) {
         if (!result.practice) {
@@ -184,8 +211,7 @@ function boot() {
         ui.hearts.replaceChildren();
         for (let i = 0; i < 3; i += 1) {
           const heart = document.createElement('span');
-          heart.textContent = i < n ? '♥' : '♡';
-          heart.className = i < n ? 'heart on' : 'heart';
+          heart.className = i < n ? 'heart-ico on' : 'heart-ico';
           ui.hearts.append(heart);
         }
         ui.hearts.setAttribute('aria-label', `${n} of 3 hearts`);
@@ -203,6 +229,23 @@ function boot() {
       },
       setHint(show) {
         ui.hint.hidden = !show;
+      },
+      setCombo(n) {
+        if (!n || n < 2) {
+          ui.combo.hidden = true;
+          return;
+        }
+        ui.combo.hidden = false;
+        ui.combo.textContent = `Combo ×${n}`;
+      },
+      showIntro(card) {
+        ui.intro.hidden = false;
+        ui.introKicker.textContent = card.kicker || '';
+        ui.introTitle.textContent = card.title || '';
+        window.clearTimeout(introTimer);
+        introTimer = window.setTimeout(() => {
+          ui.intro.hidden = true;
+        }, 1800);
       },
       setFact(fact) {
         if (!fact) {
@@ -226,6 +269,19 @@ function boot() {
     }, 30);
   }
 
+  function throwConfetti() {
+    ui.confetti.hidden = false;
+    ui.confetti.replaceChildren();
+    const colors = ['#ef5b3a', '#e3a008', '#0c7c74', '#3aa6a0', '#f2c14e'];
+    for (let i = 0; i < 22; i += 1) {
+      const bit = document.createElement('i');
+      bit.style.left = `${(i * 17) % 100}%`;
+      bit.style.background = colors[i % colors.length];
+      bit.style.animationDelay = `${(i % 6) * 0.05}s`;
+      ui.confetti.append(bit);
+    }
+  }
+
   function paintMute() {
     const label = save.mute ? 'Muted' : 'Sound';
     for (const id of ['map-mute', 'btn-mute']) {
@@ -243,46 +299,63 @@ function boot() {
     paintMute();
   }
 
+  function syncWorld() {
+    const person = characterById(save.character);
+    game.setCharacter(person.id);
+    ui.portrait.setAttribute('aria-label', `${person.label}. ${person.line}`);
+    for (const card of document.querySelectorAll('.cast-card')) {
+      card.classList.toggle('picked', card.dataset.cast === person.id && Boolean(save.character));
+    }
+    game.setMapPins(
+      LEVELS.map((level, index) => {
+        const pin = MAP_PINS[level.id] || { x: 0.2, y: 0.16, label: level.title };
+        const unlocked = isUnlocked(level, save);
+        const cleared = Boolean(save.levels[level.id]?.cleared);
+        return {
+          x: pin.x,
+          y: pin.y,
+          label: pin.label || level.title,
+          state: cleared ? 'done' : unlocked ? 'open' : 'locked',
+          phase: index * 0.35,
+        };
+      }),
+    );
+  }
+
   function renderLevels() {
     ui.list.replaceChildren();
-    for (const level of LEVELS) {
-      const unlocked = isUnlocked(level, save);
-      const row = save.levels[level.id];
+    for (const country of COUNTRIES) {
+      const cities = LEVELS.filter((level) => level.countryId === country.id);
+      const stamped = cities.every((city) => save.levels[city.id]?.cleared) || Boolean(save.levels[country.id]?.cleared);
       const card = document.createElement('article');
-      card.className = unlocked ? 'level-card' : 'level-card locked';
-
+      card.className = 'country-card level-card';
       const title = document.createElement('h2');
-      title.textContent = `${level.order}. ${level.title}`;
+      title.textContent = country.title;
       const blurb = document.createElement('p');
-      blurb.textContent = level.blurb;
-      const trail = document.createElement('p');
-      trail.className = 'trail';
-      trail.textContent = level.biomes.map((biome) => biome.name).join('  ·  ');
+      blurb.textContent = country.blurb;
       const meta = document.createElement('p');
       meta.className = 'meta';
-      if (!unlocked) {
-        const prev = LEVELS.find((item) => item.id === level.requires);
-        meta.textContent = `Locked until ${prev ? prev.title : 'the previous country'} is stamped.`;
-      } else if (row?.cleared) {
-        meta.textContent = `${starGlyphs(row.stars)}   Best ${row.best.toLocaleString()}`;
-      } else if (row?.best) {
-        meta.textContent = `Best ${row.best.toLocaleString()} · not stamped yet`;
-      } else {
-        meta.textContent = 'Not stamped yet';
+      meta.textContent = stamped ? 'Passport stamped' : 'Cities unlock in order';
+      const row = document.createElement('div');
+      row.className = 'city-row';
+      for (const city of cities) {
+        const unlocked = isUnlocked(city, save);
+        const record = save.levels[city.id];
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'play';
+        const stars = record?.cleared ? ` ${starGlyphs(record.stars)}` : '';
+        button.textContent = unlocked ? `${city.title}${stars}` : `${city.title} · locked`;
+        button.disabled = !unlocked;
+        button.addEventListener('click', () => {
+          if (!unlocked) return;
+          audio.unlock();
+          audio.click();
+          play(city);
+        });
+        row.append(button);
       }
-
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'play';
-      button.textContent = unlocked ? 'Play' : 'Locked';
-      button.disabled = !unlocked;
-      button.addEventListener('click', () => {
-        if (!unlocked) return;
-        audio.unlock();
-        audio.click();
-        play(level);
-      });
-      card.append(title, blurb, trail, meta, button);
+      card.append(title, blurb, meta, row);
       ui.list.append(card);
     }
   }
@@ -309,8 +382,73 @@ function boot() {
     play(current);
   }
 
+  function showCast() {
+    ui.map.hidden = true;
+    ui.hud.hidden = true;
+    ui.pause.hidden = true;
+    ui.over.hidden = true;
+    ui.stamp.hidden = true;
+    ui.cast.hidden = false;
+    $('cast-back').hidden = !save.character;
+    game.holdMap();
+    syncWorld();
+  }
+
+  function chooseCharacter(id) {
+    save = withCharacter(save, id);
+    writeSave(save);
+    syncWorld();
+    audio.unlock();
+    audio.click();
+    ui.cast.hidden = true;
+    const next = pending;
+    pending = null;
+    if (next && isUnlocked(next.level, save)) play(next.level, { at: next.at });
+    else game.showMap();
+  }
+
+  function resolveRequest(id) {
+    const city = levelById(id);
+    if (city) return city;
+    const country = countryById(id);
+    if (!country) return null;
+    const cities = LEVELS.filter((level) => level.countryId === country.id);
+    return (
+      cities.find((level) => isUnlocked(level, save) && !save.levels[level.id]?.cleared) ||
+      cities.find((level) => isUnlocked(level, save)) ||
+      null
+    );
+  }
+
+  function paintFigure(canvas, pose, now) {
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cssW = canvas.clientWidth || canvas.width;
+    const cssH = canvas.clientHeight || canvas.height;
+    const pw = Math.round(cssW * dpr);
+    const ph = Math.round(cssH * dpr);
+    if (canvas.width !== pw || canvas.height !== ph) {
+      canvas.width = pw;
+      canvas.height = ph;
+    }
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, cssW, cssH);
+    const t = reducedMotion ? 0.6 : (now || 0) / 1000;
+    const who = canvas.dataset.who || characterById(save.character).id;
+    drawTraveller(context, cssW * 0.5, cssH * 0.92, cssH * 0.78, pose, t, 1, null, who);
+  }
+
   $('map-mute').addEventListener('click', toggleMute);
   $('btn-mute').addEventListener('click', toggleMute);
+  $('map-cast').addEventListener('click', () => {
+    audio.unlock();
+    showCast();
+  });
+  $('cast-back').addEventListener('click', () => game.showMap());
+  for (const card of document.querySelectorAll('.cast-card')) {
+    card.addEventListener('click', () => chooseCharacter(card.dataset.cast));
+  }
   $('btn-pause').addEventListener('click', () => {
     audio.unlock();
     if (game.mode() === 'play') game.pause();
@@ -392,6 +530,11 @@ function boot() {
     }
     if (onControl && (event.key === ' ' || event.key === 'Enter')) return;
 
+    if (!ui.cast.hidden && /^[1-3]$/.test(event.key)) {
+      chooseCharacter(CAST[Number(event.key) - 1].id);
+      return;
+    }
+
     const playing = game.mode() === 'play' || game.mode() === 'paused';
     if (event.key === 'p' || event.key === 'P' || event.key === 'Escape') {
       if (game.mode() === 'play') game.pause();
@@ -406,9 +549,14 @@ function boot() {
       restart();
       return;
     }
-    if (game.mode() === 'map' && /^[1-9]$/.test(event.key)) {
-      const level = LEVELS[Number(event.key) - 1];
-      if (level && isUnlocked(level, save)) play(level);
+    if (game.mode() === 'map' && ui.cast.hidden && /^[1-9]$/.test(event.key)) {
+      const country = COUNTRIES[Number(event.key) - 1];
+      if (!country) return;
+      const cities = LEVELS.filter((level) => level.countryId === country.id);
+      const level =
+        cities.find((item) => isUnlocked(item, save) && !save.levels[item.id]?.cleared) ||
+        cities.find((item) => isUnlocked(item, save));
+      if (level) play(level);
       return;
     }
     if (game.mode() !== 'play') return;
@@ -429,28 +577,18 @@ function boot() {
     game.input.duckHeld = false;
   });
 
-  const portrait = $('portrait');
-  const portraitCtx = portrait.getContext('2d');
+  for (const card of document.querySelectorAll('.cast-card')) {
+    const canvas = card.querySelector('canvas');
+    if (canvas) canvas.dataset.who = card.dataset.cast;
+  }
+
+  const face = $('hud-face');
   const paintPortrait = (now) => {
-    if (!ui.map.hidden && portraitCtx) {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cssW = portrait.clientWidth || 132;
-      const cssH = portrait.clientHeight || 168;
-      const pw = Math.round(cssW * dpr);
-      const ph = Math.round(cssH * dpr);
-      if (portrait.width !== pw || portrait.height !== ph) {
-        portrait.width = pw;
-        portrait.height = ph;
-      }
-      portraitCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      portraitCtx.clearRect(0, 0, cssW, cssH);
-      portraitCtx.fillStyle = '#ffe3b0';
-      portraitCtx.beginPath();
-      portraitCtx.ellipse(cssW * 0.5, cssH * 0.82, cssW * 0.34, cssH * 0.12, 0, 0, Math.PI * 2);
-      portraitCtx.fill();
-      const t = reducedMotion ? 0.6 : (now || 0) / 1000;
-      drawTraveller(portraitCtx, cssW * 0.5, cssH * 0.92, cssH * 0.82, 'idle', t, 1);
+    if (!ui.map.hidden) paintFigure(ui.portrait, 'idle', now);
+    if (!ui.cast.hidden) {
+      for (const card of document.querySelectorAll('.cast-card canvas')) paintFigure(card, 'idle', now);
     }
+    if (!ui.hud.hidden) paintFigure(face, game.mode() === 'play' ? 'run' : 'idle', now);
     requestAnimationFrame(paintPortrait);
   };
   requestAnimationFrame(paintPortrait);
@@ -459,14 +597,15 @@ function boot() {
   const requested = params.get('level');
   const at = Number(params.get('at'));
   if (requested) {
-    const level = levelById(requested);
-    if (level && isUnlocked(level, save)) {
-      play(level, { at: Number.isFinite(at) ? at : 0 });
-    } else {
-      if (level) announce(`${level.title} is still locked.`);
-      game.showMap();
-    }
-  } else {
-    game.showMap();
+    const level = resolveRequest(requested);
+    if (level && isUnlocked(level, save)) pending = { level, at: Number.isFinite(at) ? at : 0 };
+    else if (level) announce(`${level.title} is still locked.`);
   }
+  syncWorld();
+  if (!save.character) showCast();
+  else if (pending) {
+    const next = pending;
+    pending = null;
+    play(next.level, { at: next.at });
+  } else game.showMap();
 }

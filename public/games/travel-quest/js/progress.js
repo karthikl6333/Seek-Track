@@ -3,6 +3,9 @@
  * touch localStorage (or a substitute passed in tests).
  */
 
+import { isCharacter } from './cast.js';
+import { LEGACY_CITIES } from './levels.js';
+
 export const SAVE_KEY = 'seektrack.travelQuest.v1';
 
 /** Share of a perfect score (souvenirs + full heart bonus) for 2 and 3 stars. Finishing is always 1. */
@@ -12,7 +15,7 @@ export const STAR_THREE = 0.72;
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 
 export function emptySave() {
-  return { v: 1, mute: false, helpSeen: false, levels: {} };
+  return { v: 1, mute: false, helpSeen: false, character: '', levels: {} };
 }
 
 function readCheckpoint(raw) {
@@ -36,6 +39,7 @@ export function normalizeSave(raw) {
   if (!raw || typeof raw !== 'object') return save;
   save.mute = Boolean(raw.mute);
   save.helpSeen = Boolean(raw.helpSeen);
+  save.character = isCharacter(raw.character) ? raw.character : '';
   const levels = raw.levels && typeof raw.levels === 'object' ? raw.levels : {};
   for (const [id, row] of Object.entries(levels)) {
     if (!ID_RE.test(id) || !row || typeof row !== 'object') continue;
@@ -149,6 +153,43 @@ export function withMute(save, mute) {
 
 export function withHelpSeen(save) {
   return { ...save, helpSeen: true };
+}
+
+export function withCharacter(save, id) {
+  if (!isCharacter(id)) return save;
+  return { ...save, character: id };
+}
+
+/**
+ * Old saves stored a country id. If that country is stamped and none of its
+ * cities are recorded yet, every city in it is stamped. A best score with no
+ * stamp is copied onto the first city only. A save that already has a city is left alone.
+ */
+export function migrateLegacy(save, map = LEGACY_CITIES) {
+  const levels = { ...save.levels };
+  let changed = false;
+  for (const [countryId, cityIds] of Object.entries(map || {})) {
+    if (!Array.isArray(cityIds) || cityIds.some((id) => levels[id])) continue;
+    const row = levels[countryId];
+    if (!row) continue;
+    if (row.cleared) {
+      cityIds.forEach((id, index) => {
+        levels[id] = {
+          best: index === 0 ? row.best : 0,
+          stars: row.stars || 1,
+          cleared: true,
+        };
+      });
+      changed = true;
+    } else if (row.best > 0) {
+      const first = cityIds[0];
+      const prev = levels[first] || { best: 0, stars: 0, cleared: false };
+      levels[first] = { ...prev, best: Math.max(prev.best, row.best) };
+      changed = true;
+    }
+  }
+  if (!changed) return save;
+  return { ...save, levels };
 }
 
 export function checkpointOf(save, levelId) {

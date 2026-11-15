@@ -29,6 +29,12 @@ export function validateLevel(level) {
     err('heartBonus must be a number from 0 to 500');
   }
   if (!HEX_RE.test(level.accent || '')) err('accent must be a #rrggbb color');
+  if (level.heat != null && (typeof level.heat !== 'number' || level.heat < 0 || level.heat > 1)) {
+    err('heat must be a number from 0 to 1');
+  }
+  if (level.music != null && (typeof level.music !== 'string' || level.music.length < 2 || level.music.length > 24)) {
+    err('music must be a short theme name');
+  }
   if (!Array.isArray(level.biomes) || level.biomes.length < 2) err('needs at least two biomes');
   else {
     let share = 0;
@@ -121,6 +127,39 @@ export function validateLevelList(levels) {
     } else if (level?.requires !== sorted[index - 1].id) {
       errors.push(`${level?.id} must set requires to "${sorted[index - 1].id}" so it unlocks next`);
     }
+  });
+  return errors;
+}
+
+/**
+ * A country is a chain of cities. The first country is open. Each later country
+ * requires the one before it. Cities themselves are checked as levels.
+ */
+export function validateCountryList(countries) {
+  const errors = [];
+  if (!Array.isArray(countries) || countries.length === 0) return ['No countries are registered.'];
+  countries.forEach((country, index) => {
+    if (!country || !ID_RE.test(country.id || '')) {
+      errors.push('each country needs an id');
+      return;
+    }
+    if (typeof country.title !== 'string' || country.title.length < 2) errors.push(`${country.id} needs a title`);
+    if (!Array.isArray(country.cities) || country.cities.length < 2) {
+      errors.push(`${country.id} needs at least two cities`);
+      return;
+    }
+    const expectRequires = index === 0 ? null : countries[index - 1].id;
+    if ((country.requires ?? null) !== expectRequires) {
+      errors.push(`${country.id} must require ${expectRequires || 'nothing'}`);
+    }
+    country.cities.forEach((city, cityIndex) => {
+      const synthetic = {
+        ...city,
+        order: cityIndex + 1,
+        requires: cityIndex === 0 ? null : country.cities[cityIndex - 1].id,
+      };
+      for (const problem of validateLevel(synthetic)) errors.push(problem);
+    });
   });
   return errors;
 }

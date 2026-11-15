@@ -9,36 +9,65 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preload" as="image" href="assets/explorer-idle.png" />
     <link rel="preload" as="image" href="assets/explorer-run.png" />
+    <link rel="preload" as="image" href="assets/dad-idle.png" />
+    <link rel="preload" as="image" href="assets/mom-idle.png" />
     <link rel="stylesheet" href="css/game.css" />
   </head>
   <body>
     <div id="app">
       <canvas id="view" width="960" height="540" aria-hidden="true"></canvas>
 
+      <section id="screen-cast" class="screen" hidden>
+        <div class="sheet cast-sheet">
+          <p class="eyebrow">Who is running?</p>
+          <h1>Choose a traveller</h1>
+          <div class="cast-grid">
+            <button type="button" class="cast-card" data-cast="explorer">
+              <canvas id="cast-explorer" width="180" height="210"></canvas>
+              <strong>Explorer</strong>
+              <span>Sun hat, lavender glasses, and a backpack.</span>
+            </button>
+            <button type="button" class="cast-card" data-cast="dad">
+              <canvas id="cast-dad" width="180" height="210"></canvas>
+              <strong>Dad</strong>
+              <span>Straw hat, grey glasses, and a crossbody bag.</span>
+            </button>
+            <button type="button" class="cast-card" data-cast="mom">
+              <canvas id="cast-mom" width="180" height="210"></canvas>
+              <strong>Mom</strong>
+              <span>Wide straw hat, pearls, and a red floral dress.</span>
+            </button>
+          </div>
+          <button type="button" id="cast-back" hidden>Back to map</button>
+        </div>
+      </section>
+
       <section id="screen-map" class="screen">
+        <div class="map-stage" aria-hidden="true"></div>
         <div class="sheet">
           <header class="hero">
-            <canvas id="portrait" width="180" height="220" role="img" aria-label="The explorer, in a sun hat, lavender glasses, and a backpack"></canvas>
+            <canvas id="portrait" width="180" height="220" role="img" aria-label="The chosen traveller"></canvas>
             <div class="hero-copy">
               <p class="eyebrow">Seek&amp;Track</p>
               <h1>Travel Quest</h1>
-              <p>Run through a country with the explorer, pocket the souvenirs, and earn a passport stamp.</p>
+              <p>Pick a traveller, run each city, and earn a passport stamp when a country is complete.</p>
             </div>
           </header>
           <div id="level-list" class="level-grid"></div>
           <details id="help">
             <summary>How to play</summary>
             <ul>
-              <li><strong>Jump</strong> over holes, puddles, scooters, and water buffalo. Hold the button to jump higher.</li>
-              <li><strong>Duck</strong> under shop signs and hanging lanterns.</li>
+              <li><strong>Jump</strong> over holes, puddles, scooters, and taxis. Hold the button to jump higher.</li>
+              <li><strong>Duck</strong> under shop signs, lanterns, and banners.</li>
+              <li>Each country has three cities. Finish them in order. The last city stamps the passport and opens the next country.</li>
               <li>Red flags are checkpoints. If you run out of hearts, try again from the last flag with your score still there.</li>
-              <li>Collect mango sticky rice, orchids, elephant tokens, banh mi, lanterns, and conical hats. Rare ones score more.</li>
               <li>You have three hearts. A bump costs one. Hearts left at the gate add bonus points.</li>
               <li>Finishing earns one star. A careful, high score earns two or three.</li>
             </ul>
-            <p class="keys">Keyboard: Space or up to jump, down to duck, P to pause, M to mute, R to restart. On the map, press 1 or 2 to start an open country. Vietnam unlocks after Thailand is stamped.</p>
+            <p class="keys">Keyboard: Space or up to jump, down to duck, P to pause, M to mute, R to restart. On the map, press 1, 2, or 3 to start the next open city in that country. Choose Explorer, Dad, or Mom before the first run.</p>
           </details>
           <div class="row-actions">
+            <button type="button" id="map-cast">Characters</button>
             <button type="button" id="map-mute" aria-pressed="false">Sound</button>
             <a class="text-btn" href="/">Back to Seek&amp;Track</a>
           </div>
@@ -48,8 +77,11 @@
       <div id="hud" hidden>
         <div class="hud-top">
           <div class="hud-score">
-            <span class="hud-label">Score</span>
-            <strong id="score">0</strong>
+            <canvas id="hud-face" width="64" height="72" aria-hidden="true"></canvas>
+            <div>
+              <span class="hud-label">Score</span>
+              <strong id="score">0</strong>
+            </div>
           </div>
           <div id="hearts" class="hearts" aria-label="Hearts"></div>
           <div class="hud-actions">
@@ -65,6 +97,11 @@
         <div id="track" class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Trip progress">
           <div class="track-clip"><div id="progress"></div></div>
           <div id="marks"></div>
+        </div>
+        <p id="combo" class="combo" hidden></p>
+        <div id="intro" class="intro" hidden>
+          <p id="intro-kicker"></p>
+          <strong id="intro-title"></strong>
         </div>
         <p id="toast" class="toast" hidden>Checkpoint!</p>
         <p id="hint" class="hint" hidden>Jump the low obstacles. Duck under anything overhead.</p>
@@ -106,12 +143,13 @@
 
       <section id="screen-stamp" class="screen overlay" hidden>
         <div class="panel">
+          <div id="confetti" class="confetti" hidden></div>
           <div class="stamp" id="stamp">
             <span>Passport</span>
             <strong id="stamp-country"></strong>
             <span id="stamp-stars"></span>
           </div>
-          <h2>Stamp earned</h2>
+          <h2 id="stamp-heading">Stamp earned</h2>
           <p id="stamp-detail"></p>
           <p id="stamp-best" class="score-line"></p>
           <div class="stack">

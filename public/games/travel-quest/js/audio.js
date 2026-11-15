@@ -15,6 +15,15 @@ export function createAudio() {
     map: { step: 0.46, scale: [523, 659, 784, 880], wave: 'sine', gain: 0.011, drone: 262, every: 2 },
     thailand: { step: 0.19, scale: [262, 294, 330, 392, 440, 392, 330, 294], wave: 'triangle', gain: 0.02, drone: 196, every: 1, beat: true },
     vietnam: { step: 0.32, scale: [220, 262, 294, 349, 392, 349, 294, 262], wave: 'sine', gain: 0.017, drone: 110, every: 1, slide: true },
+    bangkok: { step: 0.19, scale: [262, 294, 330, 392, 440, 392, 330, 294], wave: 'triangle', gain: 0.02, drone: 196, every: 1, beat: true },
+    chiang: { step: 0.28, scale: [262, 311, 349, 392, 466, 392, 349, 311], wave: 'triangle', gain: 0.018, drone: 174, every: 2 },
+    phiphi: { step: 0.17, scale: [330, 392, 440, 494, 587, 494, 440, 392], wave: 'triangle', gain: 0.018, drone: 220, every: 1, beat: true },
+    hanoi: { step: 0.32, scale: [220, 262, 294, 349, 392, 349, 294, 262], wave: 'sine', gain: 0.017, drone: 110, every: 1, slide: true },
+    hoian: { step: 0.36, scale: [196, 247, 294, 330, 392, 330, 294, 247], wave: 'sine', gain: 0.016, drone: 98, every: 2, slide: true },
+    halong: { step: 0.3, scale: [247, 294, 330, 392, 494, 392, 330, 294], wave: 'sine', gain: 0.016, drone: 123, every: 2 },
+    downtown: { step: 0.16, scale: [330, 392, 494, 587, 659, 587, 494, 392], wave: 'triangle', gain: 0.018, drone: 165, every: 1, beat: true },
+    creek: { step: 0.34, scale: [196, 233, 294, 349, 392, 349, 294, 233], wave: 'sine', gain: 0.016, drone: 98, every: 2, slide: true },
+    desert: { step: 0.26, scale: [220, 277, 330, 370, 440, 370, 330, 277], wave: 'triangle', gain: 0.017, drone: 110, every: 1, slide: true },
   };
 
   function context() {

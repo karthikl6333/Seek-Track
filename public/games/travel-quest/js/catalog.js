@@ -4,10 +4,26 @@
  */
 
 /** Collectible drawings. */
-export const ITEM_GLYPHS = ['mango', 'orchid', 'elephant', 'banhmi', 'lantern', 'hat'];
+export const ITEM_GLYPHS = ['mango', 'orchid', 'elephant', 'banhmi', 'lantern', 'hat', 'shell', 'pho', 'pearl', 'gold', 'dates'];
 
 /** Obstacle drawings. */
-export const HAZARD_GLYPHS = ['pothole', 'scooter', 'sign', 'puddle', 'buffalo', 'hanglantern'];
+export const HAZARD_GLYPHS = [
+  'pothole',
+  'scooter',
+  'sign',
+  'puddle',
+  'buffalo',
+  'hanglantern',
+  'elewalk',
+  'crate',
+  'stall',
+  'buggy',
+  'barrier',
+  'taxi',
+  'lamp',
+  'dune',
+  'banner',
+];
 
 /** Scrolling background stamps. Levels pick one `far` and one `mid` per biome. */
 export const MOTIFS = [
@@ -22,6 +38,22 @@ export const MOTIFS = [
   'karsts',
   'junks',
   'terraces',
+  'cliffs',
+  'longtails',
+  'stalls',
+  'ruins',
+  'redbridge',
+  'jpbridge',
+  'metro',
+  'towers',
+  'fountain',
+  'windtowers',
+  'souks',
+  'abras',
+  'dunes',
+  'sail',
+  'camels',
+  'palmisle',
 ];
 
 /** Obstacle silhouette. `low` and `mid` are jumped; `high` is ducked. */

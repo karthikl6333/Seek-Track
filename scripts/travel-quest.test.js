@@ -2,12 +2,16 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HAZARD_GLYPHS, ITEM_GLYPHS, MOTIFS } from '../public/games/travel-quest/js/catalog.js';
-import { HAZARD_DRAW, ITEM_DRAW, MOTIF_DRAW } from '../public/games/travel-quest/js/draw.js';
-import { LEVELS } from '../public/games/travel-quest/js/levels.js';
+import { CAST } from '../public/games/travel-quest/js/cast.js';
+import { HAZARD_DRAW, ITEM_DRAW, LANDMARK_PLAN, MOTIF_DRAW } from '../public/games/travel-quest/js/draw.js';
+import { bumpCombo, magnetPull, squashStretch } from '../public/games/travel-quest/js/feel.js';
+import { createLayerCache } from '../public/games/travel-quest/js/layers.js';
+import { COUNTRIES, LEVELS, levelById } from '../public/games/travel-quest/js/levels.js';
 import {
   emptySave,
   isUnlocked,
   loadSave,
+  migrateLegacy,
   normalizeSave,
   recordFinish,
   recordScore,
@@ -20,10 +24,11 @@ import {
   fullAirtime,
   jumpClearsHazard,
   layoutFor,
+  playerHitBox,
 } from '../public/games/travel-quest/js/physics.js';
 import { applyCheckpoint, biomeAt, boxesOverlap, buildRun, mulberry32, pickWeighted } from '../public/games/travel-quest/js/run.js';
 import { checkpointOf, withCheckpoint } from '../public/games/travel-quest/js/progress.js';
-import { validateLevel, validateLevelList } from '../public/games/travel-quest/js/schema.js';
+import { validateCountryList, validateLevel, validateLevelList } from '../public/games/travel-quest/js/schema.js';
 import template from '../public/games/travel-quest/levels/template.js';
 
 const root = join(process.cwd(), 'public', 'games', 'travel-quest');
@@ -44,26 +49,48 @@ describe('Travel Quest levels', () => {
     const registry = readFileSync(join(root, 'js', 'levels.js'), 'utf8');
     expect(registry).not.toContain('template.js');
     for (const file of files) expect(registry).toContain(`../levels/${file}`);
-    expect(LEVELS.map((level) => level.id).sort()).toEqual(files.map((file) => file.replace(/\.js$/, '')).sort());
+    expect(COUNTRIES.map((country) => country.id).sort()).toEqual(files.map((file) => file.replace(/\.js$/, '')).sort());
+    expect(LEVELS.map((level) => level.id)).toEqual([
+      'bangkok',
+      'chiang-mai',
+      'phi-phi',
+      'hanoi',
+      'hoi-an',
+      'halong',
+      'downtown',
+      'old-dubai',
+      'desert',
+    ]);
   });
 
   it('accepts the template and the live chain', () => {
     expect(validateLevel(template)).toEqual([]);
+    expect(validateCountryList(COUNTRIES)).toEqual([]);
     expect(validateLevelList(LEVELS)).toEqual([]);
   });
 
-  it('Thailand is open and Vietnam waits for that stamp', () => {
-    const [thailand, vietnam] = LEVELS;
-    expect(thailand.id).toBe('thailand');
-    expect(vietnam.id).toBe('vietnam');
-    expect(vietnam.requires).toBe('thailand');
+  it('opens Bangkok and keeps later cities locked until the previous one is cleared', () => {
+    const bangkok = levelById('bangkok');
+    const hanoi = levelById('hanoi');
+    const downtown = levelById('downtown');
     const fresh = emptySave();
-    expect(isUnlocked(thailand, fresh)).toBe(true);
-    expect(isUnlocked(vietnam, fresh)).toBe(false);
-    const stamped = recordFinish(fresh, 'thailand', 120, 1);
-    expect(isUnlocked(vietnam, stamped)).toBe(true);
-    expect(stamped.levels.thailand.stars).toBe(1);
-    expect(recordFinish(stamped, 'thailand', 40, 1).levels.thailand.best).toBe(120);
+    expect(isUnlocked(bangkok, fresh)).toBe(true);
+    expect(isUnlocked(hanoi, fresh)).toBe(false);
+    expect(isUnlocked(downtown, fresh)).toBe(false);
+    const stamped = recordFinish(fresh, 'bangkok', 120, 1);
+    expect(isUnlocked(levelById('chiang-mai'), stamped)).toBe(true);
+    expect(isUnlocked(hanoi, stamped)).toBe(false);
+    expect(stamped.levels.bangkok.stars).toBe(1);
+    expect(recordFinish(stamped, 'bangkok', 40, 1).levels.bangkok.best).toBe(120);
+  });
+
+  it('gives every city a landmark and a steeper heat later on', () => {
+    for (const level of LEVELS) {
+      for (const biome of level.biomes) expect(LANDMARK_PLAN[biome.id]?.length).toBeGreaterThan(0);
+    }
+    expect(levelById('desert').heat).toBeGreaterThan(levelById('bangkok').heat);
+    const audio = readFileSync(join(root, 'js', 'audio.js'), 'utf8');
+    for (const level of LEVELS) expect(audio).toContain(`${level.music}:`);
   });
 
   it('draws every catalog glyph and motif', () => {
@@ -146,17 +173,19 @@ describe('Travel Quest runs', () => {
           const layout = layoutFor(w, h);
           expect(hazards[1].t - hazards[0].t).toBeGreaterThan(fullAirtime(h, layout.ph) + 0.2);
           for (const hazard of hazards) {
-            if (hazard.spec.lane === 'high') {
-              expect(duckClearsHazard(layout, 'high')).toBe(true);
-              continue;
-            }
-            for (const hold of [false, true]) {
-              const lead = apexDelay(h, layout.ph, hold);
-              for (const offset of [-0.1, 0, 0.08]) {
-                expect(
-                  jumpClearsHazard(layout, hazard.spec.lane, { hold, lead: lead + offset }),
-                  `${level.id} seed ${seed} ${hazard.spec.lane} hold ${hold} offset ${offset}`,
-                ).toBe(true);
+            for (const person of CAST) {
+              if (hazard.spec.lane === 'high') {
+                expect(duckClearsHazard(layout, 'high', person.hit), `${person.id} duck`).toBe(true);
+                continue;
+              }
+              for (const hold of [false, true]) {
+                const lead = apexDelay(h, layout.ph, hold);
+                for (const offset of [-0.1, 0, 0.08]) {
+                  expect(
+                    jumpClearsHazard(layout, hazard.spec.lane, { hold, lead: lead + offset, hitScale: person.hit }),
+                    `${level.id} ${person.id} seed ${seed} ${hazard.spec.lane} hold ${hold} offset ${offset}`,
+                  ).toBe(true);
+                }
               }
             }
           }
@@ -203,6 +232,81 @@ describe('Travel Quest save', () => {
     expect(messy.mute).toBe(true);
     expect(messy.levels.thailand).toEqual({ best: 0, stars: 3, cleared: true });
     expect(messy.levels['../x']).toBeUndefined();
+    expect(messy.character).toBe('');
+    expect(normalizeSave({ character: 'mom' }).character).toBe('mom');
+    expect(normalizeSave({ character: 'photo' }).character).toBe('');
+  });
+
+  it('turns an old country stamp into cleared cities', () => {
+    const stamped = recordFinish(emptySave(), 'thailand', 120, 1);
+    const migrated = migrateLegacy(stamped);
+    expect(migrated.levels.thailand.cleared).toBe(true);
+    expect(migrated.levels.bangkok).toEqual({ best: 120, stars: 1, cleared: true });
+    expect(migrated.levels['chiang-mai'].cleared).toBe(true);
+    expect(migrated.levels['phi-phi'].cleared).toBe(true);
+    expect(migrated.levels['chiang-mai'].best).toBe(0);
+    expect(isUnlocked(levelById('hanoi'), migrated)).toBe(true);
+    expect(isUnlocked(levelById('downtown'), migrated)).toBe(false);
+    const both = migrateLegacy(recordFinish(stamped, 'vietnam', 90, 2));
+    expect(both.levels.halong.cleared).toBe(true);
+    expect(isUnlocked(levelById('downtown'), both)).toBe(true);
+    const scoreOnly = migrateLegacy(recordScore(emptySave(), 'thailand', 80));
+    expect(scoreOnly.levels.bangkok.best).toBe(80);
+    expect(scoreOnly.levels.bangkok.cleared).toBe(false);
+    expect(isUnlocked(levelById('hanoi'), scoreOnly)).toBe(false);
+    const already = migrateLegacy({
+      ...stamped,
+      levels: { ...stamped.levels, bangkok: { best: 10, stars: 1, cleared: true } },
+    });
+    expect(already.levels['phi-phi']).toBeUndefined();
+  });
+
+  it('keeps adult hit boxes the same width and only a little taller', () => {
+    const layout = layoutFor(1280, 800);
+    const explorer = playerHitBox(layout, 0, false, 1);
+    for (const person of CAST) {
+      const box = playerHitBox(layout, 0, false, person.hit);
+      expect(box.w).toBe(explorer.w);
+      expect(person.id === 'explorer' ? box.h : box.h).toBeGreaterThan(0);
+      if (person.id !== 'explorer') {
+        expect(box.h).toBeGreaterThan(explorer.h);
+        expect(box.h / explorer.h).toBeLessThan(1.2);
+      }
+    }
+    expect(CAST.map((person) => person.id)).toEqual(['explorer', 'dad', 'mom']);
+  });
+
+  it('keeps combo, squash, and the magnet off the score', () => {
+    expect(bumpCombo(2, 1.6)).toBe(3);
+    expect(bumpCombo(2, 1.61)).toBe(1);
+    const land = squashStretch({ pose: 'run', vy: 0, ph: 100, land: 1 });
+    expect(land.sx).toBeGreaterThan(1);
+    expect(land.sy).toBeLessThan(1);
+    expect(magnetPull(500, 0, 40).pop).toBe(1);
+    expect(magnetPull(10, 0, 40).pop).toBeGreaterThan(1);
+  });
+
+  it('reuses a cached scenery tile', () => {
+    const cache = createLayerCache({
+      createElement() {
+        return {
+          width: 0,
+          height: 0,
+          getContext() {
+            return { setTransform() {} };
+          },
+        };
+      },
+    });
+    let paints = 0;
+    const first = cache.get('sky', 20, 10, () => {
+      paints += 1;
+    }, 1);
+    const second = cache.get('sky', 20, 10, () => {
+      paints += 1;
+    }, 1);
+    expect(first).toBe(second);
+    expect(paints).toBe(1);
   });
 
   it('keeps a failed run’s best score without stamping it', () => {
@@ -236,6 +340,14 @@ describe('Travel Quest is a public static page', () => {
     expect(html).toContain('noindex');
     expect(html).toContain('js/main.js');
     expect(html).toContain('<canvas');
+    expect(html).toContain('screen-cast');
+    const names = readdirSync(join(root, 'assets'));
+    expect(names.some((name) => /parents|slideshow|candidate/i.test(name))).toBe(false);
+    for (const name of ['dad-idle.png', 'dad-run.png', 'mom-idle.png', 'mom-run.png', 'explorer-idle.png', 'explorer-run.png']) {
+      const size = statSync(join(root, 'assets', name)).size;
+      expect(size, name).toBeGreaterThan(1000);
+      expect(size, name).toBeLessThan(200 * 1024);
+    }
   });
 
   it('matches the trips noindex rule for /games and does not move the auth gate', () => {

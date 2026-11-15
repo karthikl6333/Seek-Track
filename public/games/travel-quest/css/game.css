@@ -200,14 +200,45 @@ details ul { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction
 }
 
 .track {
+  position: relative;
   margin: 8px 16px 0;
   height: 10px;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.45);
+}
+
+.track-clip {
+  height: 100%;
+  border-radius: inherit;
   overflow: hidden;
 }
 
 #progress { height: 100%; width: 0; background: var(--coral); border-radius: inherit; }
+
+.cp-mark {
+  position: absolute;
+  top: -4px;
+  width: 6px;
+  height: 18px;
+  margin-left: -3px;
+  border-radius: 3px;
+  background: #1c2430;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8);
+}
+
+.cp-mark.reached { background: #fff; box-shadow: 0 0 0 2px #d0182f; }
+
+.toast[hidden] { display: none; }
+
+.toast {
+  display: inline-block;
+  margin: 8px 16px 0;
+  padding: 8px 14px;
+  background: #fff7e6;
+  border: 3px solid #d0182f;
+  border-radius: 999px;
+  font-weight: 800;
+}
 
 .hint, .fact { margin: 8px 16px 0; }
 .hint {

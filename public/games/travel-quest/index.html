@@ -7,6 +7,8 @@
     <meta name="theme-color" content="#1f7e9a" />
     <title>Travel Quest — Seek&amp;Track</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="assets/explorer-idle.png" />
+    <link rel="preload" as="image" href="assets/explorer-run.png" />
     <link rel="stylesheet" href="css/game.css" />
   </head>
   <body>
@@ -27,8 +29,9 @@
           <details id="help">
             <summary>How to play</summary>
             <ul>
-              <li><strong>Jump</strong> over holes, puddles, scooters, and water buffalo.</li>
+              <li><strong>Jump</strong> over holes, puddles, scooters, and water buffalo. Hold the button to jump higher.</li>
               <li><strong>Duck</strong> under shop signs and hanging lanterns.</li>
+              <li>Red flags are checkpoints. If you run out of hearts, try again from the last flag with your score still there.</li>
               <li>Collect mango sticky rice, orchids, elephant tokens, banh mi, lanterns, and conical hats. Rare ones score more.</li>
               <li>You have three hearts. A bump costs one. Hearts left at the gate add bonus points.</li>
               <li>Finishing earns one star. A careful, high score earns two or three.</li>
@@ -60,11 +63,13 @@
           <span id="practice" hidden>Practice — not saved</span>
         </div>
         <div id="track" class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Trip progress">
-          <div id="progress"></div>
+          <div class="track-clip"><div id="progress"></div></div>
+          <div id="marks"></div>
         </div>
+        <p id="toast" class="toast" hidden>Checkpoint!</p>
         <p id="hint" class="hint" hidden>Jump the low obstacles. Duck under anything overhead.</p>
         <div id="fact" class="fact" hidden>
-          <p class="fact-kicker">Checkpoint</p>
+          <p class="fact-kicker">Along the way</p>
           <h2 id="fact-title"></h2>
           <p id="fact-text"></p>
         </div>
@@ -80,7 +85,7 @@
           <p>The road will wait.</p>
           <div class="stack">
             <button type="button" id="pause-resume">Resume</button>
-            <button type="button" id="pause-restart">Restart</button>
+            <button type="button" id="pause-restart">From the start</button>
             <button type="button" id="pause-map">World map</button>
           </div>
         </div>
@@ -93,6 +98,7 @@
           <p id="over-score" class="score-line"></p>
           <div class="stack">
             <button type="button" id="over-retry">Try again</button>
+            <button type="button" id="over-begin" hidden>From the start</button>
             <button type="button" id="over-map">World map</button>
           </div>
         </div>

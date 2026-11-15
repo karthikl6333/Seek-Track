@@ -13,7 +13,11 @@ Thailand is open from the start. Vietnam unlocks after Thailand is finished (any
 
 Hearts you still have at the passport gate add bonus points. Finishing is one star. About 45% of a perfect score (every souvenir plus every heart) is two stars. About 72% is three.
 
-A run is 60–90 seconds. The world map, both countries, and the drawings are all original canvas art. The explorer (sun hat, lavender glasses, braids, pink sweatshirt, polka-dot skirt, backpack) is drawn the same way on the map and in the run, including jump and duck. Sound is generated in the browser.
+A run is 60–90 seconds. The explorer on the map and in the run is the approved drawing (`assets/explorer-idle.png`, `assets/explorer-run.png`): sun hat, lavender glasses, braids, pink sweatshirt, polka-dot skirt, backpack. Jump tilts that run drawing. Duck keeps her head and shortens her legs. Hold jump to go higher. A tap still clears every ground hurdle.
+
+Red flags at about one third, halfway, and two thirds are checkpoints. Running out of hearts and choosing “From checkpoint” puts you back on the last flag with full hearts and the score and souvenirs you had then. “From the start” forgets the flag. The flag is kept for the visit and in `localStorage`.
+
+Sound is made in the browser: a light tune on the map, a brighter loop in Thailand, a slower one in Vietnam, plus chimes for a jump, a souvenir, a bump, a checkpoint, and the stamp. M or the Sound button mutes it, and that choice is saved. Music starts on the first tap or key.
 
 `?level=thailand` starts that country. Add `&at=40` to preview 40 seconds in. Preview runs are not saved. `&debug=1` draws the hit boxes, for tuning a new country.
 

@@ -54,7 +54,7 @@ export function buildRun(level, rand) {
       if (roll < 0.26) {
         const spec = level.hazards[Math.floor(rand() * level.hazards.length)];
         events.push({ t: round2(t), type: 'hazard', spec, biomeId: biome.id, dead: false });
-        t += 1.7 + rand() * 0.65;
+        t += 1.95 + rand() * 0.55;
       } else if (roll < 0.9) {
         const spec = pickWeighted(level.items, rand);
         // Most souvenirs sit on the road. A few float, so a jump is a bonus rather than a tax.
@@ -82,7 +82,36 @@ export function buildRun(level, rand) {
   events.push({ t: duration, type: 'finish', dead: false });
 
   const scenery = buildScenery(level, duration, rand);
-  return { events: cleanup(events, duration), scenery, duration };
+  const course = cleanup(events, duration);
+  addCheckpoints(course, duration);
+  return { events: course, scenery, duration };
+}
+
+/** Two or three flags. Nudged off a hurdle so the marker is somewhere you can pass. */
+export function addCheckpoints(events, duration) {
+  const hazards = events.filter((event) => event.type === 'hazard').map((event) => event.t);
+  for (const frac of [0.33, 0.5, 0.66]) {
+    let t = round2(frac * duration);
+    for (let n = 0; n < 8; n += 1) {
+      const crowded = hazards.some((ht) => Math.abs(ht - t) < 0.55);
+      if (!crowded) break;
+      t = round2(t - 0.45);
+    }
+    if (t < 8 || t > duration - 6) continue;
+    events.push({ t, type: 'checkpoint', frac, dead: false, fired: false });
+  }
+  events.sort((a, b) => a.t - b.t);
+}
+
+/** Resume just after a flag: everything already passed stays collected or gone. */
+export function applyCheckpoint(events, time) {
+  for (const event of events) {
+    if (event.type === 'checkpoint' && event.t <= time + 0.02) event.fired = true;
+    if (event.t < time - 0.05 && event.type !== 'finish') {
+      event.dead = true;
+      event.fired = true;
+    }
+  }
 }
 
 function cleanup(events, duration) {
@@ -95,7 +124,7 @@ function cleanup(events, duration) {
       kept.push(event);
       continue;
     }
-    let t = Math.max(event.t, lastHazard + 1.55, 4);
+    let t = Math.max(event.t, lastHazard + 1.85, 4);
     if (t > duration - 3.15) continue;
     if (facts.some((factTime) => Math.abs(factTime - t) < 0.9)) continue;
     event.t = round2(t);

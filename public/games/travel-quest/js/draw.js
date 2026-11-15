@@ -814,429 +814,115 @@ export function drawShrine(ctx, x, groundY, h, accent) {
 }
 
 /**
- * The explorer: a chibi cartoon drawn to one palette so idle, run, jump, and duck match.
- * Coordinates below are for a 64×96 sprite, y pointing down, feet at 0.
+ * The explorer is the approved drawing (assets/explorer-idle.png and
+ * explorer-run.png). Jump and duck are that same picture, tilted or cropped.
  */
-const INK = '#4A2418';
-const SKIN = '#C1703E';
-const SKIN_SHADE = '#A9592F';
-const HAIR = '#1C1715';
-const HAIR_HI = '#3A2A24';
-const HAT = '#EBC98F';
-const HAT_SHADE = '#DBA76E';
-const BAND = '#D0182F';
-const SHIRT = '#FFCADA';
-const SHIRT_SHADE = '#F3B9B4';
-const SKIRT = '#D0182F';
-const PACK = '#C54F38';
-const PACK_STRAP = '#A63A28';
-const GLASSES = '#7886CC';
-const LENS = 'rgba(185, 195, 240, 0.35)';
+const SPRITE_URL = {
+  idle: new URL('../assets/explorer-idle.png', import.meta.url).href,
+  run: new URL('../assets/explorer-run.png', import.meta.url).href,
+};
+const sprites = { idle: null, run: null };
 
-function fillStroke(ctx, color) {
-  ctx.fillStyle = color;
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.fill();
-  ctx.stroke();
-}
-
-function dot(ctx, x, y, r, color) {
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-}
-
-/** Front view used on the map. `wave` lifts one hand. */
-function drawExplorerFront(ctx, time) {
-  const bob = Math.sin(time * 2.2) * 1.1;
-  const wave = -0.35 + Math.sin(time * 2.6) * 0.18;
-  ctx.save();
-  ctx.translate(0, bob);
-
-  roundRect(ctx, -20, -80, 40, 22, 6);
-  fillStroke(ctx, PACK);
-  roundRect(ctx, -22, -62, 8, 16, 3);
-  fillStroke(ctx, PACK);
-  roundRect(ctx, 14, -62, 8, 16, 3);
-  fillStroke(ctx, PACK);
-
-  frontLeg(ctx, -8);
-  frontLeg(ctx, 6);
-
-  ctx.beginPath();
-  ctx.moveTo(-14, -50);
-  ctx.lineTo(14, -50);
-  ctx.lineTo(18, -32);
-  ctx.lineTo(-18, -32);
-  ctx.closePath();
-  fillStroke(ctx, SKIRT);
-  ctx.fillStyle = '#FFFFFF';
-  for (const [dx, dy] of [[-8, -44], [1, -46], [9, -43], [-3, -38], [7, -36], [-11, -39], [12, -38]]) {
-    dot(ctx, dx, dy, 2.1, '#FFFFFF');
+function ensureSprites() {
+  if (sprites.idle || typeof Image === 'undefined') return;
+  for (const key of ['idle', 'run']) {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = SPRITE_URL[key];
+    sprites[key] = img;
   }
-
-  roundRect(ctx, -15, -74, 30, 26, 9);
-  fillStroke(ctx, SHIRT);
-  ctx.fillStyle = SHIRT_SHADE;
-  ctx.fillRect(-15, -52, 30, 4);
-  ctx.fillStyle = PACK_STRAP;
-  ctx.fillRect(-11, -72, 4, 16);
-  ctx.fillRect(7, -72, 4, 16);
-
-  frontArm(ctx, -16, -66, -2.15 + wave, true);
-  frontArm(ctx, 16, -68, -0.35);
-
-  braidDown(ctx, -13, -78, -16, -46);
-  braidDown(ctx, 13, -78, 16, -46);
-
-  ear(ctx, -17, -90);
-  ear(ctx, 17, -90);
-  ctx.beginPath();
-  ctx.arc(0, -92, 17, 0, Math.PI * 2);
-  fillStroke(ctx, SKIN);
-  ctx.beginPath();
-  ctx.arc(0, -96, 17, Math.PI * 1.08, Math.PI * 1.92);
-  ctx.fillStyle = HAIR;
-  ctx.fill();
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.strokeStyle = HAIR_HI;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(0, -112);
-  ctx.lineTo(0, -96);
-  ctx.stroke();
-
-  ctx.fillStyle = 'rgba(224, 138, 106, 0.55)';
-  ctx.beginPath();
-  ctx.ellipse(-9, -86, 3.2, 2, 0, 0, Math.PI * 2);
-  ctx.ellipse(9, -86, 3.2, 2, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  brow(ctx, -8, -100);
-  brow(ctx, 8, -100);
-  eye(ctx, -8, -94);
-  eye(ctx, 8, -94);
-  glassesFront(ctx, 0, -94);
-
-  ctx.fillStyle = '#8E2A22';
-  ctx.beginPath();
-  ctx.ellipse(0, -84, 7, 5.5, 0, 0.05, Math.PI - 0.05);
-  ctx.fill();
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(-4.5, -85, 9, 2.4);
-  ctx.fillStyle = '#F08A8A';
-  ctx.beginPath();
-  ctx.ellipse(0, -81.5, 3.5, 2, 0, 0, Math.PI);
-  ctx.fill();
-
-  strawHat(ctx, 0, -104, 0);
-  pearls(ctx, 0, -100, 13, 7);
-  ctx.restore();
 }
 
-function frontLeg(ctx, x) {
-  roundRect(ctx, x, -30, 7, 18, 3);
-  fillStroke(ctx, SKIN);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(x, -14, 7, 4);
-  roundRect(ctx, x - 2, -12, 12, 8, 3);
-  fillStroke(ctx, '#FCF5EE');
-  ctx.strokeStyle = '#D8CFC4';
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(x, -6);
-  ctx.lineTo(x + 8, -6);
-  ctx.stroke();
+function spriteReady(img) {
+  return Boolean(img && img.complete && img.naturalWidth);
 }
 
-function frontArm(ctx, x, y, rotation, openHand) {
+function paintSprite(ctx, img, anchor, dw, dh, top) {
+  ctx.drawImage(img, -dw * anchor, top, dw, dh);
+}
+
+function drawLoaded(ctx, img, anchor, h, pose, time) {
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const dw = h * aspect;
+  const dh = h;
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rotation);
-  roundRect(ctx, -4, 0, 8, 20, 4);
-  fillStroke(ctx, SHIRT);
-  ctx.fillStyle = SHIRT_SHADE;
-  ctx.fillRect(-4, 16, 8, 4);
-  if (openHand) {
-    ctx.fillStyle = SKIN;
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 1.6;
-    for (let i = 0; i < 4; i += 1) {
-      roundRect(ctx, -6 + i * 3.4, 18, 2.8, 8, 1.3);
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.arc(0, 26, 5.5, 0, Math.PI * 2);
-    fillStroke(ctx, SKIN);
+  if (pose === 'idle') {
+    ctx.translate(0, Math.sin(time * 2.3) * h * 0.012);
+    paintSprite(ctx, img, anchor, dw, dh, -dh);
+  } else if (pose === 'jump') {
+    ctx.rotate(-0.2);
+    ctx.translate(0, -h * 0.05);
+    ctx.scale(0.97, 0.9);
+    paintSprite(ctx, img, anchor, dw, dh, -dh);
+  } else if (pose === 'duck') {
+    const split = 0.42;
+    const headH = h * 0.4;
+    const bodyH = h * 0.26;
+    const srcH = img.naturalHeight;
+    ctx.drawImage(
+      img,
+      0,
+      srcH * split,
+      img.naturalWidth,
+      srcH * (1 - split),
+      -dw * anchor,
+      -bodyH,
+      dw,
+      bodyH,
+    );
+    ctx.drawImage(
+      img,
+      0,
+      0,
+      img.naturalWidth,
+      srcH * split,
+      -dw * anchor,
+      -(headH * 0.86 + bodyH),
+      dw,
+      headH,
+    );
   } else {
-    ctx.beginPath();
-    ctx.arc(0, 22, 5, 0, Math.PI * 2);
-    fillStroke(ctx, SKIN);
+    const step = Math.sin(time * 11);
+    ctx.rotate(0.05);
+    ctx.translate(0, -Math.max(0, step) * h * 0.02);
+    paintSprite(ctx, img, anchor, dw, dh, -dh);
   }
-  ctx.restore();
-}
-
-function braidDown(ctx, x1, y1, x2, y2) {
-  for (let i = 0; i < 4; i += 1) {
-    const t = i / 3;
-    const x = x1 + (x2 - x1) * t;
-    const y = y1 + (y2 - y1) * t;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 5, 7, 0.2, 0, Math.PI * 2);
-    fillStroke(ctx, i % 2 ? HAIR_HI : HAIR);
-  }
-  ctx.beginPath();
-  ctx.arc(x2, y2 + 6, 3.2, 0, Math.PI * 2);
-  fillStroke(ctx, '#F7A9C0');
-  ctx.beginPath();
-  ctx.ellipse(x2, y2 + 11, 3, 4, 0, 0, Math.PI * 2);
-  fillStroke(ctx, HAIR);
-}
-
-function ear(ctx, x, y) {
-  ctx.beginPath();
-  ctx.arc(x, y, 4.2, 0, Math.PI * 2);
-  fillStroke(ctx, SKIN);
-  dot(ctx, x, y + 1, 1.3, '#FFFFFF');
-}
-
-function brow(ctx, x, y) {
-  ctx.strokeStyle = HAIR;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(x - 4, y);
-  ctx.quadraticCurveTo(x, y - 3, x + 4, y);
-  ctx.stroke();
-}
-
-function eye(ctx, x, y) {
-  ctx.beginPath();
-  ctx.ellipse(x, y, 3.3, 3.8, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#241A18';
-  ctx.fill();
-  dot(ctx, x + 1.1, y - 1.3, 1.15, '#FFFFFF');
-}
-
-function glassesFront(ctx, x, y) {
-  ctx.fillStyle = LENS;
-  roundRect(ctx, x - 16, y - 5, 13, 10, 3);
-  ctx.fill();
-  roundRect(ctx, x + 3, y - 5, 13, 10, 3);
-  ctx.fill();
-  ctx.strokeStyle = GLASSES;
-  ctx.lineWidth = 2.2;
-  roundRect(ctx, x - 16, y - 5, 13, 10, 3);
-  ctx.stroke();
-  roundRect(ctx, x + 3, y - 5, 13, 10, 3);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x - 3, y);
-  ctx.lineTo(x + 3, y);
-  ctx.stroke();
-}
-
-function strawHat(ctx, x, y, tilt) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(tilt);
-  ctx.beginPath();
-  ctx.ellipse(0, 6, 24, 8, 0, 0, Math.PI * 2);
-  fillStroke(ctx, HAT);
-  ctx.strokeStyle = HAT_SHADE;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.ellipse(0, 8, 20, 4, 0, 0.15, Math.PI - 0.15);
-  ctx.stroke();
-  roundRect(ctx, -12, -10, 24, 16, 6);
-  fillStroke(ctx, HAT);
-  ctx.fillStyle = BAND;
-  ctx.fillRect(-12, 2, 24, 4);
-  ctx.restore();
-}
-
-function pearls(ctx, x, y, rx, n) {
-  for (let i = 0; i < n; i += 1) {
-    const a = Math.PI + (i / (n - 1)) * Math.PI;
-    const px = x + Math.cos(a) * rx;
-    const py = y + Math.sin(a) * 4;
-    dot(ctx, px, py, 1.7, '#FBF6EE');
-    ctx.strokeStyle = '#D9CFC2';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.arc(px, py, 1.7, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-}
-
-/** Side view, facing right: run, jump, and duck. */
-function drawExplorerSide(ctx, time, pose) {
-  const jumping = pose === 'jump';
-  const ducking = pose === 'duck';
-  const step = Math.sin(time * 12);
-  const bob = jumping || ducking ? 0 : Math.max(0, step) * 2.2;
-  const hip = ducking ? -14 : -40;
-  const shoulder = ducking ? -26 : -64;
-  const headY = ducking ? -30 : -84;
-  ctx.save();
-  ctx.translate(4, bob);
-  if (!ducking) ctx.rotate(jumping ? -0.06 : 0.14);
-
-  const braidBob = Math.sin(time * 12) * 2;
-  const braidLift = jumping ? -10 : 0;
-  sideBraid(ctx, headY + 6, braidBob, braidLift, ducking);
-  sideBraid(ctx, headY + 12, braidBob + 1.5, braidLift + 2, ducking);
-
-  roundRect(ctx, -22, shoulder + 6, 13, 18, 4);
-  fillStroke(ctx, PACK);
-  ctx.fillStyle = '#7A2A1C';
-  ctx.fillRect(-18, shoulder + 12, 5, 3);
-
-  const backLeg = jumping ? 1.35 : step * 0.75;
-  const frontLeg = jumping ? 2.05 : -step * 0.75;
-  sideLimb(ctx, hip, backLeg, true);
-  sideArm(ctx, shoulder, jumping ? -0.8 : step * 0.85, false);
-
-  ctx.beginPath();
-  ctx.moveTo(-8, hip + 2);
-  ctx.lineTo(12, hip + 2);
-  ctx.lineTo(16, hip + 16);
-  ctx.lineTo(-12, hip + 16);
-  ctx.closePath();
-  fillStroke(ctx, SKIRT);
-  ctx.fillStyle = '#FFFFFF';
-  for (const [dx, dy] of [[-4, 6], [4, 5], [10, 8], [0, 11], [8, 12], [-8, 10]]) {
-    dot(ctx, dx, hip + dy, 1.8, '#FFFFFF');
-  }
-
-  roundRect(ctx, -10, shoulder - 4, 24, 24, 8);
-  fillStroke(ctx, SHIRT);
-  ctx.fillStyle = SHIRT_SHADE;
-  ctx.fillRect(-10, shoulder + 16, 24, 4);
-  ctx.strokeStyle = PACK_STRAP;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(-4, shoulder);
-  ctx.lineTo(6, shoulder + 18);
-  ctx.stroke();
-
-  sideLimb(ctx, hip, frontLeg, true);
-  sideArm(ctx, shoulder, jumping ? 1.15 : -step * 0.9, true);
-
-  ctx.beginPath();
-  ctx.arc(6, headY, 15, 0, Math.PI * 2);
-  fillStroke(ctx, SKIN);
-  ctx.beginPath();
-  ctx.arc(2, headY - 2, 15, Math.PI * 0.7, Math.PI * 1.55);
-  ctx.fillStyle = HAIR;
-  ctx.fill();
-  ctx.stroke();
-  ear(ctx, 2, headY + 2);
-
-  ctx.fillStyle = 'rgba(224, 138, 106, 0.5)';
-  ctx.beginPath();
-  ctx.ellipse(10, headY + 6, 2.6, 1.7, 0, 0, Math.PI * 2);
-  ctx.fill();
-  eye(ctx, 12, headY + 1);
-  ctx.strokeStyle = GLASSES;
-  ctx.lineWidth = 2.2;
-  ctx.fillStyle = LENS;
-  roundRect(ctx, 7, headY - 4, 12, 9, 3);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(8, headY);
-  ctx.lineTo(-2, headY - 2);
-  ctx.stroke();
-
-  ctx.fillStyle = '#8E2A22';
-  ctx.beginPath();
-  ctx.ellipse(13, headY + 8, 5, 3.4, 0.1, 0.1, Math.PI - 0.1);
-  ctx.fill();
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(10, headY + 6.5, 5, 1.6);
-
-  strawHat(ctx, 4, headY - 16 + (jumping ? -2 : 0), ducking ? 0.05 : -0.12);
-  pearls(ctx, 8, headY - 12 + (jumping ? -2 : 0), 10, 5);
-  ctx.restore();
-}
-
-function sideBraid(ctx, y, bob, lift, tucked) {
-  const n = tucked ? 3 : 4;
-  const span = tucked ? 5 : 7;
-  for (let i = 0; i < n; i += 1) {
-    ctx.beginPath();
-    ctx.ellipse(-6 - i * span, y + i * 1.4 + bob * (i / 3) + lift * (i / 3), 5.2, 4, -0.4, 0, Math.PI * 2);
-    fillStroke(ctx, i % 2 ? HAIR_HI : HAIR);
-  }
-  const end = -6 - (n - 1) * span;
-  ctx.beginPath();
-  ctx.arc(end - 4, y + 6 + bob + lift, 2.8, 0, Math.PI * 2);
-  fillStroke(ctx, '#F7A9C0');
-  ctx.beginPath();
-  ctx.ellipse(end - 8, y + 6 + bob * 0.4 + lift, 3.6, 2.6, -0.6, 0, Math.PI * 2);
-  fillStroke(ctx, HAIR);
-}
-
-function sideLimb(ctx, hip, angle, isLeg) {
-  ctx.save();
-  ctx.translate(2, hip);
-  ctx.rotate(angle);
-  roundRect(ctx, -3.5, 0, 7, isLeg ? 18 : 16, 3.5);
-  fillStroke(ctx, isLeg ? SKIN : SHIRT);
-  if (isLeg) {
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(-3.5, 14, 7, 4);
-    roundRect(ctx, -4, 16, 14, 7, 3);
-    fillStroke(ctx, '#FCF5EE');
-    ctx.strokeStyle = '#D8CFC4';
-    ctx.lineWidth = 1.3;
-    ctx.beginPath();
-    ctx.moveTo(-2, 20);
-    ctx.lineTo(8, 20);
-    ctx.stroke();
-  } else {
-    ctx.beginPath();
-    ctx.arc(0, 18, 4.5, 0, Math.PI * 2);
-    fillStroke(ctx, SKIN_SHADE);
-  }
-  ctx.restore();
-}
-
-function sideArm(ctx, shoulder, angle, forward) {
-  ctx.save();
-  ctx.translate(forward ? 10 : 0, shoulder);
-  ctx.rotate(angle);
-  roundRect(ctx, -3.5, 0, 8, 16, 4);
-  fillStroke(ctx, SHIRT);
-  ctx.fillStyle = SHIRT_SHADE;
-  ctx.fillRect(-3.5, 12, 8, 3.5);
-  ctx.beginPath();
-  ctx.arc(2, 18, 4.6, 0, Math.PI * 2);
-  fillStroke(ctx, SKIN);
   ctx.restore();
 }
 
 export function drawTraveller(ctx, x, footY, h, pose, time, alpha) {
+  ensureSprites();
+  const idlePose = pose === 'idle';
+  const img = idlePose ? sprites.idle : sprites.run;
   ctx.save();
   ctx.translate(x, footY);
   ctx.globalAlpha = alpha;
   ctx.fillStyle = 'rgba(74, 36, 24, 0.16)';
   ctx.beginPath();
-  ctx.ellipse(0, 3, h * 0.18, h * 0.045, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 4, h * 0.22, h * 0.045, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.scale(h / 104, h / 104);
-  if (pose === 'idle') drawExplorerFront(ctx, time);
-  else drawExplorerSide(ctx, time, pose);
+  if (spriteReady(img)) {
+    drawLoaded(ctx, img, idlePose ? 0.54 : 0.81, h, pose, time);
+  }
+  ctx.restore();
+}
+
+export function drawCheckpoint(ctx, x, groundY, h) {
+  ctx.save();
+  ctx.translate(x, groundY);
+  ctx.fillStyle = '#4A2418';
+  ctx.fillRect(-3, -h * 1.15, 6, h * 1.15);
+  ctx.fillStyle = '#D0182F';
+  ctx.beginPath();
+  ctx.moveTo(3, -h * 1.15);
+  ctx.lineTo(h * 0.42, -h * 0.96);
+  ctx.lineTo(3, -h * 0.76);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#EBC98F';
+  ctx.beginPath();
+  ctx.ellipse(0, 2, h * 0.12, h * 0.04, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 

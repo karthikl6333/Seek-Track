@@ -15,6 +15,15 @@ export function emptySave() {
   return { v: 1, mute: false, helpSeen: false, levels: {} };
 }
 
+function readCheckpoint(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const time = Number(raw.time);
+  const seed = Number(raw.seed);
+  if (!Number.isFinite(time) || time < 1) return null;
+  if (!Number.isFinite(seed) || seed < 1 || seed > 0x7fffffff) return null;
+  return { time, score: clampScore(raw.score), seed: Math.floor(seed) };
+}
+
 function clampScore(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x < 0) return 0;
@@ -30,11 +39,14 @@ export function normalizeSave(raw) {
   const levels = raw.levels && typeof raw.levels === 'object' ? raw.levels : {};
   for (const [id, row] of Object.entries(levels)) {
     if (!ID_RE.test(id) || !row || typeof row !== 'object') continue;
-    save.levels[id] = {
+    const rowOut = {
       best: clampScore(row.best),
       stars: Math.max(0, Math.min(3, row.stars | 0)),
       cleared: Boolean(row.cleared),
     };
+    const cp = readCheckpoint(row.checkpoint);
+    if (cp) rowOut.checkpoint = cp;
+    save.levels[id] = rowOut;
   }
   return save;
 }
@@ -137,4 +149,22 @@ export function withMute(save, mute) {
 
 export function withHelpSeen(save) {
   return { ...save, helpSeen: true };
+}
+
+export function checkpointOf(save, levelId) {
+  const row = save.levels[levelId];
+  return row && row.checkpoint ? row.checkpoint : null;
+}
+
+/** Remember the flag for this session and for the next visit. Pass null to forget it. */
+export function withCheckpoint(save, levelId, checkpoint) {
+  const prev = rowOf(save, levelId);
+  const next = {
+    best: prev.best,
+    stars: prev.stars,
+    cleared: prev.cleared,
+  };
+  const cp = readCheckpoint(checkpoint);
+  if (cp) next.checkpoint = cp;
+  return { ...save, levels: { ...save.levels, [levelId]: next } };
 }

@@ -429,18 +429,21 @@ describe('Travel Quest is a public static page', () => {
 });
 
 describe('public trips pages', () => {
-  it('lists the three trips with relative links and noindex', () => {
+  it('lists the four trips with relative links and noindex', () => {
     const html = readFileSync(join(process.cwd(), 'public', 'trips', 'index.html'), 'utf8');
     expect(html).toContain('noindex');
     expect(html).not.toMatch(/<script/i);
     expect(html).toContain('href="./hk-macau-2027/"');
     expect(html).toContain('href="./norway-finland-2027/"');
     expect(html).toContain('href="./seychelles-2027/"');
+    expect(html).toContain('href="./bali-2027/"');
     expect(html).toContain('Hong Kong &amp; Macau family trip, 9–17 Jan 2027');
     expect(html).toContain("Ashok &amp; his wife's Arctic honeymoon: Norway + Finnish Lapland, 23–28 Feb 2027");
     expect(html).toContain("Ashok &amp; his wife's Seychelles honeymoon, 23–28 Feb 2027");
+    expect(html).toContain('Ashok &amp; wife — Bali + stopover honeymoon (23–28 Feb 2027)');
     expect(html).toContain('./norway-finland-2027/images/cover.jpg');
     expect(html).toContain('./seychelles-2027/images/cover.jpg');
+    expect(html).toContain('./bali-2027/images/cover.jpg');
   });
 
   it('publishes the Hong Kong brochure under 25 MiB, with noindex and no external scripts', () => {
@@ -449,5 +452,29 @@ describe('public trips pages', () => {
     expect(statSync(file).size).toBeLessThan(25 * 1024 * 1024);
     expect(page).toContain('name="robots" content="noindex, nofollow"');
     expect(page).not.toMatch(/<script[^>]+src=/i);
+  });
+
+  it('publishes the Bali brochure with local images, noindex, and no external scripts', () => {
+    const dir = join(process.cwd(), 'public', 'trips', 'bali-2027');
+    const page = readFileSync(join(dir, 'index.html'), 'utf8');
+    expect(page).toContain('name="robots" content="noindex,nofollow,noarchive"');
+    expect(page).not.toMatch(/<script[^>]+src=/i);
+    const refs = [...page.matchAll(/src="(images\/[^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(refs)).toEqual(new Set([
+      'images/cover.jpg',
+      'images/watarun.jpg',
+      'images/petronas.jpg',
+      'images/gardens.jpg',
+      'images/chaophraya.jpg',
+      'images/batucaves.jpg',
+      'images/mbs.jpg',
+      'images/tegallalang.jpg',
+      'images/tirta.jpg',
+      'images/uluwatu.jpg',
+      'images/ubud.jpg',
+    ]));
+    for (const rel of new Set(refs)) {
+      expect(statSync(join(dir, rel)).size, rel).toBeGreaterThan(1000);
+    }
   });
 });

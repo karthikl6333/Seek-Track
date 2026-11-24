@@ -16,7 +16,7 @@ interface Props {
   onRefreshQuotes?: () => void;
   onAddAlert?: (symbol: string, targetPrice: number) => void;
   compact?: boolean;
-  slot?: 'A' | 'B';
+  slot?: 'A' | 'B' | 'C' | 'D';
 }
 
 function findPair(

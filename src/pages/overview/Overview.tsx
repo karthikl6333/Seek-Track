@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import type { Store } from '../../hooks/useStore';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../../lib/format';
+import { sumWhatIfCostBasis } from '../../lib/lots';
 import { summarizeCharges } from '../../lib/charges';
 import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../../api/client';
 import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../../types/index';
@@ -373,6 +374,22 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                             </button>
                             <button
                               type="button"
+                              className="btn small"
+                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'C')}
+                              title="Load into Calculator C"
+                            >
+                              → C
+                            </button>
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'D')}
+                              title="Load into Calculator D"
+                            >
+                              → D
+                            </button>
+                            <button
+                              type="button"
                               className="btn small ghost"
                               onClick={() => void store.toggleHiddenSymbol(p.symbol)}
                               title={
@@ -433,37 +450,88 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
             )}
           </div>
 
-          <div className="dual-calculator-container">
-            <Calculator
-              calc={store.calcA}
-              setCalc={store.setCalcA}
-              whatIf={store.whatIfA}
-              resolvedPair={store.resolvedPairA}
-              pairBusy={store.pairBusyA}
-              onResolvePair={() => void store.resolveCalcPair('A')}
-              markDetails={store.markDetails}
-              marks={store.marks}
-              settingsPairs={settings?.pairs ?? []}
-              onRefreshQuotes={() => void store.refreshLiveQuotes()}
-              onAddAlert={handleAddAlert}
-              compact
-              slot="A"
-            />
-            <Calculator
-              calc={store.calcB}
-              setCalc={store.setCalcB}
-              whatIf={store.whatIfB}
-              resolvedPair={store.resolvedPairB}
-              pairBusy={store.pairBusyB}
-              onResolvePair={() => void store.resolveCalcPair('B')}
-              markDetails={store.markDetails}
-              marks={store.marks}
-              settingsPairs={settings?.pairs ?? []}
-              onRefreshQuotes={() => void store.refreshLiveQuotes()}
-              onAddAlert={handleAddAlert}
-              compact
-              slot="B"
-            />
+          <div className="calculator-block">
+            <div className="dual-calculator-container">
+              <Calculator
+                calc={store.calcA}
+                setCalc={store.setCalcA}
+                whatIf={store.whatIfA}
+                resolvedPair={store.resolvedPairA}
+                pairBusy={store.pairBusyA}
+                onResolvePair={() => void store.resolveCalcPair('A')}
+                markDetails={store.markDetails}
+                marks={store.marks}
+                settingsPairs={settings?.pairs ?? []}
+                onRefreshQuotes={() => void store.refreshLiveQuotes()}
+                onAddAlert={handleAddAlert}
+                compact
+                slot="A"
+              />
+              <Calculator
+                calc={store.calcB}
+                setCalc={store.setCalcB}
+                whatIf={store.whatIfB}
+                resolvedPair={store.resolvedPairB}
+                pairBusy={store.pairBusyB}
+                onResolvePair={() => void store.resolveCalcPair('B')}
+                markDetails={store.markDetails}
+                marks={store.marks}
+                settingsPairs={settings?.pairs ?? []}
+                onRefreshQuotes={() => void store.refreshLiveQuotes()}
+                onAddAlert={handleAddAlert}
+                compact
+                slot="B"
+              />
+              <Calculator
+                calc={store.calcC}
+                setCalc={store.setCalcC}
+                whatIf={store.whatIfC}
+                resolvedPair={store.resolvedPairC}
+                pairBusy={store.pairBusyC}
+                onResolvePair={() => void store.resolveCalcPair('C')}
+                markDetails={store.markDetails}
+                marks={store.marks}
+                settingsPairs={settings?.pairs ?? []}
+                onRefreshQuotes={() => void store.refreshLiveQuotes()}
+                onAddAlert={handleAddAlert}
+                compact
+                slot="C"
+              />
+              <Calculator
+                calc={store.calcD}
+                setCalc={store.setCalcD}
+                whatIf={store.whatIfD}
+                resolvedPair={store.resolvedPairD}
+                pairBusy={store.pairBusyD}
+                onResolvePair={() => void store.resolveCalcPair('D')}
+                markDetails={store.markDetails}
+                marks={store.marks}
+                settingsPairs={settings?.pairs ?? []}
+                onRefreshQuotes={() => void store.refreshLiveQuotes()}
+                onAddAlert={handleAddAlert}
+                compact
+                slot="D"
+              />
+            </div>
+            <div className="calculator-totals">
+              <div className="calculator-totals-main">
+                <div className="stat-label">Total cost basis</div>
+                <div className={`stat-value mono ${moneyTone('stat')}`}>
+                  {fmtMoney(
+                    sumWhatIfCostBasis([store.whatIfA, store.whatIfB, store.whatIfC, store.whatIfD]),
+                  )}
+                </div>
+              </div>
+              <div className="calculator-totals-breakdown muted mono">
+                A {fmtMoney(Number.isFinite(store.whatIfA.costBasis) ? store.whatIfA.costBasis : 0)}
+                {' · '}
+                B {fmtMoney(Number.isFinite(store.whatIfB.costBasis) ? store.whatIfB.costBasis : 0)}
+                {' · '}
+                C {fmtMoney(Number.isFinite(store.whatIfC.costBasis) ? store.whatIfC.costBasis : 0)}
+                {' · '}
+                D {fmtMoney(Number.isFinite(store.whatIfD.costBasis) ? store.whatIfD.costBasis : 0)}
+              </div>
+            </div>
           </div>
 
           <div className="card">

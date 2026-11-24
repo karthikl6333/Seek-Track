@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { CalcSlot } from '../../lib/calculators';
 import type { CalculatorState, MarkInfo, PairDef, PairResolveResult } from '../../types/index';
 import { fmtMoney, fmtPct, moneyTone, pnlClass } from '../../lib/format';
 import { impliedEtfPct, impliedUnderlyingPct } from '../../lib/pairs';
@@ -16,7 +17,7 @@ interface Props {
   onRefreshQuotes?: () => void;
   onAddAlert?: (symbol: string, targetPrice: number) => void;
   compact?: boolean;
-  slot?: 'A' | 'B' | 'C' | 'D';
+  slot?: CalcSlot;
 }
 
 function findPair(
@@ -160,7 +161,7 @@ export function Calculator({
               onClick={() => onResolvePair()}
               title="Resolve leveraged/inverse pair"
             >
-              {pairBusy ? '…' : 'Resolve pair'}
+              {pairBusy ? '…' : compact ? 'Pair' : 'Resolve pair'}
             </button>
           </div>
         </div>

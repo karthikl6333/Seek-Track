@@ -294,15 +294,25 @@ function closeLots(
   return { realized, remaining: remaining > 1e-10 ? remaining : 0 };
 }
 
+export type WhatIfResult = {
+  pnl: number;
+  pnlPct: number;
+  costBasis: number;
+  /** abs(quantity) × target price. Non-finite inputs yield 0. */
+  targetValue: number;
+};
+
 export function calcWhatIf(input: {
   quantity: number;
   entryPrice: number;
   fees?: number;
   targetPrice: number;
-}): { pnl: number; pnlPct: number; costBasis: number } {
+}): WhatIfResult {
   const qty = input.quantity;
   const fees = Math.abs(input.fees ?? 0);
   const costBasis = Math.abs(qty) * input.entryPrice + fees;
+  const rawTarget = Math.abs(qty) * input.targetPrice;
+  const targetValue = Number.isFinite(rawTarget) ? rawTarget : 0;
   let pnl: number;
   if (qty >= 0) {
     pnl = qty * input.targetPrice - qty * input.entryPrice - fees;
@@ -311,15 +321,38 @@ export function calcWhatIf(input: {
     pnl = abs * input.entryPrice - abs * input.targetPrice - fees;
   }
   const pnlPct = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
-  return { pnl, pnlPct, costBasis };
+  return { pnl, pnlPct, costBasis, targetValue };
+}
+
+function finiteMoney(n: number): number {
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** Sum cost basis across what-if results. Non-finite values count as 0. */
 export function sumWhatIfCostBasis(
   items: Array<{ costBasis: number }>,
 ): number {
-  return items.reduce((sum, item) => {
-    const n = item.costBasis;
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+  return items.reduce((sum, item) => sum + finiteMoney(item.costBasis), 0);
+}
+
+/** Sum target-price valuations (abs(qty) × target). Non-finite values count as 0. */
+export function sumWhatIfTargetValue(
+  items: Array<{ targetValue: number }>,
+): number {
+  return items.reduce((sum, item) => sum + finiteMoney(item.targetValue), 0);
+}
+
+/**
+ * Combined totals for the visible what-if calculators.
+ * P&L uses each slot's calcWhatIf result (long: target − cost; short: cost − target),
+ * not a naive sum(target) − sum(cost), which would invert shorts.
+ */
+export function summarizeWhatIfTotals(
+  items: Array<{ costBasis: number; targetValue: number; pnl: number }>,
+): { costBasis: number; targetValue: number; pnl: number; pnlPct: number } {
+  const costBasis = sumWhatIfCostBasis(items);
+  const targetValue = sumWhatIfTargetValue(items);
+  const pnl = items.reduce((sum, item) => sum + finiteMoney(item.pnl), 0);
+  const pnlPct = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
+  return { costBasis, targetValue, pnl, pnlPct };
 }

@@ -614,26 +614,65 @@ kbd {
   gap: 10px;
   min-width: 0;
 }
+.calculator-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.calculator-block-header h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+.calculator-count-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.calculator-count-picker .stat-label {
+  margin: 0;
+}
+.calculator-count-picker .btn.small {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+.calculator-count-value {
+  min-width: 1.4em;
+  text-align: center;
+  font-weight: 600;
+  font-size: 14px;
+}
 .dual-calculator-container {
   display: grid;
-  /* Forced 2x2 (A B / C D) so all four stay visible together at 1181px and 1440px.
-     The overview left column is ~540px at 1181px; compact tiles fit two across. */
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  /* Three per row (A B C / D E F / …). A leftover on the last row stays one
+     cell wide so it lines up with column A instead of stretching full width.
+     At 1181px the overview left column is ~541px, so tiles are ~175px. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
   align-items: start;
 }
 .dual-calculator-container > * { min-width: 0; }
 
-/* Compact tiles: tighter padding and inputs so four cards fit without horizontal overflow. */
+/* Compact tiles so three fit across at 1181px without horizontal overflow. */
 .dual-calculator-container > .card {
-  padding: 10px 12px;
+  padding: 8px;
   container-type: inline-size;
 }
 .dual-calculator-container .card h3 {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
 }
 .dual-calculator-container .field {
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   min-width: 0;
 }
 .dual-calculator-container .field label {
@@ -641,41 +680,36 @@ kbd {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  font-size: 10px;
 }
 .dual-calculator-container .field input,
 .dual-calculator-container .field select,
 .dual-calculator-container .field textarea {
-  padding: 6px 8px;
+  padding: 5px 6px;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  font-size: 12px;
 }
 .dual-calculator-container .grid-2 {
-  /* Keep qty/entry and P&L side by side inside the narrower tiles. */
+  /* Keep qty/entry side by side; target and cost basis use a full row. */
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
-/* Target + cost basis need a full row at ~265px tiles so long amounts and the
-   "Use live" button don't overflow or sit unevenly beside each other. */
 .dual-calculator-container .grid-2 > .field:nth-last-child(-n + 2) {
   grid-column: 1 / -1;
 }
-.dual-calculator-container .field input,
-.dual-calculator-container .field select,
-.dual-calculator-container .field textarea {
-  font-size: 13px;
-}
 .dual-calculator-container .stat-value {
-  font-size: 15px;
+  font-size: 14px;
   min-width: 0;
 }
 
-/* Below ~300px content width (1181px viewport tiles are ~241px inside padding;
-   1440px tiles stay two-column). Keeps values like $27,040.00 on one line. */
+/* Narrow tiles (3-across at 1181px and 1440px) stack P&L so long dollar
+   amounts stay on one line. */
 @container (max-width: 300px) {
   .dual-calculator-container .grid-2:not(:has(> .field)) {
     grid-template-columns: 1fr;
-    gap: 6px;
+    gap: 4px;
   }
   .dual-calculator-container .grid-2:not(:has(> .field)) > div {
     display: flex;
@@ -685,15 +719,15 @@ kbd {
   }
 }
 .dual-calculator-container .leverage-panel {
-  padding: 8px 10px;
-  margin-top: 8px;
+  padding: 6px 8px;
+  margin-top: 6px;
 }
 .dual-calculator-container .leverage-headline {
-  font-size: 12px;
+  font-size: 11px;
 }
 .dual-calculator-container .btn.small {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 3px 6px;
+  font-size: 10px;
   min-width: 0;
 }
 
@@ -705,6 +739,7 @@ kbd {
   box-shadow: var(--shadow-1);
   position: relative;
   min-width: 0;
+  container-type: inline-size;
 }
 /* Seasonal accent hairline along the top of the totals row */
 .calculator-totals::before {
@@ -718,21 +753,55 @@ kbd {
   background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 45%, transparent 85%);
   opacity: 0.7;
 }
+.calculator-totals-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+  align-items: start;
+  min-width: 0;
+}
+.calculator-totals-metric {
+  min-width: 0;
+  overflow: hidden;
+}
 .calculator-totals-main {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 .calculator-totals-main .stat-value {
-  font-size: 18px;
+  font-size: 16px;
+}
+.calculator-totals-pnl {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .calculator-totals-breakdown {
   margin-top: 4px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.calculator-totals-breakdown span {
+  display: inline-block;
+  white-space: nowrap;
+}
+/* When the totals row itself is narrow (mobile, or a squeezed column), stack. */
+@container (max-width: 480px) {
+  .calculator-totals-metrics {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .calculator-totals-metric .calculator-totals-main {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 1180px) { .overview-layout { grid-template-columns: minmax(0, 1fr); } }

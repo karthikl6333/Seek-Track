@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcWhatIf, computePositions } from './lots';
+import { calcWhatIf, computePositions, sumWhatIfCostBasis } from './lots';
 import type { Trade } from '../types/index';
 
 describe('computePositions FIFO lot matching', () => {
@@ -260,3 +260,25 @@ describe('calcWhatIf', () => {
     expect(r.pnlPct).toBeCloseTo(10, 6);
   });
 });
+
+describe('sumWhatIfCostBasis', () => {
+  it('sums finite cost bases and treats empty or invalid as 0', () => {
+    expect(sumWhatIfCostBasis([])).toBe(0);
+    expect(
+      sumWhatIfCostBasis([
+        { costBasis: 1000 },
+        { costBasis: 0 },
+        { costBasis: 250.5 },
+        { costBasis: Number.NaN },
+      ]),
+    ).toBe(1250.5);
+    expect(
+      sumWhatIfCostBasis([
+        { costBasis: Infinity },
+        { costBasis: -Infinity },
+        calcWhatIf({ quantity: 10, entryPrice: 5, targetPrice: 6 }),
+      ]),
+    ).toBe(50);
+  });
+});
+

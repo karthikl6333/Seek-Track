@@ -313,3 +313,13 @@ export function calcWhatIf(input: {
   const pnlPct = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
   return { pnl, pnlPct, costBasis };
 }
+
+/** Sum cost basis across what-if results. Non-finite values count as 0. */
+export function sumWhatIfCostBasis(
+  items: Array<{ costBasis: number }>,
+): number {
+  return items.reduce((sum, item) => {
+    const n = item.costBasis;
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}

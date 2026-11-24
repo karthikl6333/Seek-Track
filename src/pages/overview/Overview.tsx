@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCalculatorCount } from '../../hooks/useCalculatorCount';
 import type { Store } from '../../hooks/useStore';
+import type { CalcSlot } from '../../lib/calculators';
+import { MAX_CALCULATORS, MIN_CALCULATORS, visibleCalcSlots } from '../../lib/calculators';
 import { fmtMoney, fmtPct, fmtQty, moneyTone, pnlClass } from '../../lib/format';
-import { sumWhatIfCostBasis } from '../../lib/lots';
+import { summarizeWhatIfTotals } from '../../lib/lots';
 import { summarizeCharges } from '../../lib/charges';
 import { loadPaperSummary, loadCryptoPaperSummary, loadPaperFlexSummary, createAlert } from '../../api/client';
 import type { PaperSummary, CryptoPaperSummary, PaperFlexSummary } from '../../types/index';
@@ -17,8 +20,20 @@ import { latestIso } from '../../lib/refreshStamp';
 import { PAPER_SYNCED_EVENT } from '../../lib/pollGate';
 import { nonTradingPricesLabel, nonTradingWindowAt } from '../../lib/marketHours';
 
+function slotBreakdown(slots: CalcSlot[], pick: (slot: CalcSlot) => number) {
+  return slots.map((slot, i) => (
+    <span key={slot}>
+      {i > 0 ? ' · ' : ''}
+      {slot} {fmtMoney(Number.isFinite(pick(slot)) ? pick(slot) : 0)}
+    </span>
+  ));
+}
+
 export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?: React.RefObject<WatchlistRef> }) {
   const { analysis, settings, hiddenSet } = store;
+  const { count: calculatorCount, setCount: setCalculatorCount } = useCalculatorCount();
+  const visibleSlots = visibleCalcSlots(calculatorCount);
+  const whatIfTotals = summarizeWhatIfTotals(visibleSlots.map((slot) => store.whatIfs[slot]));
   const [showHidden, setShowHidden] = useState(false);
   const [refreshingQuotes, setRefreshingQuotes] = useState(false);
   const [paperSummary, setPaperSummary] = useState<PaperSummary | null>(null);
@@ -356,38 +371,17 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
                         <td className={pnlClass(p.unrealizedPnlPct)}>{fmtPct(p.unrealizedPnlPct)}</td>
                         <td>
                           <div className="row-actions" style={{ gap: 4, justifyContent: 'flex-end' }}>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'A')}
-                              title="Load into Calculator A"
-                            >
-                              → A
-                            </button>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'B')}
-                              title="Load into Calculator B"
-                            >
-                              → B
-                            </button>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'C')}
-                              title="Load into Calculator C"
-                            >
-                              → C
-                            </button>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => store.loadPositionIntoCalc(p.symbol, 'D')}
-                              title="Load into Calculator D"
-                            >
-                              → D
-                            </button>
+                            {visibleSlots.map((slot) => (
+                              <button
+                                key={slot}
+                                type="button"
+                                className="btn small"
+                                onClick={() => store.loadPositionIntoCalc(p.symbol, slot)}
+                                title={`Load into Calculator ${slot}`}
+                              >
+                                → {slot}
+                              </button>
+                            ))}
                             <button
                               type="button"
                               className="btn small ghost"
@@ -451,85 +445,92 @@ export function Overview({ store, watchlistRef }: { store: Store; watchlistRef?:
           </div>
 
           <div className="calculator-block">
+            <div className="calculator-block-header">
+              <h3>What-if calculators</h3>
+              <div className="calculator-count-picker" role="group" aria-label="Number of calculators">
+                <span className="stat-label">Show</span>
+                <button
+                  type="button"
+                  className="btn small"
+                  disabled={calculatorCount <= MIN_CALCULATORS}
+                  onClick={() => setCalculatorCount(calculatorCount - 1)}
+                  title="Show fewer calculators"
+                  aria-label="Show fewer calculators"
+                >
+                  −
+                </button>
+                <span className="calculator-count-value mono" aria-live="polite">
+                  {calculatorCount}
+                </span>
+                <button
+                  type="button"
+                  className="btn small"
+                  disabled={calculatorCount >= MAX_CALCULATORS}
+                  onClick={() => setCalculatorCount(calculatorCount + 1)}
+                  title="Show more calculators"
+                  aria-label="Show more calculators"
+                >
+                  +
+                </button>
+              </div>
+            </div>
             <div className="dual-calculator-container">
-              <Calculator
-                calc={store.calcA}
-                setCalc={store.setCalcA}
-                whatIf={store.whatIfA}
-                resolvedPair={store.resolvedPairA}
-                pairBusy={store.pairBusyA}
-                onResolvePair={() => void store.resolveCalcPair('A')}
-                markDetails={store.markDetails}
-                marks={store.marks}
-                settingsPairs={settings?.pairs ?? []}
-                onRefreshQuotes={() => void store.refreshLiveQuotes()}
-                onAddAlert={handleAddAlert}
-                compact
-                slot="A"
-              />
-              <Calculator
-                calc={store.calcB}
-                setCalc={store.setCalcB}
-                whatIf={store.whatIfB}
-                resolvedPair={store.resolvedPairB}
-                pairBusy={store.pairBusyB}
-                onResolvePair={() => void store.resolveCalcPair('B')}
-                markDetails={store.markDetails}
-                marks={store.marks}
-                settingsPairs={settings?.pairs ?? []}
-                onRefreshQuotes={() => void store.refreshLiveQuotes()}
-                onAddAlert={handleAddAlert}
-                compact
-                slot="B"
-              />
-              <Calculator
-                calc={store.calcC}
-                setCalc={store.setCalcC}
-                whatIf={store.whatIfC}
-                resolvedPair={store.resolvedPairC}
-                pairBusy={store.pairBusyC}
-                onResolvePair={() => void store.resolveCalcPair('C')}
-                markDetails={store.markDetails}
-                marks={store.marks}
-                settingsPairs={settings?.pairs ?? []}
-                onRefreshQuotes={() => void store.refreshLiveQuotes()}
-                onAddAlert={handleAddAlert}
-                compact
-                slot="C"
-              />
-              <Calculator
-                calc={store.calcD}
-                setCalc={store.setCalcD}
-                whatIf={store.whatIfD}
-                resolvedPair={store.resolvedPairD}
-                pairBusy={store.pairBusyD}
-                onResolvePair={() => void store.resolveCalcPair('D')}
-                markDetails={store.markDetails}
-                marks={store.marks}
-                settingsPairs={settings?.pairs ?? []}
-                onRefreshQuotes={() => void store.refreshLiveQuotes()}
-                onAddAlert={handleAddAlert}
-                compact
-                slot="D"
-              />
+              {visibleSlots.map((slot) => (
+                <Calculator
+                  key={slot}
+                  calc={store.calcs[slot]}
+                  setCalc={(next) => store.setCalc(slot, next)}
+                  whatIf={store.whatIfs[slot]}
+                  resolvedPair={store.resolvedPairs[slot]}
+                  pairBusy={store.pairBusy[slot]}
+                  onResolvePair={() => void store.resolveCalcPair(slot)}
+                  markDetails={store.markDetails}
+                  marks={store.marks}
+                  settingsPairs={settings?.pairs ?? []}
+                  onRefreshQuotes={() => void store.refreshLiveQuotes()}
+                  onAddAlert={handleAddAlert}
+                  compact
+                  slot={slot}
+                />
+              ))}
             </div>
             <div className="calculator-totals">
-              <div className="calculator-totals-main">
-                <div className="stat-label">Total cost basis</div>
-                <div className={`stat-value mono ${moneyTone('stat')}`}>
-                  {fmtMoney(
-                    sumWhatIfCostBasis([store.whatIfA, store.whatIfB, store.whatIfC, store.whatIfD]),
-                  )}
+              <div className="calculator-totals-metrics">
+                <div className="calculator-totals-metric">
+                  <div className="calculator-totals-main">
+                    <div className="stat-label">Total cost basis</div>
+                    <div className={`stat-value mono ${moneyTone('stat')}`}>
+                      {fmtMoney(whatIfTotals.costBasis)}
+                    </div>
+                  </div>
+                  <div className="calculator-totals-breakdown muted mono">
+                    {slotBreakdown(visibleSlots, (slot) => store.whatIfs[slot].costBasis)}
+                  </div>
                 </div>
-              </div>
-              <div className="calculator-totals-breakdown muted mono">
-                A {fmtMoney(Number.isFinite(store.whatIfA.costBasis) ? store.whatIfA.costBasis : 0)}
-                {' · '}
-                B {fmtMoney(Number.isFinite(store.whatIfB.costBasis) ? store.whatIfB.costBasis : 0)}
-                {' · '}
-                C {fmtMoney(Number.isFinite(store.whatIfC.costBasis) ? store.whatIfC.costBasis : 0)}
-                {' · '}
-                D {fmtMoney(Number.isFinite(store.whatIfD.costBasis) ? store.whatIfD.costBasis : 0)}
+                <div className="calculator-totals-metric">
+                  <div className="calculator-totals-main">
+                    <div className="stat-label">Total target value</div>
+                    <div className={`stat-value mono ${moneyTone('stat')}`}>
+                      {fmtMoney(whatIfTotals.targetValue)}
+                    </div>
+                  </div>
+                  <div className="calculator-totals-breakdown muted mono">
+                    {slotBreakdown(visibleSlots, (slot) => store.whatIfs[slot].targetValue)}
+                  </div>
+                </div>
+                <div className="calculator-totals-metric">
+                  <div className="calculator-totals-main">
+                    <div className="stat-label">Target P&amp;L</div>
+                    <div className="calculator-totals-pnl">
+                      <span className={`stat-value ${pnlClass(whatIfTotals.pnl)} ${moneyTone('stat')}`}>
+                        {fmtMoney(whatIfTotals.pnl)}
+                      </span>
+                      <span className={`stat-value ${pnlClass(whatIfTotals.pnlPct)} ${moneyTone('stat')}`}>
+                        {fmtPct(whatIfTotals.pnlPct)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as db from '../api/client';
+import { CALC_SLOTS, mapCalcSlots, type CalcSlot } from '../lib/calculators';
 import { calcWhatIf, computePositions, type LotEngineResult } from '../lib/lots';
 import { flattenMarks, mergeMarkDetails } from '../lib/marks';
 import { checkedAtAfter, newestMarkStamp } from '../lib/refreshStamp';
@@ -25,8 +26,6 @@ const defaultCalc: CalculatorState = {
   targetPrice: 0,
 };
 
-type CalcSlot = 'A' | 'B' | 'C' | 'D';
-
 function viewFromLocation(): ViewId {
   return viewFromHash(window.location.hash);
 }
@@ -51,20 +50,11 @@ export function useStore() {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [view, setViewState] = useState<ViewId>(() => viewFromLocation());
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [calcA, setCalcA] = useState<CalculatorState>(defaultCalc);
-  const [calcB, setCalcB] = useState<CalculatorState>(defaultCalc);
-  const [calcC, setCalcC] = useState<CalculatorState>(defaultCalc);
-  const [calcD, setCalcD] = useState<CalculatorState>(defaultCalc);
+  const [calcs, setCalcs] = useState(() => mapCalcSlots(() => ({ ...defaultCalc })));
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState(false);
-  const [resolvedPairA, setResolvedPairA] = useState<PairResolveResult | null>(null);
-  const [resolvedPairB, setResolvedPairB] = useState<PairResolveResult | null>(null);
-  const [resolvedPairC, setResolvedPairC] = useState<PairResolveResult | null>(null);
-  const [resolvedPairD, setResolvedPairD] = useState<PairResolveResult | null>(null);
-  const [pairBusyA, setPairBusyA] = useState(false);
-  const [pairBusyB, setPairBusyB] = useState(false);
-  const [pairBusyC, setPairBusyC] = useState(false);
-  const [pairBusyD, setPairBusyD] = useState(false);
+  const [resolvedPairs, setResolvedPairs] = useState(() => mapCalcSlots(() => null as PairResolveResult | null));
+  const [pairBusy, setPairBusy] = useState(() => mapCalcSlots(() => false));
 
   const setView = useCallback((next: ViewId) => {
     setViewState(next);
@@ -179,10 +169,14 @@ export function useStore() {
     return computePositions(trades, settings.themes, marks);
   }, [trades, settings, marks]);
 
-  const whatIfA = useMemo(() => calcWhatIf(calcA), [calcA]);
-  const whatIfB = useMemo(() => calcWhatIf(calcB), [calcB]);
-  const whatIfC = useMemo(() => calcWhatIf(calcC), [calcC]);
-  const whatIfD = useMemo(() => calcWhatIf(calcD), [calcD]);
+  const whatIfs = useMemo(
+    () => mapCalcSlots((slot) => calcWhatIf(calcs[slot])),
+    [calcs],
+  );
+
+  const setCalc = useCallback((slot: CalcSlot, next: CalculatorState) => {
+    setCalcs((prev) => ({ ...prev, [slot]: next }));
+  }, []);
 
   const importCsvText = useCallback(
     async (text: string, overrideManual = true) => {
@@ -222,13 +216,9 @@ export function useStore() {
       
       // Build symbol list from every what-if calculator, including linked ETF/underlying pairs
       const symbols = [...(extra ?? [])];
-      const calcSlots: Array<{ calc: CalculatorState; resolved: PairResolveResult | null }> = [
-        { calc: calcA, resolved: resolvedPairA },
-        { calc: calcB, resolved: resolvedPairB },
-        { calc: calcC, resolved: resolvedPairC },
-        { calc: calcD, resolved: resolvedPairD },
-      ];
-      for (const { calc, resolved } of calcSlots) {
+      for (const slot of CALC_SLOTS) {
+        const calc = calcs[slot];
+        const resolved = resolvedPairs[slot];
         if (calc.symbol) symbols.push(calc.symbol);
         const pair = resolved?.pair;
         if (pair) {
@@ -318,7 +308,7 @@ export function useStore() {
         throw err;
       }
     },
-    [analysis, calcA.symbol, calcB.symbol, calcC.symbol, calcD.symbol, refreshMarks, resolvedPairA, resolvedPairB, resolvedPairC, resolvedPairD, settings],
+    [analysis, calcs, refreshMarks, resolvedPairs, settings],
   );
 
   const loadPositionIntoCalc = useCallback(
@@ -332,27 +322,26 @@ export function useStore() {
         fees: 0,
         targetPrice: pos.markPrice ?? Number(pos.avgCost.toFixed(4)),
       };
-      if (slot === 'A') setCalcA(newCalc);
-      else if (slot === 'B') setCalcB(newCalc);
-      else if (slot === 'C') setCalcC(newCalc);
-      else setCalcD(newCalc);
+      setCalcs((prev) => ({ ...prev, [slot]: newCalc }));
     },
     [analysis],
   );
 
   const resolveCalcPair = useCallback(async (slot: CalcSlot, symbol?: string) => {
-    const calc = slot === 'A' ? calcA : slot === 'B' ? calcB : slot === 'C' ? calcC : calcD;
-    const setResolvedPair =
-      slot === 'A' ? setResolvedPairA : slot === 'B' ? setResolvedPairB : slot === 'C' ? setResolvedPairC : setResolvedPairD;
-    const setPairBusy =
-      slot === 'A' ? setPairBusyA : slot === 'B' ? setPairBusyB : slot === 'C' ? setPairBusyC : setPairBusyD;
-    
+    const calc = calcs[slot];
+    const setResolvedPair = (value: PairResolveResult | null) => {
+      setResolvedPairs((prev) => ({ ...prev, [slot]: value }));
+    };
+    const setSlotBusy = (value: boolean) => {
+      setPairBusy((prev) => ({ ...prev, [slot]: value }));
+    };
+
     const sym = (symbol ?? calc.symbol).trim().toUpperCase();
     if (!sym) {
       setResolvedPair(null);
       return null;
     }
-    setPairBusy(true);
+    setSlotBusy(true);
     try {
       const result = await db.resolvePair(sym);
       setResolvedPair(result);
@@ -384,58 +373,36 @@ export function useStore() {
       setResolvedPair({ pair: null, as: 'unknown', message: String(e) });
       return null;
     } finally {
-      setPairBusy(false);
+      setSlotBusy(false);
     }
-  }, [calcA, calcB, calcC, calcD, settings, refreshMarks]);
+  }, [calcs, settings, refreshMarks]);
 
-  // Auto-resolve when calculator symbol changes
+  // Auto-resolve when a calculator symbol changes. Only the slots whose
+  // symbols actually changed are re-debounced; hidden slots keep their state.
+  const resolveCalcPairRef = useRef(resolveCalcPair);
+  resolveCalcPairRef.current = resolveCalcPair;
+  const lastResolvedSym = useRef<Partial<Record<CalcSlot, string>>>({});
+  const symbolsKey = CALC_SLOTS.map((slot) => calcs[slot].symbol).join(' ');
   useEffect(() => {
-    const symA = calcA.symbol.trim().toUpperCase();
-    if (!symA) {
-      setResolvedPairA(null);
-      return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const slot of CALC_SLOTS) {
+      const sym = calcs[slot].symbol.trim().toUpperCase();
+      if (lastResolvedSym.current[slot] === sym) continue;
+      lastResolvedSym.current[slot] = sym;
+      if (!sym) {
+        setResolvedPairs((prev) => ({ ...prev, [slot]: null }));
+        continue;
+      }
+      timers.push(
+        setTimeout(() => {
+          void resolveCalcPairRef.current(slot, sym);
+        }, 400),
+      );
     }
-    const t = setTimeout(() => {
-      void resolveCalcPair('A', symA);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [calcA.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const symB = calcB.symbol.trim().toUpperCase();
-    if (!symB) {
-      setResolvedPairB(null);
-      return;
-    }
-    const t = setTimeout(() => {
-      void resolveCalcPair('B', symB);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [calcB.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const symC = calcC.symbol.trim().toUpperCase();
-    if (!symC) {
-      setResolvedPairC(null);
-      return;
-    }
-    const t = setTimeout(() => {
-      void resolveCalcPair('C', symC);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [calcC.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const symD = calcD.symbol.trim().toUpperCase();
-    if (!symD) {
-      setResolvedPairD(null);
-      return;
-    }
-    const t = setTimeout(() => {
-      void resolveCalcPair('D', symD);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [calcD.symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      for (const t of timers) clearTimeout(t);
+    };
+  }, [symbolsKey, calcs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveJournal = useCallback(
     async (entry: JournalEntry) => {
@@ -512,18 +479,9 @@ export function useStore() {
     importResult,
     setImportResult,
     analysis,
-    calcA,
-    setCalcA,
-    whatIfA,
-    calcB,
-    setCalcB,
-    whatIfB,
-    calcC,
-    setCalcC,
-    whatIfC,
-    calcD,
-    setCalcD,
-    whatIfD,
+    calcs,
+    setCalc,
+    whatIfs,
     importCsvText,
     addManualTrade,
     setMarkPrice,
@@ -536,26 +494,19 @@ export function useStore() {
     updateNote,
     refresh,
     retryBoot,
-    resolvedPairA,
-    resolvedPairB,
-    resolvedPairC,
-    resolvedPairD,
+    resolvedPairs,
     resolveCalcPair,
-    pairBusyA,
-    pairBusyB,
-    pairBusyC,
-    pairBusyD,
+    pairBusy,
     toggleHiddenSymbol,
     hiddenSet,
     applyMarksUpdate,
   }), [
     ready, error, authError, trades, marks, markDetails, lastRefreshAt, lastCheckedAt, lastRefreshError,
     settings, journal, view, setView, importResult, setImportResult, analysis,
-    calcA, setCalcA, whatIfA, calcB, setCalcB, whatIfB,
-    calcC, setCalcC, whatIfC, calcD, setCalcD, whatIfD,
+    calcs, setCalc, whatIfs,
     importCsvText, addManualTrade, setMarkPrice, refreshLiveQuotes, refreshMarks, loadPositionIntoCalc,
     saveJournal, removeJournal, updateSettings, updateNote, refresh, retryBoot,
-    resolvedPairA, resolvedPairB, resolvedPairC, resolvedPairD, resolveCalcPair, pairBusyA, pairBusyB, pairBusyC, pairBusyD,
+    resolvedPairs, resolveCalcPair, pairBusy,
     toggleHiddenSymbol, hiddenSet, applyMarksUpdate,
   ]);
 }

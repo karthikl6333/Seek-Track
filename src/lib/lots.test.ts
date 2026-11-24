@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcWhatIf, computePositions, sumWhatIfCostBasis } from './lots';
+import { calcWhatIf, computePositions, sumWhatIfCostBasis, sumWhatIfTargetValue, summarizeWhatIfTotals } from './lots';
 import type { Trade } from '../types/index';
 
 describe('computePositions FIFO lot matching', () => {
@@ -249,6 +249,7 @@ describe('calcWhatIf', () => {
   it('computes long P&L with fees treated as 0 when omitted', () => {
     const r = calcWhatIf({ quantity: 100, entryPrice: 10, targetPrice: 12 });
     expect(r.costBasis).toBe(1000);
+    expect(r.targetValue).toBe(1200);
     expect(r.pnl).toBe(200);
     expect(r.pnlPct).toBeCloseTo(20, 6);
   });
@@ -256,8 +257,14 @@ describe('calcWhatIf', () => {
   it('computes short P&L with explicit fees: 0', () => {
     const r = calcWhatIf({ quantity: -50, entryPrice: 20, fees: 0, targetPrice: 18 });
     expect(r.costBasis).toBe(1000);
+    expect(r.targetValue).toBe(900);
     expect(r.pnl).toBe(100);
     expect(r.pnlPct).toBeCloseTo(10, 6);
+  });
+
+  it('treats a non-finite target valuation as 0', () => {
+    const r = calcWhatIf({ quantity: 10, entryPrice: 5, targetPrice: Number.NaN });
+    expect(r.targetValue).toBe(0);
   });
 });
 
@@ -279,6 +286,47 @@ describe('sumWhatIfCostBasis', () => {
         calcWhatIf({ quantity: 10, entryPrice: 5, targetPrice: 6 }),
       ]),
     ).toBe(50);
+  });
+});
+
+describe('sumWhatIfTargetValue', () => {
+  it('sums finite target valuations and treats empty or invalid as 0', () => {
+    expect(sumWhatIfTargetValue([])).toBe(0);
+    expect(
+      sumWhatIfTargetValue([
+        { targetValue: 1200 },
+        { targetValue: 0 },
+        { targetValue: 250.5 },
+        { targetValue: Number.NaN },
+      ]),
+    ).toBe(1450.5);
+    expect(
+      sumWhatIfTargetValue([
+        { targetValue: Infinity },
+        calcWhatIf({ quantity: 10, entryPrice: 5, targetPrice: 6 }),
+      ]),
+    ).toBe(60);
+  });
+});
+
+describe('summarizeWhatIfTotals', () => {
+  it('combines cost basis, target value, and short-aware P&L', () => {
+    const long = calcWhatIf({ quantity: 100, entryPrice: 10, targetPrice: 12 });
+    const short = calcWhatIf({ quantity: -50, entryPrice: 20, targetPrice: 18 });
+    const empty = calcWhatIf({ quantity: 100, entryPrice: 0, targetPrice: 0 });
+    const totals = summarizeWhatIfTotals([long, short, empty, { costBasis: Number.NaN, targetValue: Number.NaN, pnl: Number.NaN }]);
+    // long: cost 1000, target 1200, pnl +200
+    // short: cost 1000, target 900, pnl +100 (price fell)
+    // naive target-minus-cost would be 2100 - 2000 = +100, which inverts the short
+    expect(totals.costBasis).toBe(2000);
+    expect(totals.targetValue).toBe(2100);
+    expect(totals.pnl).toBe(300);
+    expect(totals.pnlPct).toBeCloseTo(15, 6);
+  });
+
+  it('reports 0% P&L when combined cost basis is 0', () => {
+    const totals = summarizeWhatIfTotals([]);
+    expect(totals).toEqual({ costBasis: 0, targetValue: 0, pnl: 0, pnlPct: 0 });
   });
 });
 

@@ -5,7 +5,7 @@
 import type { Context } from 'hono';
 import { query } from '../db.js';
 import { cached } from '../core/isolate-cache.js';
-import { forceRefresh, getQuoteServiceStatus, getSymbolUniverse, markActivity } from './quote-service.js';
+import { forceRefresh, getQuoteServiceStatus, getSymbolUniverse, markActivity, parseYahooChart, type YahooChartResponse } from './quote-service.js';
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const USER_AGENT =
@@ -329,59 +329,16 @@ export async function fetchYahooMeta(symbol: string): Promise<{
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
-  const data = (await res.json()) as {
-    chart?: {
-      result?: Array<{
-        meta?: {
-          regularMarketPrice?: number;
-          fulldayPrice?: number;
-          hasPrePostMarketData?: boolean;
-          previousClose?: number;
-          shortName?: string;
-          longName?: string;
-          symbol?: string;
-          currentTradingPeriod?: {
-            pre?: { start?: number; end?: number };
-            regular?: { start?: number; end?: number };
-            post?: { start?: number; end?: number };
-          };
-        };
-        timestamp?: number[];
-        indicators?: {
-          quote?: Array<{
-            close?: Array<number | null>;
-          }>;
-        };
-      }>;
-    };
-  };
+  const data = (await res.json()) as YahooChartResponse;
   const result = data.chart?.result?.[0];
   const meta = result?.meta;
   if (!meta) throw new Error(`No meta for ${symbol}`);
 
+  // Same price rules as the refresh path (in-session 1m bar, else fulldayPrice pre/post).
   let price: number | null = null;
-  const now = Math.floor(Date.now() / 1000);
-  const regularStart = meta.currentTradingPeriod?.regular?.start;
-  const regularEnd = meta.currentTradingPeriod?.regular?.end;
-  const isRegularHours =
-    regularStart != null && regularEnd != null && now >= regularStart && now < regularEnd;
-
-  if (isRegularHours) {
-    price = meta.regularMarketPrice ?? null;
-  } else {
-    // Outside regular hours: get last extended-hours bar close
-    // Yahoo's fulldayPrice does NOT contain extended-hours data
-    const closes = result?.indicators?.quote?.[0]?.close ?? [];
-    for (let i = closes.length - 1; i >= 0; i--) {
-      const closePrice = closes[i];
-      if (closePrice != null && Number.isFinite(closePrice)) {
-        price = Number(closePrice);
-        break;
-      }
-    }
-  }
-
-  if (price === null || !Number.isFinite(price)) {
+  try {
+    price = parseYahooChart(symbol, data).price;
+  } catch {
     price = meta.regularMarketPrice ?? meta.previousClose ?? null;
   }
 

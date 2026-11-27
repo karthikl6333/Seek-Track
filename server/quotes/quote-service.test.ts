@@ -217,6 +217,106 @@ describe('parseYahooChart', () => {
     const m: YahooMeta = { previousClose: undefined, regularMarketPrice: undefined };
     expect(() => parseYahooChart('Z', chart('Z', m, [null, null]))).toThrow(/No price/);
   });
+
+  // Black Friday 2026-11-27 ~04:20 ET: currentTradingPeriod had rolled to Friday pre-market,
+  // but range=1d 1m bars were still Wednesday after-hours. fulldayPrice was the live pre print.
+  it('uses fulldayPrice in pre-market when 1m bars are still from the previous session', () => {
+    const preStart = 1_795_770_000; // Fri 2026-11-27 04:00 ET
+    const regularStart = 1_795_789_800; // 09:30 ET
+    const now = preStart + 20 * 60; // 04:20 ET
+    const wedAfterHoursBar = preStart - 32 * 3600; // Wed 19:59 ET (holiday Thursday in between)
+    const m = meta({
+      previousClose: 155.38,
+      chartPreviousClose: 155.38,
+      regularMarketPrice: 149.3,
+      regularMarketTime: preStart - 36 * 3600, // Wed 16:00 ET close
+      fulldayPrice: 156.42,
+      hasPrePostMarketData: true,
+      currentTradingPeriod: {
+        pre: { start: preStart, end: regularStart },
+        regular: { start: regularStart, end: regularStart + 3.5 * 3600 },
+        post: { start: regularStart + 3.5 * 3600, end: regularStart + 10.5 * 3600 },
+      },
+    });
+    const data: YahooChartResponse = {
+      chart: {
+        result: [
+          {
+            meta: { ...m, symbol: 'NVDA' },
+            timestamp: [wedAfterHoursBar],
+            indicators: { quote: [{ close: [151.22], open: [151.0], volume: [1] }] },
+          },
+        ],
+      },
+    };
+    const q = parseYahooChart('NVDA', data, now);
+    expect(q.session).toBe('premarket');
+    expect(q.price).toBe(156.42);
+    // Day % vs Wednesday regular close, not vs the stale after-hours bar or two-days-back close.
+    expect(q.dayPct).toBeCloseTo(((156.42 - 149.3) / 149.3) * 100, 4);
+    expect(q.valChange).toBeCloseTo(7.12, 6);
+  });
+
+  it('still prefers an in-session pre-market 1m close over fulldayPrice', () => {
+    const preStart = 1_795_770_000;
+    const regularStart = 1_795_789_800;
+    const now = preStart + 20 * 60;
+    const m = meta({
+      regularMarketPrice: 149.3,
+      previousClose: 155.38,
+      fulldayPrice: 156.42,
+      hasPrePostMarketData: true,
+      regularMarketTime: preStart - 36 * 3600,
+      currentTradingPeriod: {
+        pre: { start: preStart, end: regularStart },
+        regular: { start: regularStart, end: regularStart + 6.5 * 3600 },
+      },
+    });
+    const data: YahooChartResponse = {
+      chart: {
+        result: [
+          {
+            meta: { ...m, symbol: 'NVDA' },
+            timestamp: [preStart + 60, preStart + 120],
+            indicators: { quote: [{ close: [156.1, 156.5], open: [156.0, 156.1], volume: [1, 1] }] },
+          },
+        ],
+      },
+    };
+    const q = parseYahooChart('NVDA', data, now);
+    expect(q.session).toBe('premarket');
+    expect(q.price).toBe(156.5);
+  });
+
+  it('falls back to the stale last bar in pre-market when fulldayPrice is missing', () => {
+    const preStart = 1_795_770_000;
+    const regularStart = 1_795_789_800;
+    const now = preStart + 20 * 60;
+    const wedAfterHoursBar = preStart - 32 * 3600;
+    const m = meta({
+      regularMarketPrice: 149.3,
+      previousClose: 155.38,
+      regularMarketTime: preStart - 36 * 3600,
+      currentTradingPeriod: {
+        pre: { start: preStart, end: regularStart },
+        regular: { start: regularStart, end: regularStart + 6.5 * 3600 },
+      },
+    });
+    const data: YahooChartResponse = {
+      chart: {
+        result: [
+          {
+            meta: { ...m, symbol: 'NVDA' },
+            timestamp: [wedAfterHoursBar],
+            indicators: { quote: [{ close: [151.22], open: [151.0], volume: [1] }] },
+          },
+        ],
+      },
+    };
+    const q = parseYahooChart('NVDA', data, now);
+    expect(q.price).toBe(151.22);
+    expect(q.session).toBe('premarket');
+  });
 });
 
 describe('selectQuotesToPersist (never blank)', () => {

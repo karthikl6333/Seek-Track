@@ -195,6 +195,67 @@ export function dayChangeBaseline(meta: YahooMeta): number | null {
   return isUsablePrice(prev) ? prev : null;
 }
 
+/** Last non-null 1m close and its timestamp, if any. */
+function lastNonNullBar(
+  timestamps: number[] | undefined,
+  closes: Array<number | null> | undefined,
+): { price: number; ts: number | null } | null {
+  const priceCloses = closes ?? [];
+  for (let i = priceCloses.length - 1; i >= 0; i--) {
+    const closePrice = priceCloses[i];
+    if (isUsablePrice(closePrice)) {
+      const ts = timestamps?.[i];
+      return {
+        price: Number(closePrice),
+        ts: typeof ts === 'number' && Number.isFinite(ts) ? ts : null,
+      };
+    }
+  }
+  return null;
+}
+
+/** Start of the pre/regular/post window that contains `nowSec`, or null when none does. */
+function sessionStartAt(meta: YahooMeta, nowSec: number): number | null {
+  const period = meta.currentTradingPeriod;
+  const contains = (start?: number, end?: number) =>
+    typeof start === 'number' && typeof end === 'number' && nowSec >= start && nowSec < end;
+  if (contains(period?.regular?.start, period?.regular?.end)) return period!.regular!.start!;
+  if (contains(period?.pre?.start, period?.pre?.end)) return period!.pre!.start!;
+  if (contains(period?.post?.start, period?.post?.end)) return period!.post!.start!;
+  return null;
+}
+
+/**
+ * Choose a last price from a Yahoo 1d/1m chart.
+ *
+ * Last 1m close is used only when that bar is inside the current pre/regular/post
+ * window. After a weekend or holiday (and often in the first minutes of pre-market)
+ * Yahoo keeps serving the previous session's 1m series even after currentTradingPeriod
+ * has rolled to today — e.g. Black Friday 2026-11-27 04:20 ET still returned Wednesday's
+ * after-hours bars, while meta.fulldayPrice was the live pre-market last trade.
+ *
+ * Outside regular hours, fall back to fulldayPrice before a stale bar. An older comment
+ * in fetchYahooMeta claimed fulldayPrice had no extended-hours data; that is no longer
+ * true (and the research quote path already preferred it).
+ */
+function pickChartPrice(
+  meta: YahooMeta,
+  result: NonNullable<NonNullable<YahooChartResponse['chart']>['result']>[number] | undefined,
+  session: 'regular' | 'premarket' | 'afterhours' | 'unknown',
+  nowSec: number,
+): number | null {
+  const bar = lastNonNullBar(result?.timestamp, result?.indicators?.quote?.[0]?.close);
+  const sessionStart = sessionStartAt(meta, nowSec);
+  const barInCurrentSession =
+    bar !== null && sessionStart !== null && bar.ts !== null && bar.ts >= sessionStart;
+
+  if (barInCurrentSession) return bar.price;
+  if (session !== 'regular' && isUsablePrice(meta.fulldayPrice)) return meta.fulldayPrice;
+  if (session === 'regular' && isUsablePrice(meta.regularMarketPrice)) return meta.regularMarketPrice;
+  if (bar) return bar.price;
+  return [meta.regularMarketPrice, meta.previousClose, meta.chartPreviousClose].find(isUsablePrice) ?? null;
+}
+
 /**
  * Pure parser: Yahoo chart JSON -> QuoteData. Throws if no usable price.
  * `nowSec` is injectable for tests.
@@ -213,23 +274,7 @@ export function parseYahooChart(
   }
 
   const session = determineSession(meta, nowSec);
-
-  // Price: last non-null 1m close (covers pre/post with includePrePost=true)
-  let price: number | null = null;
-  const priceCloses = result?.indicators?.quote?.[0]?.close ?? [];
-  for (let i = priceCloses.length - 1; i >= 0; i--) {
-    const closePrice = priceCloses[i];
-    if (closePrice != null && Number.isFinite(closePrice)) {
-      price = Number(closePrice);
-      break;
-    }
-  }
-
-  // Fallback if no bars: the last regular trade is the best "last known" price.
-  // (previousClose is older than regularMarketPrice and only a last resort.)
-  if (!isUsablePrice(price)) {
-    price = [meta.regularMarketPrice, meta.previousClose, meta.chartPreviousClose].find(isUsablePrice) ?? null;
-  }
+  const price = pickChartPrice(meta, result, session, nowSec);
 
   if (!isUsablePrice(price)) {
     throw new Error(`No price for ${symbol}`);
